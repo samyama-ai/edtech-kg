@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Raw downloaded data is never committed — house convention across all *-kg repos.
+# The repo ships downloaders, loaders, schema and a bounded demo; sources are cited.
+data/
