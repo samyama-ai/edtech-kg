@@ -20,11 +20,16 @@ That reason is an argument, not a measurement, and it is labelled as one.
 |---|---|---:|---|---|
 | **Texas** | ✅ CSV | **1,635** | **No** | TWEDS C022 SERVICE-ID table, direct download |
 | **New York** | ✅ XLSX | **2,012** | **No** | Comprehensive Course Catalog, SCED-based, full descriptions |
-| Florida | ✖ blocked | — | not established | fldoe.org returns **403** to any automated request; CPALMS course search is a JavaScript app with no course API |
-| Virginia | ✖ blocked | — | not established | doe.virginia.gov returns **403** |
-| California | ✖ not resolved | — | not established | CDE documentation page redirects; code sets are inside a manual-download workbook |
+| Florida | ✖ not parsed | — | not established | fldoe.org answered **403** on this run; CPALMS course search is a JavaScript app with no course API |
+| Virginia | ✖ not parsed | — | not established | doe.virginia.gov answered **403** on this run |
+| California | ✖ not parsed | — | not established | cde.ca.gov answered **303** on this run; code sets are inside a manual-download workbook |
 
 Two states measured, three not. Saying so rather than generalising from two.
+
+**Those three statuses are re-fetched on every run, not remembered.** They were
+a hardcoded constant in the first version of the script, which meant Florida
+could have opened up and the table would still have printed `403` forever. #50
+is now re-checkable by running the probe.
 
 ## Texas — the fields it actually has
 
@@ -35,26 +40,41 @@ first.
 
 ## New York — the strongest candidate, and still no
 
-New York publishes the most complete thing of the five: 2,012 courses across
-five sheets, each with a real description, plus a change tracker. Fields:
+New York publishes the most complete thing of the five: **2,012 courses**, each
+with a real description. The workbook has five sheets but the courses are on one
+of them — `All courses`. The other four (`Change Tracker`, `New Courses`,
+`Removed Courses`, `New Descriptions`) track what changed between editions, and
+summing them would double-count every course that was merely revised. An earlier
+draft of this page said "2,012 courses across five sheets", which was wrong about
+where the number comes from even though the number was right.
+
+The probe now refuses if no sheet named like `All courses` is present, rather
+than falling back to whichever sheet happens to be first. Fields:
 
 `Course Code (Course ID) · Course Code Description · Course Description ·
 Course Level · Course Subject Area · CTE Indicator · AP Indicator · IB Indicator`
 
-Searching **every string in the whole workbook** — 5,625 distinct values:
+Searching **every string in the whole workbook** — 5,625 distinct values. The
+terms are split, because they are not equally good evidence:
 
-| term | occurrences |
-|---|---:|
-| `prerequisite` | **0** |
-| `pre-requisite` | 0 |
-| `must have completed` | 0 |
-| `before taking` | 0 |
-| `prior to` | 3 |
-| `successful completion` | 1 |
+| term | occurrences | |
+|---|---:|---|
+| `prerequisite` | **0** | strong — counts toward the verdict |
+| `pre-requisite` | 0 | strong |
+| `must have completed` | 0 | strong |
+| `before taking` | 0 | strong |
+| `prior to` | 3 | weak — occurs in ordinary prose |
+| `successful completion` | 1 | weak |
 
-The four non-zero hits are course-description prose, not requirements — phrases
-of the form *"…examining time periods from discovery or colonialism through
-World War II"* and similar. None names a course that must come first.
+The split matters for more than tidiness. The first version of the script summed
+all six and printed *"New York … prerequisite terms: 4"* while this page
+concluded zero — a reader running the probe got the opposite answer from the one
+the document asserts. The verdict now counts strong terms only, and the printed
+table says so.
+
+The four weak hits are course-description prose, not requirements — phrases of
+the form *"…examining time periods from discovery or colonialism through World
+War II"* and similar. None names a course that must come first.
 
 Not "buried in the description". **Absent.**
 
@@ -119,14 +139,25 @@ python -m etl.probe_state_courses --json   # machine-readable, with timestamp
 ```
 
 Every figure on this page comes from that script — the same standard as
-`probe_education.py` and `probe_cipsoc.py`. It refuses rather than reporting
-zero if a source returns nothing, and it records the blocked states in its
-output so their absence is explained rather than silent.
+`probe_education.py` and `probe_cipsoc.py`. Nothing is stored: the three states
+that do not parse are fetched on every run and report whatever status the server
+gives today.
 
-**A correction it produced.** An earlier draft of this page said 1,636 Texas
-courses and 2,013 New York courses. Both counted the header row as a course. The
-figures above are 1,635 and 2,012, from the script. That
-is the second time on this repo that writing the probe has corrected the prose
-it was meant to confirm.
+It refuses rather than reporting a figure it cannot vouch for — an emptied
+source, a workbook with no `All courses` sheet, a response that is not a zip.
+A file that is reachable but corrupt exits under `source malformed` rather than
+`refused`, because a broken download and an honest zero are different findings.
+
+**Three corrections it produced**, all to this page:
+
+1. **1,636 and 2,013 → 1,635 and 2,012.** Both counted the header row as a
+   course.
+2. **"2,012 courses across five sheets" → one sheet.** The count comes from
+   `All courses`; the other four sheets track edition-to-edition changes.
+3. **"prerequisite terms: 4" → 0.** The script summed strong and weak terms
+   together, so its own output contradicted this page's conclusion.
+
+That is the second time on this repo that writing the probe has corrected the
+prose it was meant to confirm, and the first time it did so three times over.
 
 Measured 2026-08-18T10:47:12+00:00.
