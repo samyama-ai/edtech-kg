@@ -104,35 +104,64 @@ which is finer than SOC alone.
 `credentialengineregistry.org` publishes five metadata communities. The probe
 reads each one's `x-total` header rather than paging:
 
-| community | records |
+| community | resources |
 |---|---:|
 | `ce-registry` | **671,681** |
 | `fdoe` — Florida Department of Education | **10,577** |
 | `mytxlibrary` — Texas | 0 |
 | `learning-registry` | 0 |
-| `chaffeycollege` | no total header |
+| `chaffeycollege` | access-gated — 401 |
+| *unattributed* | 1 |
+| **all communities** | **682,259** |
 
 Two of those are state education departments — **the same Florida and Texas
 whose own websites returned 403 or carried no prerequisites in #40.** Florida
 publishes 10,577 records here; Texas publishes none, so the Registry is not a
 route past #40 for Texas.
 
-**One figure does not reconcile, and is left unreconciled.** The API root
-reports `total_envelopes: 406,431`, which is *smaller* than the 671,681 that
-`ce-registry` alone returns. Both are reported as measured; which one counts
-what is not established, and picking the flattering number would be guessing.
+`chaffeycollege` refuses an unauthenticated search, so its count is unknown;
+the one resource unaccounted for between the readable communities and the global
+total is presumably its. The probe prints `secured` rather than a blank, because
+a gated community and an empty one are different facts and Texas's 0 is real.
 
-Within `ce-registry`, by type:
+### The two totals count two different things — #59
 
-| type | records |
+The API root reports `total_envelopes: 406,431`, *smaller* than the 682,259 that
+search returns across the same communities. That looked like a contradiction. It
+is not:
+
+| | counts | value |
+|---|---|---:|
+| root `total_envelopes` | **envelopes** — the deposited documents | 406,431 |
+| search `x-total` | **resources** — JSON-LD objects inside them | 682,259 |
+
+From the Registry's own source, `app/api/v1/root.rb` computes the root figure as
+`Envelope.not_deleted.count`, while search queries `EnvelopeResource`, which the
+model file describes as *"A JSON-LD object stored in an envelope."* One envelope
+can hold many: sampling across the result set found envelopes carrying up to
+**49 resources**, though most carry one.
+
+Two other explanations were plausible and were measured rather than argued away.
+Both are zero — `include_deleted=only` returns 0 and `provisional=only` returns
+0 — so neither deleted nor unpublished records account for the difference.
+
+**Which figure to use: the resource count.** "How many courses are published" is
+a question about resources. The envelope count answers "how many documents were
+deposited", which is not a question this graph asks. The `course` and `pathway`
+figures below are resource counts and are the right basis for the ratio.
+
+Within `ce-registry`, by type — resource counts on the basis just established:
+
+| type | resources |
 |---|---:|
 | `credential` | 133,346 |
 | `course` | **47,861** |
 | `learning_opportunity_profile` | 22,226 |
 | `pathway` | **98** |
 
-Ninety-eight pathways against 47,861 courses is the headline. The pathway
-vocabulary is rich and almost unused.
+Ninety-eight pathways against 47,861 courses is the headline, and it survives
+#59: both are resource counts on the same basis, so the ratio is a like-for-like
+comparison rather than an artefact of counting documents against objects.
 
 ## The edge exists and nobody uses it
 
@@ -195,8 +224,6 @@ is no such sentence.
 
 - **Whether any publisher anywhere uses the typed edge.** 600 courses found
   none. A full sweep of 47,861 is a different job and may find one
-- **Why the root total and the community totals disagree** — 406,431 against
-  671,681
 - Whether Florida's 10,577 records contain course data with prerequisites,
   which would be a direct route past #40's finding. Texas publishes nothing
   here, so that half is closed
@@ -210,7 +237,10 @@ is no such sentence.
 `credreg.net/ctdl/schema/encoding/json`, parsed with the standard library — no
 third-party dependency, as with the other probes. Property expectations read
 from `schema:domainIncludes` and `schema:rangeIncludes` and printed under those
-names. Registry totals from each community's `x-total` response header.
+names. Registry totals from each community's `x-total` response header, which counts
+resources; the root's `total_envelopes` counts envelopes, and the two are
+reconciled above against `app/api/v1/root.rb` and `app/models/envelope_resource.rb`
+in `github.com/CredentialEngine/CredentialRegistry`.
 Prerequisite rate from a 600-course sample of `/ce-registry/course/search`.
 Licence quoted from `credreg.net/page/termsofuse`.
 

@@ -177,3 +177,78 @@ def test_json_output_carries_a_timestamp(monkeypatch, capsys):
                                         "resolvable": 0, "free_text_only": 0, "examples": []})
     assert probe.main(["--json"]) == 0
     assert "retrieved_at" in json.loads(capsys.readouterr().out)
+
+
+# --------------------------------------------------------------------------
+# the two totals (#59)
+# --------------------------------------------------------------------------
+
+def headers_stub(monkeypatch, table, root=None):
+    """Serve x-total per path, and the API root as JSON."""
+    class R:
+        def __init__(self, h=None, body=b""): self.headers, self._b = h or {}, body
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return self._b
+
+    def urlopen(request, *a, **k):
+        url = request.full_url
+        path = url[len(probe.REGISTRY):].split("?")[0]
+        if request.get_method() == "HEAD":
+            value = table.get(url) if url in table else table.get(path)
+            if value == 401:
+                raise urllib.error.HTTPError(url, 401, "no", {}, io.BytesIO(b""))
+            return R({"x-total": str(value)} if value is not None else {})
+        return R(body=json.dumps(root or {"total_envelopes": 10}).encode())
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
+
+
+def test_a_gated_community_reads_as_secured_not_as_empty(monkeypatch):
+    """chaffeycollege returns 401. Printing that as a blank alongside
+    mytxlibrary's real zero would state that it publishes nothing."""
+    headers_stub(monkeypatch, {"/chaffeycollege/search": 401, "/search": 5})
+    r = probe.registry_totals()
+    assert r["communities"]["chaffeycollege"] == "secured"
+    assert r["communities"]["mytxlibrary"] is None       # no header ≠ secured
+
+
+def test_the_two_totals_are_labelled_by_what_they_count(monkeypatch):
+    headers_stub(monkeypatch, {"/search": 682259}, root={"total_envelopes": 406431})
+    r = probe.registry_totals()
+    assert r["envelopes_root"] == 406431
+    assert r["resources_all_communities"] == 682259
+    assert "root_total_envelopes" not in r        # the old unlabelled name is gone
+
+
+def test_the_unreadable_remainder_is_reported_not_hidden(monkeypatch):
+    """Global minus the readable communities is what the gated one holds. If it
+    ever exceeds that, a community exists which COMMUNITIES does not list."""
+    headers_stub(monkeypatch, {
+        "/search": 100, "/ce-registry/search": 90, "/fdoe/search": 9,
+        "/mytxlibrary/search": 0, "/learning-registry/search": 0,
+        "/chaffeycollege/search": 401})
+    assert probe.registry_totals()["unattributed"] == 1
+
+
+def test_deleted_and_provisional_are_measured_not_assumed(monkeypatch):
+    """Both are plausible explanations for the gap. The probe rules them out by
+    asking rather than by asserting they are zero."""
+    headers_stub(monkeypatch, {
+        f"{probe.REGISTRY}/ce-registry/search?per_page=1&include_deleted=only": 7,
+        f"{probe.REGISTRY}/search?per_page=1&provisional=only": 3,
+        "/search": 100})
+    r = probe.registry_totals()
+    assert r["deleted_resources"] == 7 and r["provisional_resources"] == 3
+
+
+def test_query_params_are_appended_to_the_search_path(monkeypatch):
+    seen = []
+    class R:
+        headers = {"x-total": "1"}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(probe.urllib.request, "urlopen",
+                        lambda rq, *a, **k: (seen.append(rq.full_url), R())[1])
+    probe.total("/ce-registry/search", include_deleted="only")
+    assert seen[0].endswith("/ce-registry/search?per_page=1&include_deleted=only")
