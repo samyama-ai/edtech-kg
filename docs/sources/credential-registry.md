@@ -1,7 +1,7 @@
 # The Credential Registry — measured 2026-08-18
 
 #28 established that CTDL has `ceterms:prerequisite`, a published `Course →
-Course` edge. #53 asked the other half: **is it actually populated?**
+Course` edge. #53 asked the other half — **is it actually populated?** — and this page answers it.
 
 **It is not.** Prerequisites are published, but as free text inside a
 `ConditionProfile` rather than as the resolvable edge. That is the same shape as
@@ -21,7 +21,9 @@ Endpoint: `credentialengineregistry.org/{community}/search`, and
 | `fdoe` — Florida Department of Education | **10,577** |
 | `mytxlibrary` — Texas | 0 |
 | `learning-registry` | 0 |
-| `chaffeycollege` | — |
+| `chaffeycollege` | access-gated — 401 |
+| *unattributed to a readable community* | 1 |
+| **all communities** | **682,259** |
 
 `ce-registry` by type:
 
@@ -40,18 +42,36 @@ rich; the published data is thin.
 
 ## The measurement that decides it
 
-600 courses sampled from `ce-registry`:
+600 courses from `ce-registry` — **12 pages of 50 at a stride of 79, spread
+across all 958 pages** of the 47,861-record population, rather than the first
+600:
 
 | | Count | Share |
 |---|---:|---:|
-| Courses inspected | 600 | |
-| Carrying a `ceterms:requires` block | 84 | 14% |
-| Whose condition is named "Prerequisites" | **83** | **14%** |
+| Courses inspected | 600 | 1.25% of 47,861 |
+| Distinct publishers in the sample | 13 | |
+| Whose condition is named "Prerequisites" | **150** | **25%** |
 | …pointing at a resolvable target | **0** | **0%** |
-| …free text only | **83** | **100%** |
+| …free text only | **150** | **100%** |
 
 **`ceterms:prerequisite` — the `Course → Course` edge — is used zero times in
 600 records.**
+
+### The sampling, stated plainly — and why it was changed
+
+The first version of this measurement read pages 1 to 12 consecutively. That is
+not a sample of the Registry, it is a sample of whatever sorts first, which one
+publisher's bulk upload can dominate. The review of this PR raised it and the
+concern turned out to be real: spreading the pages across the full population
+moved the rate from **83/600 to 150/600**. Courses stating a prerequisite are
+almost twice as common as the head of the list suggested.
+
+What did not move is the number that decides the question. **Zero resolvable, on
+both samples.**
+
+The spread sample is deterministic — a fixed stride, so the figure reproduces —
+but it is still **not random**, and 13 distinct publishers across 600 records is
+a narrow base. #58 exists to sweep all 47,861 and remove the caveat entirely.
 
 What is published instead:
 
@@ -83,7 +103,14 @@ which are the fields that would make the reference resolvable.
 | Expressed as | free text in a PDF | free text in a JSON field |
 | A resolvable form exists | no | **yes — `ceterms:prerequisite`, unused** |
 | Target may not exist | yes | yes — "Permission of Instructor" |
-| Resolution rate | unmeasured | **not yet measured** |
+| Machine-readable target present | 0% (measured) | 0% (measured) |
+| Share of free text that *could* resolve | not measured | not measured |
+
+Those last two rows are different claims and the earlier draft of this page ran
+them together. **0% carry a machine-readable target** — that is measured, on
+both sides. **What share of the free text could be resolved** against a
+catalogue if we tried is a separate question, unmeasured on both sides, and the
+harder one.
 
 The difference is that here the resolvable form *exists in the standard* and
 publishers are simply not using it. That is a better position than the FDA one,
@@ -116,9 +143,24 @@ Do not treat the CC BY 4.0 on CTDL as covering registry contents.
 
 ---
 
-**Method.** Totals from `x-total` headers on
-`credentialengineregistry.org/{community}/search` and
-`/{community}/{type}/search`. Course sample: 600 records over 12 pages of 50,
-`decoded_resource` parsed, `@graph` walked, conditions counted by
-`ceterms:name` and classified by whether they carry a target reference. Every
-figure is from that run.
+**Method.** Every figure on this page is printed by:
+
+```bash
+python -m etl.probe_registry                 # the tables above
+python -m etl.probe_registry --json          # machine-readable, with timestamp
+python -m etl.probe_registry --courses 2000  # widen the sample
+```
+
+The same standard as `probe_education.py`, `probe_cipsoc.py` and
+`probe_state_courses.py`. Nothing on this page is hand-typed.
+
+It is a separate script from `probe_ctdl.py` on purpose: **the vocabulary and
+the Registry are different sources with different licences**, and merging them
+would blur the distinction #56 exists to protect. `probe_ctdl` imports from it,
+so the Registry is measured in one place.
+
+Totals come from `x-total` headers, which count *resources*; the API root's
+`total_envelopes` counts *envelopes*, and the two are reconciled above. The
+course sample parses `decoded_resource`, walks `@graph`, counts conditions by
+`ceterms:name` and classifies each by whether it carries a target reference.
+The probe refuses rather than reporting a rate over an empty sample.

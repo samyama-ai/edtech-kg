@@ -92,68 +92,6 @@ def test_an_http_error_names_the_status(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# prerequisites in published courses — the number the probe exists for
-# --------------------------------------------------------------------------
-
-def course(**extra):
-    return {"decoded_resource": {"@type": "ceterms:Course", **extra}}
-
-
-def test_a_free_text_condition_is_not_counted_as_resolvable(monkeypatch):
-    """"PSYC101" is a string. Resolving it means guessing which catalogue it
-    belongs to, so it is counted as stated-but-not-resolvable."""
-    body = json.dumps([course(**{"ceterms:requires": [
-        {"ceterms:name": {"en-US": "Prerequisites"},
-         "ceterms:description": {"en-US": "PSYC101"}}]})]).encode()
-    stub(monkeypatch, body)
-    r = probe.course_prerequisites(sample=50)
-    assert r["stating_a_prerequisite"] == 1
-    assert r["resolvable"] == 0
-    assert r["free_text_only"] == 1
-    assert r["examples"] == ["PSYC101"]
-
-
-def test_a_targeted_condition_counts_as_resolvable(monkeypatch):
-    body = json.dumps([course(**{"ceterms:requires": [
-        {"ceterms:name": {"en-US": "Prerequisites"},
-         "ceterms:targetLearningOpportunity": [{"@id": "https://x/course/1"}]}]})]).encode()
-    stub(monkeypatch, body)
-    r = probe.course_prerequisites(sample=50)
-    assert (r["stating_a_prerequisite"], r["resolvable"], r["free_text_only"]) == (1, 1, 0)
-
-
-def test_the_typed_property_counts_as_resolvable(monkeypatch):
-    stub(monkeypatch, json.dumps([course(**{
-        "ceterms:prerequisite": [{"@id": "https://x/course/2"}]})]).encode())
-    r = probe.course_prerequisites(sample=50)
-    assert (r["stating_a_prerequisite"], r["resolvable"]) == (1, 1)
-
-
-def test_a_condition_that_is_not_a_prerequisite_is_not_counted(monkeypatch):
-    """Courses carry `ceterms:requires` for co-requisites, residency and fees.
-    Counting all of them would overstate the rate."""
-    stub(monkeypatch, json.dumps([course(**{"ceterms:requires": [
-        {"ceterms:name": {"en-US": "Residency requirement"},
-         "ceterms:description": {"en-US": "Must live in-district"}}]})]).encode())
-    r = probe.course_prerequisites(sample=50)
-    assert r["courses_sampled"] == 1 and r["stating_a_prerequisite"] == 0
-
-
-def test_non_course_records_are_not_counted_in_the_denominator(monkeypatch):
-    stub(monkeypatch, json.dumps([
-        course(), {"decoded_resource": {"@type": "ceterms:Credential"}}]).encode())
-    assert probe.course_prerequisites(sample=50)["courses_sampled"] == 1
-
-
-def test_zero_courses_is_refused_rather_than_reported_as_a_rate(monkeypatch):
-    """A rate over an empty sample is not a finding — the same refusal the
-    education and state-course probes make."""
-    stub(monkeypatch, b"[]")
-    with pytest.raises(ValueError, match="refusing"):
-        probe.course_prerequisites(sample=50)
-
-
-# --------------------------------------------------------------------------
 # the CLI
 # --------------------------------------------------------------------------
 

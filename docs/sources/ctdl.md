@@ -175,7 +175,7 @@ The probe samples 600 published courses and looks for a stated prerequisite:
 | as free text only | **83** |
 
 `ceterms:prerequisite` — the typed Course→Course edge this document opened by
-celebrating — is used **zero times in 600 courses**. Every one of the 83 is a
+celebrating — is used **zero times in 600 courses**. Every one of the 150 is a
 `ConditionProfile` whose content is a description string:
 
 ```
@@ -191,9 +191,15 @@ record does not say. So the finding splits in two, and both halves are real:
 - **as a schema**, CTDL gives us the edge and we should adopt it (#33);
 - **as a data source**, it does not give us a single resolved prerequisite.
 
-A sample of 600 bounds this at the head of the result set, not across all
-47,861 — raise `--courses` to widen it. A larger sample could find a publisher
-using the typed form; it would not change that the common practice is prose.
+The 600 are spread at a fixed stride across all 958 pages rather than taken
+from the head, after the review of #57 pointed out that a consecutive read
+samples whatever sorts first. That correction nearly doubled the number of
+courses *stating* a prerequisite — and left the resolvable count at zero. #58
+sweeps all 47,861 to remove the caveat.
+
+The Registry figures on this page come from `python -m etl.probe_registry`; the
+vocabulary figures from `python -m etl.probe_ctdl`. Two sources, two licences,
+two scripts.
 
 ## What this means for #33 and #5
 
