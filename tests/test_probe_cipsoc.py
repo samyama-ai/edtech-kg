@@ -1,0 +1,198 @@
+"""The crosswalk probe, tested against workbooks built in the test.
+
+No network and no sample file committed. Each test builds the smallest .xlsx
+that exercises one behaviour, which also documents what the probe assumes about
+the format.
+
+The failure that matters here is the same one as in `test_probe_education.py`:
+not crashing, but reporting a number that is not a measurement. A probe that
+reads the wrong sheet, or the wrong column, answers confidently and wrongly.
+"""
+
+import zipfile
+
+import pytest
+
+from etl import probe_cipsoc as probe
+
+
+def workbook(path, sheets: dict[str, list[list[str]]], shared: bool = True):
+    """Write a minimal but valid .xlsx containing the given sheets.
+
+    `shared=True` puts cell text in the shared-string table, which is what Excel
+    does; `False` uses inline strings, which some exporters emit. The probe has
+    to read both, so both are testable.
+    """
+    strings: list[str] = []
+
+    def cell(value, col, row):
+        ref = f"{chr(65 + col)}{row}"
+        if shared:
+            if value not in strings:
+                strings.append(value)
+            return f'<c r="{ref}" t="s"><v>{strings.index(value)}</v></c>'
+        return f'<c r="{ref}" t="inlineStr"><is><t>{value}</t></is></c>'
+
+    parts, rels, entries = [], [], []
+    for i, (name, table) in enumerate(sheets.items(), start=1):
+        body = "".join(
+            f'<row r="{r}">' + "".join(cell(v, c, r) for c, v in enumerate(row)) + "</row>"
+            for r, row in enumerate(table, start=1)
+        )
+        entries.append((f"xl/worksheets/sheet{i}.xml",
+                        '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/'
+                        f'spreadsheetml/2006/main"><sheetData>{body}</sheetData></worksheet>'))
+        parts.append(f'<sheet name="{name}" sheetId="{i}" r:id="rId{i}"/>')
+        rels.append(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/'
+                    f'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>')
+
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("xl/workbook.xml",
+                   '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/'
+                   'spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/'
+                   f'officeDocument/2006/relationships"><sheets>{"".join(parts)}</sheets></workbook>')
+        z.writestr("xl/_rels/workbook.xml.rels",
+                   '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/'
+                   f'package/2006/relationships">{"".join(rels)}</Relationships>')
+        if shared:
+            si = "".join(f"<si><t>{s}</t></si>" for s in strings)
+            z.writestr("xl/sharedStrings.xml",
+                       '<?xml version="1.0"?><sst xmlns="http://schemas.openxmlformats.org/'
+                       f'spreadsheetml/2006/main">{si}</sst>')
+        for name, content in entries:
+            z.writestr(name, content)
+    return path
+
+
+def complete(tmp_path, shared=True):
+    """A workbook shaped like the real one: title block, then headers, then rows."""
+    return workbook(tmp_path / "cw.xlsx", {
+        "File Guide": [["ignore me"]],
+        "CIP-SOC": [
+            ["2020 CIP / 2018 SOC Crosswalk"], [],
+            ["CIP2020Code", "CIP2020Title", "SOC2018Code", "SOC2018Title"],
+            ["01.0101", "Agriculture", "11-9013", "Farm Manager"],
+            ["01.0101", "Agriculture", "45-1011", "Supervisor"],
+            ["11.0701", "Computer Science", "15-1252", "Developer"],
+        ],
+        "Unmatched CIP Codes": [["Unmatched"], ["CIP2020Code"], ["99.9999"], ["98.8888"]],
+        "Unmatched SOC Codes": [["Unmatched"], ["SOC2018Code"], ["55-1011"]],
+    }, shared=shared)
+
+
+def test_counts_distinct_codes_not_rows(tmp_path):
+    """Three mappings but only two programmes — the first CIP appears twice.
+    Counting rows as programmes would overstate coverage."""
+    r = probe.probe(complete(tmp_path), quiet=True)
+    assert r["mappings"] == 3
+    assert r["distinct_cip"] == 2
+    assert r["distinct_soc"] == 3
+
+
+def test_unmatched_codes_are_counted_from_their_own_sheets(tmp_path):
+    """These are the honest part of the crosswalk — programmes that map to no
+    occupation at all. Losing them would overstate what the graph can answer."""
+    r = probe.probe(complete(tmp_path), quiet=True)
+    assert r["unmatched_cip"] == 2
+    assert r["unmatched_soc"] == 1
+
+
+def test_inline_strings_are_read_as_well_as_shared(tmp_path):
+    """Excel writes a shared-string table; other exporters write inline. A probe
+    that read only one would report zero for a file that is perfectly valid."""
+    r = probe.probe(complete(tmp_path, shared=False), quiet=True)
+    assert r["mappings"] == 3 and r["distinct_cip"] == 2
+
+
+def test_the_header_row_is_found_below_a_title_block(tmp_path):
+    """NCES puts a title and a blank line above the headings. Assuming row 1
+    would make every column lookup fail, or worse, succeed on the wrong row."""
+    r = probe.probe(complete(tmp_path), quiet=True)
+    assert r["mappings"] == 3
+
+
+def test_columns_are_matched_by_name_not_position(tmp_path):
+    """Column order is not a contract. Swapping them must not swap the counts."""
+    p = workbook(tmp_path / "swapped.xlsx", {
+        "CIP-SOC": [["title"], ["SOC2018Code", "SOC2018Title", "CIP2020Code"],
+                    ["11-9013", "Farm Manager", "01.0101"],
+                    ["45-1011", "Supervisor", "01.0101"]],
+        "Unmatched CIP Codes": [["CIP2020Code"], ["99.9999"]],
+        "Unmatched SOC Codes": [["SOC2018Code"], ["55-1011"]],
+    })
+    r = probe.probe(p, quiet=True)
+    assert r["distinct_cip"] == 1, "columns were read by position, not by name"
+    assert r["distinct_soc"] == 2
+
+
+def test_sheets_are_resolved_through_relationships_not_filename_order(tmp_path):
+    """Sheet order in the workbook and filenames on disk need not agree.
+    Reading sheet2.xml because CIP-SOC is listed second would be a coin flip."""
+    p = complete(tmp_path)
+    with zipfile.ZipFile(p) as z:
+        assert probe.sheets(z)["CIP-SOC"].endswith("sheet2.xml")
+
+
+def test_a_missing_sheet_is_refused_with_what_it_did_find(tmp_path):
+    p = workbook(tmp_path / "partial.xlsx", {"CIP-SOC": [["CIP2020Code", "SOC2018Code"], ["1", "2"]]})
+    with pytest.raises(ValueError, match="missing"):
+        probe.probe(p, quiet=True)
+
+
+def test_a_renamed_column_is_refused_rather_than_guessed(tmp_path):
+    """If NCES renames a column, the honest answer is that the counts cannot be
+    trusted — not a zero that looks like a measurement."""
+    p = workbook(tmp_path / "renamed.xlsx", {
+        "CIP-SOC": [["ProgrammeCode", "OccupationCode"], ["01.0101", "11-9013"]],
+        "Unmatched CIP Codes": [["CIP2020Code"], ["9"]],
+        "Unmatched SOC Codes": [["SOC2018Code"], ["9"]],
+    })
+    with pytest.raises(ValueError, match="header|column"):
+        probe.probe(p, quiet=True)
+
+
+def test_an_absent_file_says_how_to_get_it(tmp_path):
+    with pytest.raises(FileNotFoundError, match="--download"):
+        probe.probe(tmp_path / "nope.xlsx", quiet=True)
+
+
+def test_a_download_that_is_not_a_workbook_is_refused(monkeypatch, tmp_path):
+    """NCES moving the file would serve an HTML error page. Writing that to
+    disk and parsing it later would fail somewhere much less obvious."""
+    class Html:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"<html>404 Not Found</html>"
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Html())
+    with pytest.raises(ValueError, match="did not return a workbook"):
+        probe.download(tmp_path / "out.xlsx")
+
+
+def test_the_source_url_is_the_nces_one():
+    """The figures are only citable if they came from the publisher."""
+    assert probe.SOURCE_URL.startswith("https://nces.ed.gov/")
+    assert probe.SOURCE_URL.endswith(".xlsx")
+
+
+def test_json_output_parses_and_carries_provenance(tmp_path, monkeypatch, capsys):
+    import json
+    monkeypatch.setattr(probe, "LOCAL", complete(tmp_path))
+    assert probe.main(["--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mappings"] == 3
+    assert payload["source"].startswith("https://nces.ed.gov/")
+    assert payload["retrieved_at"].endswith("+00:00")
+
+
+def test_a_sheet_that_parses_to_zero_rows_is_refused(tmp_path):
+    """A header row and nothing under it. Reporting 0 mappings would look like
+    a measurement of a crosswalk that maps nothing, rather than a parse that
+    found nothing."""
+    p = workbook(tmp_path / "empty.xlsx", {
+        "CIP-SOC": [["CIP2020Code", "SOC2018Code"]],
+        "Unmatched CIP Codes": [["CIP2020Code"], ["99.9999"]],
+        "Unmatched SOC Codes": [["SOC2018Code"], ["55-1011"]],
+    })
+    with pytest.raises(ValueError, match="zero rows"):
+        probe.probe(p, quiet=True)
