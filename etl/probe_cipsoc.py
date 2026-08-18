@@ -78,7 +78,11 @@ def sheets(book: zipfile.ZipFile) -> dict[str, str]:
     out = {}
     for sheet in workbook.find("m:sheets", NS):
         part = target.get(sheet.get(REL), "")
-        out[sheet.get("name")] = "xl/" + part.lstrip("/")
+        # OPC allows an absolute part name, and some writers emit
+        # Target="/xl/worksheets/sheet1.xml". Prefixing that unconditionally
+        # gave "xl/xl/..." and a KeyError out of read() — a traceback rather
+        # than a message, since main() catches no KeyError.
+        out[sheet.get("name")] = part[1:] if part.startswith("/") else "xl/" + part
     return out
 
 
@@ -139,15 +143,24 @@ def rows(book: zipfile.ZipFile, part: str) -> list[list[str]]:
 def is_code_header(text: str, name: str) -> bool:
     """Does this cell name a code column, rather than merely mention the word?
 
-    The distinction matters. These sheets open with a title like
-    "2020 CIP / 2018 SOC Crosswalk", which contains both words — matching on
-    "CIP" alone finds the title and then reads the row below it as data, so
-    every count comes out one too high and nothing errors. The real headings
-    are `CIP2020Code` and `SOC2018Code`, so the cell has to carry the word
-    *and* "code".
+    The distinction matters, and it caught this function out twice.
+
+    These sheets open with a title. The `CIP-SOC` one reads "2020 CIP / 2018 SOC
+    Crosswalk", so matching on "CIP" alone found the title and read the row below
+    it as data — every count one too high, nothing erroring.
+
+    Requiring "code" as well was not enough either: the other two sheets are
+    named **"Unmatched CIP Codes"** and **"Unmatched SOC Codes"**, and a sheet
+    that repeats its own name in A1 — the layout `CIP-SOC` itself uses —
+    contains both the name and "code". Reproduced: `unmatched_cip` came back 2
+    instead of 1.
+
+    So the cell must *end* with "code". `cip2020code` does; `unmatchedcipcodes`
+    ends with "codes" and does not. That is what distinguishes a column heading
+    from a sheet title naming the same thing.
     """
     flat = "".join(c for c in text.lower() if c.isalnum())
-    return name.lower() in flat and "code" in flat
+    return name.lower() in flat and flat.endswith("code")
 
 
 def column_at(table: list[list[str]], header_row: int, name: str) -> int:

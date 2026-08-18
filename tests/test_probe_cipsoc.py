@@ -225,7 +225,7 @@ def test_a_sparse_row_keeps_its_columns(tmp_path):
     r = probe.probe(p, quiet=True)
     assert r["mappings"] == 2, "the sparse row lost or shifted a column"
     assert r["distinct_cip"] == 2, r
-    assert sorted({"11-9013", "15-1252"}) == sorted({"11-9013", "15-1252"})
+    assert r["distinct_soc"] == 2, "the SOC column was read from the wrong position"
     assert r["incomplete_rows"] == 1, "a row blank on one side must be visible, not absorbed"
 
 
@@ -257,3 +257,58 @@ def test_download_creates_missing_parent_directories(tmp_path, monkeypatch):
     monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Book())
     target = tmp_path / "deep" / "nested" / "cw.xlsx"
     assert probe.download(target).exists()
+
+
+def test_a_sheet_that_repeats_its_own_name_is_not_read_as_a_header(tmp_path):
+    """The unmatched sheets are called "Unmatched CIP Codes" and "Unmatched SOC
+    Codes". A sheet that puts its own name in A1 — the layout CIP-SOC uses —
+    contains both the code name and "code", so requiring those two was not
+    enough: find_header locked onto the title and counted the real header row
+    (`CIP2020Code`) as data. Reproduced at 2 instead of 1, silently.
+
+    The earlier test dodged this by titling the sheet "Unmatched" rather than
+    its actual name.
+    """
+    p = workbook(tmp_path / "titled.xlsx", {
+        "CIP-SOC": [["2020 CIP / 2018 SOC Crosswalk"], [],
+                    ["CIP2020Code", "CIP2020Title", "SOC2018Code"],
+                    ["01.0101", "Agriculture", "11-9013"]],
+        "Unmatched CIP Codes": [["Unmatched CIP Codes"], ["CIP2020Code"], ["99.9999"]],
+        "Unmatched SOC Codes": [["Unmatched SOC Codes"], ["SOC2018Code"], ["55-1011"]],
+    })
+    r = probe.probe(p, quiet=True)
+    assert r["unmatched_cip"] == 1, "the sheet title was read as the header row"
+    assert r["unmatched_soc"] == 1, "the sheet title was read as the header row"
+    assert r["mappings"] == 1
+
+
+def test_a_heading_is_distinguished_from_a_title_naming_the_same_thing():
+    assert probe.is_code_header("CIP2020Code", "CIP")
+    assert probe.is_code_header("SOC2018Code", "SOC")
+    assert not probe.is_code_header("Unmatched CIP Codes", "CIP"), "plural — a sheet title"
+    assert not probe.is_code_header("2020 CIP / 2018 SOC Crosswalk", "CIP"), "a title"
+    assert not probe.is_code_header("CIP2020Title", "CIP"), "a different column"
+
+
+def test_an_absolute_relationship_target_resolves(tmp_path):
+    """OPC permits Target="/xl/worksheets/sheet1.xml". Prefixing unconditionally
+    gave "xl/xl/..." and a KeyError out of read() — a traceback, since main()
+    catches no KeyError. The helper writes relative targets, so only a
+    hand-built workbook exercises this."""
+    p = tmp_path / "absolute.xlsx"
+    body = ('<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/'
+            'spreadsheetml/2006/main"><sheetData></sheetData></worksheet>')
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("xl/workbook.xml",
+                   '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/'
+                   'spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/'
+                   'officeDocument/2006/relationships">'
+                   '<sheets><sheet name="CIP-SOC" sheetId="1" r:id="rId1"/></sheets></workbook>')
+        z.writestr("xl/_rels/workbook.xml.rels",
+                   '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/'
+                   'package/2006/relationships"><Relationship Id="rId1" Type="http://'
+                   'schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                   'Target="/xl/worksheets/sheet1.xml"/></Relationships>')
+        z.writestr("xl/worksheets/sheet1.xml", body)
+    with zipfile.ZipFile(p) as z:
+        assert probe.sheets(z)["CIP-SOC"] == "xl/worksheets/sheet1.xml"
