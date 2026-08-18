@@ -35,8 +35,13 @@ def workbook(path, sheets: dict[str, list[list[str]]], shared: bool = True):
 
     parts, rels, entries = [], [], []
     for i, (name, table) in enumerate(sheets.items(), start=1):
+        # Empty cells are OMITTED, which is what Excel does — it does not write
+        # a blank `<c>`. That is why every cell carries its `r` reference and
+        # why the probe must place values by reference rather than by order.
         body = "".join(
-            f'<row r="{r}">' + "".join(cell(v, c, r) for c, v in enumerate(row)) + "</row>"
+            f'<row r="{r}">'
+            + "".join(cell(v, c, r) for c, v in enumerate(row) if v != "")
+            + "</row>"
             for r, row in enumerate(table, start=1)
         )
         entries.append((f"xl/worksheets/sheet{i}.xml",
@@ -196,3 +201,59 @@ def test_a_sheet_that_parses_to_zero_rows_is_refused(tmp_path):
     })
     with pytest.raises(ValueError, match="zero rows"):
         probe.probe(p, quiet=True)
+
+
+def test_a_sparse_row_keeps_its_columns(tmp_path):
+    """Excel omits an empty cell rather than writing a blank one, so a row with
+    no title arrives as `<c r="A3">…</c><c r="C3">…</c>`.
+
+    Appending in document order put the SOC code where the header says
+    CIP2020Title is — a plausible count of the wrong thing, with no error. This
+    is the failure the module docstring names, and nothing caught it because the
+    helper only wrote dense rows.
+    """
+    p = workbook(tmp_path / "sparse.xlsx", {
+        "CIP-SOC": [
+            ["CIP2020Code", "CIP2020Title", "SOC2018Code"],
+            ["01.0101", "Agriculture", "11-9013"],
+            ["11.0701", "", "15-1252"],          # blank title — cell omitted
+            ["", "Orphan title", "15-2031"],     # blank code on the other side
+        ],
+        "Unmatched CIP Codes": [["CIP2020Code"], ["99.9999"]],
+        "Unmatched SOC Codes": [["SOC2018Code"], ["55-1011"]],
+    })
+    r = probe.probe(p, quiet=True)
+    assert r["mappings"] == 2, "the sparse row lost or shifted a column"
+    assert r["distinct_cip"] == 2, r
+    assert sorted({"11-9013", "15-1252"}) == sorted({"11-9013", "15-1252"})
+    assert r["incomplete_rows"] == 1, "a row blank on one side must be visible, not absorbed"
+
+
+def test_column_letters_convert_to_indices():
+    assert probe.col_index("A1") == 0
+    assert probe.col_index("C5") == 2
+    assert probe.col_index("Z9") == 25
+    assert probe.col_index("AA1") == 26
+    assert probe.col_index("AB100") == 27
+
+
+def test_a_non_workbook_already_on_disk_is_refused_not_a_traceback(tmp_path):
+    """download() guards the fetch, but a truncated or hand-copied file that
+    arrived some other way used to reach zipfile and raise BadZipFile, which
+    main() caught nowhere — a stack trace instead of the clear message."""
+    bad = tmp_path / "notaworkbook.xlsx"
+    bad.write_bytes(b"<html>404 Not Found</html>")
+    with pytest.raises(ValueError, match="not a workbook"):
+        probe.probe(bad, quiet=True)
+
+
+def test_download_creates_missing_parent_directories(tmp_path, monkeypatch):
+    """mkdir(exist_ok=True) fails when the grandparent is absent too."""
+    class Book:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"PK\x03\x04rest-of-a-zip"
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Book())
+    target = tmp_path / "deep" / "nested" / "cw.xlsx"
+    assert probe.download(target).exists()

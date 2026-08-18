@@ -12,8 +12,8 @@ own probe — and why its figures were the last hand-counted numbers in this rep
     python -m etl.probe_cipsoc --json         # machine-readable
     python -m etl.probe_cipsoc --download     # fetch it first
 
-**No third-party dependency.** An .xlsx is a zip of XML, and reading two sheets
-out of one is about forty lines of standard library. Adding openpyxl to count
+**No third-party dependency.** An .xlsx is a zip of XML, and reading the three
+sheets this needs is about sixty lines of standard library. Adding openpyxl to count
 rows would make the probe harder to run than the thing it measures.
 
 What the crosswalk is, and what it is not: NCES and the Bureau of Labor
@@ -47,7 +47,7 @@ REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
 def download(path: Path | None = None) -> Path:
     """Fetch the workbook from NCES. Not committed — data/ is gitignored."""
     path = path or LOCAL
-    path.parent.mkdir(exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     request = urllib.request.Request(SOURCE_URL, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
@@ -82,12 +82,29 @@ def sheets(book: zipfile.ZipFile) -> dict[str, str]:
     return out
 
 
+def col_index(ref: str) -> int:
+    """`C5` -> 2. The column letters of a cell reference, as a 0-based index."""
+    n = 0
+    for ch in ref:
+        if not ch.isalpha():
+            break
+        n = n * 26 + (ord(ch.upper()) - 64)
+    return n - 1
+
+
 def rows(book: zipfile.ZipFile, part: str) -> list[list[str]]:
-    """Every row of one sheet, as strings.
+    """Every row of one sheet, as strings, placed by cell reference.
 
     Values live either inline or in a shared-string table, so both forms are
     resolved. Blank trailing rows are dropped — Excel writes them and counting
     them would inflate every figure here.
+
+    **Cells are placed by their `r` attribute, not by document order.** Excel
+    omits an empty cell entirely rather than writing a blank one, so a row whose
+    title is blank arrives as `<c r="A5">…</c><c r="C5">…</c>`. Appending in
+    order would put the SOC code in the column the header calls CIP2020Title,
+    and every count after that is a plausible count of the wrong thing — with no
+    error anywhere.
     """
     shared: list[str] = []
     if "xl/sharedStrings.xml" in book.namelist():
@@ -98,8 +115,8 @@ def rows(book: zipfile.ZipFile, part: str) -> list[list[str]]:
     sheet = ET.fromstring(book.read(part))
     out = []
     for row in sheet.iter(f"{{{NS['m']}}}row"):
-        values = []
-        for cell in row:
+        placed: dict[int, str] = {}
+        for position, cell in enumerate(row):
             text = ""
             value = cell.find("m:v", NS)
             if cell.get("t") == "s" and value is not None:
@@ -110,9 +127,12 @@ def rows(book: zipfile.ZipFile, part: str) -> list[list[str]]:
                 text = "".join(t.text or "" for t in inline.iter(f"{{{NS['m']}}}t")) if inline is not None else ""
             elif value is not None:
                 text = value.text or ""
-            values.append(text.strip())
-        if any(values):
-            out.append(values)
+            ref = cell.get("r")
+            column = col_index(ref) if ref else position
+            placed[max(column, 0)] = text.strip()
+        if any(placed.values()):
+            width = max(placed) + 1
+            out.append([placed.get(i, "") for i in range(width)])
     return out
 
 
@@ -130,19 +150,47 @@ def is_code_header(text: str, name: str) -> bool:
     return name.lower() in flat and "code" in flat
 
 
-def column(table: list[list[str]], header_row: int, name: str) -> list[str]:
-    """One named column's values, matched on the header rather than position.
+def column_at(table: list[list[str]], header_row: int, name: str) -> int:
+    """The index of a named code column, matched on the header not position.
 
     Column order is not a contract. Matching by name means a reordered file
     fails loudly instead of counting the wrong column.
     """
     for i, heading in enumerate(table[header_row]):
         if is_code_header(heading, name):
-            return [r[i] for r in table[header_row + 1:] if i < len(r) and r[i]]
+            return i
     raise ValueError(
         f"no {name} code column — header row reads {table[header_row]}. "
         f"The workbook layout has changed; the counts cannot be trusted."
     )
+
+
+def column(table: list[list[str]], header_row: int, name: str) -> list[str]:
+    """One named column's non-empty values."""
+    i = column_at(table, header_row, name)
+    return [r[i] for r in table[header_row + 1:] if i < len(r) and r[i]]
+
+
+def pairs(table: list[list[str]], header_row: int) -> tuple[list[tuple[str, str]], int]:
+    """Complete (CIP, SOC) pairs, and how many rows were incomplete.
+
+    Read together, per row, rather than as two independently filtered columns.
+    Filtering each side separately means a row blank on one side still counts
+    toward the other, so "mappings" silently becomes "rows carrying a CIP code"
+    rather than "programme-to-occupation pairs". A blank on either side is a
+    row that maps nothing, and it should be visible rather than absorbed.
+    """
+    ci = column_at(table, header_row, "CIP")
+    si = column_at(table, header_row, "SOC")
+    complete, partial = [], 0
+    for row in table[header_row + 1:]:
+        cip = row[ci] if ci < len(row) else ""
+        soc = row[si] if si < len(row) else ""
+        if cip and soc:
+            complete.append((cip, soc))
+        elif cip or soc:
+            partial += 1
+    return complete, partial
 
 
 def find_header(table: list[list[str]], name: str) -> int:
@@ -167,7 +215,21 @@ def probe(path: Path | None = None, quiet: bool = False) -> dict:
             f"first — the workbook is not committed, per the KG-repo convention."
         )
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    book = zipfile.ZipFile(path)
+    try:
+        book = zipfile.ZipFile(path)
+    except zipfile.BadZipFile as exc:
+        # A truncated download, or an HTML error page saved under this name.
+        # `download()` guards the fetch; this guards a file that arrived some
+        # other way, so the reader gets the same clear message either time.
+        raise ValueError(
+            f"{path} is not a workbook ({exc}). NCES may have moved the file — "
+            f"check {LANDING_PAGE}, then re-run with --download."
+        ) from exc
+    with book:
+        return measure(book, path, stamp, quiet)
+
+
+def measure(book: zipfile.ZipFile, path: Path, stamp: str, quiet: bool) -> dict:
     parts = sheets(book)
 
     required = ["CIP-SOC", "Unmatched CIP Codes", "Unmatched SOC Codes"]
@@ -180,8 +242,9 @@ def probe(path: Path | None = None, quiet: bool = False) -> dict:
 
     crosswalk = rows(book, parts["CIP-SOC"])
     head = find_header(crosswalk, "CIP")
-    cip = column(crosswalk, head, "CIP")
-    soc = column(crosswalk, head, "SOC")
+    mapped, partial = pairs(crosswalk, head)
+    cip = [c for c, _ in mapped]
+    soc = [s for _, s in mapped]
 
     unmatched_cip = rows(book, parts["Unmatched CIP Codes"])
     unmatched_soc = rows(book, parts["Unmatched SOC Codes"])
@@ -193,7 +256,8 @@ def probe(path: Path | None = None, quiet: bool = False) -> dict:
         "source": SOURCE_URL,
         "landing_page": LANDING_PAGE,
         "file_bytes": path.stat().st_size,
-        "mappings": len(cip),
+        "mappings": len(mapped),
+        "incomplete_rows": partial,
         "distinct_cip": len(set(cip)),
         "distinct_soc": len(set(soc)),
         "unmatched_cip": len(set(ucip)),

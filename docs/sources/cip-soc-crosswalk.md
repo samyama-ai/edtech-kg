@@ -11,12 +11,13 @@ were the last hand-counted numbers in this repo.
 Every figure below is printed by `python -m etl.probe_cipsoc`. Re-run it to
 verify them.
 
-**Measured 2026-08-18T06:02:27+00:00** from
+**Measured 2026-08-18T08:14:07+00:00** from
 [`CIP2020_SOC2018_Crosswalk.xlsx`](https://nces.ed.gov/ipeds/cipcode/Files/CIP2020_SOC2018_Crosswalk.xlsx) — 428,901 bytes.
 
 | | Count |
 |---|---:|
 | Programme-to-occupation mappings | **6,097** |
+| Rows carrying a code on only one side | **0** |
 | Distinct CIP codes (programmes) | **2,143** |
 | Distinct SOC codes (occupations) | **868** |
 | CIP codes mapping to no occupation | **194** |
