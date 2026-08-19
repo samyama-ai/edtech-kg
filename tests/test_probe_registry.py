@@ -22,7 +22,7 @@ def test_pages_are_spread_across_the_population_not_taken_from_the_head():
     83/600 to 150/600 — the concern was real."""
     population = 47861
     wanted = 600
-    pages, size, how = probe.sample_pages(wanted, population)
+    pages, size = probe.sample_pages(wanted, population)
     total_pages = -(-population // probe.PER_PAGE)
 
     assert pages[0] == 1
@@ -31,28 +31,53 @@ def test_pages_are_spread_across_the_population_not_taken_from_the_head():
     # does not silently turn this into a test of nothing.
     assert pages[-1] > total_pages * 0.8, "does not reach the far end"
     assert size == probe.PER_PAGE
-    assert "stride" in how and "not random" in how
 
-def test_the_sampling_description_never_claims_randomness():
+def described(wanted: int, population: int | None) -> str:
+    """The string the probe actually prints, for a walk that read every page it
+    planned. Pointed at `describe()`, because that is the live implementation —
+    these guards used to assert on a string `sample_pages` returned and nobody
+    printed, so both retired claims could be reintroduced through a green
+    suite."""
+    pages, size = probe.sample_pages(wanted, population)
+    return probe.describe(pages, size, population)
+
+
+@pytest.mark.parametrize("population", [None, 0, 100, 47861])
+def test_the_sampling_description_never_claims_randomness(population):
     """Stripping the literal "not random" would also hide "not randomly-ish".
     Asserting on the whole clause is what actually pins the claim."""
-    for population in (None, 0, 100, 47861):
-        how = probe.sample_pages(600, population)[2]
-        for match in re.finditer(r"\brandom\w*", how):
-            prefix = how[max(0, match.start() - 4):match.start()]
-            assert prefix.endswith("not "), f"claims randomness: {how}"
+    how = described(600, population)
+    for match in re.finditer(r"\brandom\w*", how):
+        prefix = how[max(0, match.start() - 4):match.start()]
+        assert prefix.endswith("not "), f"claims randomness: {how}"
 
 def test_a_population_smaller_than_the_sample_reads_everything():
-    pages, size, how = probe.sample_pages(600, 120)
+    pages, _ = probe.sample_pages(600, 120)
     assert pages == [1, 2, 3]
-    assert "whole population, not a sample" in how
+    assert "whole population, not a sample" in described(600, 120)
 
 def test_an_unknown_population_falls_back_and_says_so():
     """If x-total is missing the pages cannot be spread. That is a weaker
     sample and the description has to admit it rather than look identical."""
-    pages, size, how = probe.sample_pages(600, None)
+    pages, _ = probe.sample_pages(600, None)
     assert pages == list(range(1, 13))
+    how = described(600, None)
     assert "population unknown" in how and "biased" in how
+
+
+def test_a_truncated_walk_with_an_unknown_population_is_described(monkeypatch):
+    """Both weaknesses at once: the cap ended the walk early AND the population
+    is unknown, so the description can claim neither a reach nor a spread. The
+    branch existed and nothing exercised it."""
+    how = probe.describe([1, 2], probe.PER_PAGE, None)
+    assert "population unknown" in how
+    assert "biased" in how
+    for match in re.finditer(r"\brandom\w*", how):
+        assert how[max(0, match.start() - 4):match.start()].endswith("not ")
+
+
+def test_a_walk_that_read_nothing_says_so():
+    assert probe.describe([], probe.PER_PAGE, 47861) == "nothing was read"
 
 def test_the_publisher_spread_is_reported(monkeypatch):
     """A verdict drawn from a sample that turns out to be three publishers is a
@@ -115,14 +140,14 @@ def test_zero_courses_is_refused_rather_than_reported_as_a_rate(monkeypatch):
 def test_every_sampled_page_is_accumulated(monkeypatch):
     """Twelve pages must contribute twelve pages' worth. A stub that ignores the
     page number cannot tell that apart from reading page 1 twelve times."""
-    pages, _, _ = probe.sample_pages(600, 47861)
+    pages, _ = probe.sample_pages(600, 47861)
     paged(monkeypatch, {p: [course(**prereq()), course()] for p in pages})
     r = probe.course_prerequisites(sample=600)
     assert r["courses_sampled"] == 2 * len(pages) == 24
     assert r["stating_a_prerequisite"] == len(pages) == 12
 
 def test_a_page_that_returns_nothing_does_not_abort_the_walk(monkeypatch):
-    pages, _, _ = probe.sample_pages(600, 47861)
+    pages, _ = probe.sample_pages(600, 47861)
     bodies = {p: [course(**prereq())] for p in pages}
     bodies[pages[3]] = []
     paged(monkeypatch, bodies)
@@ -218,7 +243,8 @@ def test_the_sampling_description_does_not_claim_the_tail_it_skips():
     """Stride 79 over 12 pages reaches page 870 of 958. Saying "spread across
     all 958 pages" claimed 88 pages — about 4,400 courses — that are never read."""
     population = 47861
-    pages, _, how = probe.sample_pages(600, population)
+    pages, _ = probe.sample_pages(600, population)
+    how = described(600, population)
     total_pages = -(-population // probe.PER_PAGE)
     assert pages[-1] < total_pages, "the stride does reach the end after all"
     assert f"{pages[0]}-{pages[-1]}" in how
@@ -266,7 +292,7 @@ def test_a_corrupt_body_exits_three_through_main(monkeypatch):
 def test_a_sample_that_is_not_a_multiple_of_a_page_is_not_short_changed():
     """`--courses 130` asked for three pages' worth and got two, silently
     sampling 100 while reporting the request. Ceiling, not floor."""
-    pages, _, _ = probe.sample_pages(130, 47861)
+    pages, _ = probe.sample_pages(130, 47861)
     assert len(pages) == 3
 
 def test_an_empty_typed_prerequisite_reads_as_absent(monkeypatch):

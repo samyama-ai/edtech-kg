@@ -197,8 +197,8 @@ def describe(read: list[int], size: int, population: int | None) -> str:
             f"the last {tail:,} pages are not sampled — deterministic, not random")
 
 
-def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int, str]:
-    """Which pages to read, and an honest description of how they were chosen.
+def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int]:
+    """Which pages to read, and how many records to ask for on each.
 
     Reading pages 1..N consecutively is not a sample of the Registry — it is a
     sample of whatever sorts first, which one publisher's bulk upload can
@@ -206,8 +206,12 @@ def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int, s
     result set, which is deterministic (so the figure is reproducible) and not
     concentrated at the head.
 
-    It is still not a random sample, and the returned description says so
-    rather than letting the reader assume otherwise.
+    **This function does not describe the sample.** It used to return a
+    description as well, and that string went on being built and tested after
+    `describe()` took over the live one — so the guards against claiming
+    randomness, and against claiming a reach the walk did not have, were
+    pointed at a string nobody printed. Selecting pages and describing a
+    completed walk are different jobs, and only `describe()` does the second.
     """
     # Ceiling, not floor: --courses 130 asked for three pages' worth and got
     # two, silently sampling 100. The per-course cap trims the overshoot.
@@ -217,29 +221,16 @@ def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int, s
     size = min(PER_PAGE, wanted) if pages_wanted == 1 else PER_PAGE
 
     if not isinstance(population, int) or population <= 0:
-        return (list(range(1, pages_wanted + 1)), size,
-                f"first {pages_wanted} page(s) of {size} — population unknown, "
-                f"so the pages could not be spread; biased toward whatever sorts first")
+        return list(range(1, pages_wanted + 1)), size
 
     total_pages = max(1, -(-population // PER_PAGE))
     if total_pages <= pages_wanted:
-        return (list(range(1, total_pages + 1)), size,
-                f"every page — {population:,} records is the whole population, not a sample")
-
+        return list(range(1, total_pages + 1)), size
     if pages_wanted == 1:
-        return ([1], size, f"the first {size} of {population:,} records — a single page, "
-                           f"so nothing is spread; biased toward whatever sorts first")
+        return [1], size
 
     stride = total_pages // pages_wanted
-    pages = [1 + i * stride for i in range(pages_wanted)]
-    # Stating the reach honestly: a fixed stride from page 1 stops short of the
-    # end, so the tail is never seen. "Spread across all N pages" overstated it.
-    return (pages, size,
-            f"{pages_wanted} pages of {size} at a stride of {stride}, reaching pages "
-            f"{pages[0]}-{pages[-1]} of {total_pages:,} ({population:,} records); "
-            f"the last {total_pages - pages[-1]:,} pages are not sampled — "
-            f"deterministic, not random")
-
+    return [1 + i * stride for i in range(pages_wanted)], size
 
 def course_prerequisites(sample: int = 600) -> dict:
     """How many published courses state a prerequisite, and how many resolve.
@@ -275,7 +266,7 @@ def course_prerequisites(sample: int = 600) -> dict:
         return v if isinstance(v, list) else [v]
 
     population = total("/ce-registry/course/search")
-    planned, size, _ = sample_pages(sample, population)
+    planned, size = sample_pages(sample, population)
     read: list[int] = []
 
     courses = named = resolvable = stated_but_empty = 0
