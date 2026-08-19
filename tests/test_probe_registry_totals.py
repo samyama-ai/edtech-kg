@@ -7,6 +7,8 @@ Split from the course-sampling tests when the single file passed the
 import io
 import urllib.error
 
+import pytest
+
 from etl import probe_registry as probe
 from tests.registry_stubs import headers_stub
 
@@ -149,3 +151,27 @@ def test_two_gated_communities_are_not_attributed_to_one(capsys):
                           "secured_communities": ["chaffeycollege", "another"],
                           "failed_communities": []})
     assert "not attributable to one" in capsys.readouterr().out
+
+
+def test_an_api_root_that_is_not_an_object_is_malformed(monkeypatch):
+    """`root.get(...)` on a list raises AttributeError — a traceback rather
+    than a stated category."""
+    class R:
+        headers = {"x-total": "1"}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'["not", "an", "object"]'
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: R())
+    with pytest.raises(probe.MalformedSource, match="not an object"):
+        probe.registry_totals()
+
+
+def test_a_remainder_with_nothing_gated_is_not_called_gated(capsys):
+    """It printed "(0 gated communities, so not attributable to one)" — which
+    invites a shrug at a remainder that belongs to a community the probe does
+    not list."""
+    probe.print_registry({**REGISTRY_SHAPE, "secured_communities": [],
+                          "failed_communities": []})
+    out = capsys.readouterr().out
+    assert "0 gated" not in out
+    assert "the probe does not list" in out

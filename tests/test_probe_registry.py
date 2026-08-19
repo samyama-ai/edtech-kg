@@ -439,3 +439,40 @@ def test_the_publisher_spread_is_printed_not_only_in_json(monkeypatch, capsys):
         "secured_communities": [], "failed_communities": []})
     probe.probe(sample=50)
     assert "distinct publishers" in capsys.readouterr().out
+
+
+def test_a_bare_string_prerequisite_must_look_like_a_reference(monkeypatch):
+    """Any non-empty string counted as resolvable, so free text in the typed
+    property would have moved the one number this file produces."""
+    paged(monkeypatch, {1: [course(**{"ceterms:prerequisite": ["see the catalogue"]})]})
+    r = probe.course_prerequisites(sample=50)
+    assert (r["stating_a_prerequisite"], r["resolvable"]) == (1, 0)
+
+
+def test_a_uri_string_prerequisite_still_resolves(monkeypatch):
+    paged(monkeypatch, {1: [course(**{"ceterms:prerequisite": ["https://x/course/1"]})]})
+    assert probe.course_prerequisites(sample=50)["resolvable"] == 1
+
+
+def test_a_dict_without_an_id_is_not_a_reference(monkeypatch):
+    paged(monkeypatch, {1: [course(**{"ceterms:prerequisite": [{"name": "Algebra"}]})]})
+    assert probe.course_prerequisites(sample=50)["resolvable"] == 0
+
+
+def test_both_probes_print_the_same_prerequisite_table(capsys):
+    """probe_ctdl kept its own copy and it had already drifted — missing the
+    stated-but-empty and publisher-spread lines. One printer, so it cannot."""
+    import inspect
+    from etl import probe_ctdl
+    assert "print_prerequisites" in inspect.getsource(probe_ctdl)
+    assert "stating a prerequisite" not in inspect.getsource(probe_ctdl), "a second copy"
+
+
+def test_both_probes_share_one_command_line():
+    """The two main() functions were byte-identical, which is how probe_ctdl
+    kept type=int and no MalformedSource handler for a round after
+    probe_registry gained both."""
+    import inspect
+    from etl import probe_ctdl
+    assert "run_cli(" in inspect.getsource(probe_ctdl.main)
+    assert "add_argument" not in inspect.getsource(probe_ctdl.main)

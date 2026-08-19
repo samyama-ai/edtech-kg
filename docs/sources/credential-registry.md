@@ -21,9 +21,9 @@ Endpoint: `credentialengineregistry.org/{community}/search`, and
 | `fdoe` — Florida Department of Education | **10,577** |
 | `mytxlibrary` — Texas | 0 |
 | `learning-registry` | 0 |
-| `chaffeycollege` | access-gated — 401 |
-| *unattributed to a readable community* | 1 |
-| **all communities** | **682,259** |
+| `chaffeycollege` | `secured` — refuses an unauthenticated search (401) |
+| **all communities** | **682,259** — measured, not summed |
+| *unattributed* | 1 — the measured total minus the four readable communities |
 
 `ce-registry` by type:
 

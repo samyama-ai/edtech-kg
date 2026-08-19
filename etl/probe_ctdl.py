@@ -26,16 +26,14 @@ No third-party dependency, as with the other probes.
 
 from __future__ import annotations
 
-import argparse
-import json
-import sys
 from datetime import datetime, timezone
 
 # The Registry is a different source with a different licence, so it has its own
 # probe. Imported rather than duplicated — one place measures it. `get` carries
 # the shared User-Agent, which is why this module defines none of its own.
 from etl.probe_registry import (MalformedSource, course_prerequisites, get, parse,
-                                positive, print_registry, registry_totals)
+                                print_prerequisites, print_registry, registry_totals,
+                                run_cli)
 
 VOCAB = "https://credreg.net/ctdl/schema/encoding/json"
 
@@ -103,12 +101,7 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
         print(f"    {'pathway-related classes':24} {len(vocab['pathway_classes']):>6}")
 
         print_registry(registry)
-        print("\nprerequisites in published courses\n")
-        print(f"  sampled                {prereq['courses_sampled']:>6,}   "
-              f"{prereq['sampling']}")
-        print(f"  stating a prerequisite {prereq['stating_a_prerequisite']:>6,}")
-        print(f"  resolvable reference   {prereq['resolvable']:>6,}")
-        print(f"  free text only         {prereq['free_text_only']:>6,}")
+        print_prerequisites(prereq)
         print(f"\n  measured {stamp}")
         print("  reproduce with: python -m etl.probe_ctdl\n")
 
@@ -117,26 +110,7 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    summary = (__doc__ or "").splitlines()
-    parser = argparse.ArgumentParser(description=summary[0] if summary else None)
-    parser.add_argument("--courses", type=positive, default=600,
-                        help="How many published courses to sample (default 600).")
-    parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
-    args = parser.parse_args(argv)
-    try:
-        result = probe(sample=args.courses, quiet=args.json)
-    except ValueError as exc:
-        print(f"\nrefused: {exc}", file=sys.stderr)
-        return 1
-    except RuntimeError as exc:
-        print(f"\nsource unreachable: {exc}", file=sys.stderr)
-        return 2
-    except MalformedSource as exc:
-        print(f"\nsource malformed: {exc}", file=sys.stderr)
-        return 3
-    if args.json:
-        print(json.dumps(result, indent=2))
-    return 0
+    return run_cli(argv, __doc__, probe, "etl.probe_ctdl")
 
 
 if __name__ == "__main__":

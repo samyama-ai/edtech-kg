@@ -140,6 +140,11 @@ def registry_totals() -> dict:
     deleted resources and provisional ones each come back zero.
     """
     root = parse(get(f"{REGISTRY}/"), "the API root")
+    if not isinstance(root, dict):
+        # A list or a bare value here would reach .get() and raise
+        # AttributeError, which is a traceback rather than a stated category.
+        raise MalformedSource(
+            f"the API root returned {type(root).__name__}, not an object")
     communities = {c: total(f"/{c}/search") for c in COMMUNITIES}
     everywhere = total("/search")
     readable = sum(v for v in communities.values() if isinstance(v, int))
@@ -311,7 +316,14 @@ def course_prerequisites(sample: int = 600) -> dict:
                     # alone would credit the Registry with resolvable edges it
                     # does not publish — the opposite of this probe's finding.
                     states = True
-                    resolves = any(isinstance(v, (dict, str)) and v for v in as_list(typed))
+                    # A dict carries an @id; a bare string has to look like a
+                    # reference rather than be prose. Any non-empty string
+                    # counted, so "see the catalogue" would have moved the one
+                    # number this file exists to produce.
+                    resolves = any(
+                        (isinstance(v, dict) and v.get("@id"))
+                        or (isinstance(v, str) and v.strip().startswith(("http", "ce-")))
+                        for v in as_list(typed))
 
                 for condition in as_list(node.get("ceterms:requires")):
                     if not isinstance(condition, dict):
@@ -361,6 +373,24 @@ def course_prerequisites(sample: int = 600) -> dict:
     }
 
 
+def print_prerequisites(prereq: dict) -> None:
+    """The prerequisite table. Here for the same reason print_registry is:
+    probe_ctdl printed its own copy, and that copy had already drifted — it was
+    missing the stated-but-empty and publisher-spread lines added a round
+    earlier. A duplicated block does not stay duplicated."""
+    print("\nprerequisites in published courses\n")
+    print(f"  sampled                {prereq['courses_sampled']:>6,}   "
+          f"{prereq['sampling']}")
+    print(f"  stating a prerequisite {prereq['stating_a_prerequisite']:>6,}")
+    print(f"  resolvable reference   {prereq['resolvable']:>6,}")
+    print(f"  free text only         {prereq['free_text_only']:>6,}")
+    if prereq["stated_but_empty"]:
+        print(f"  stated but empty       {prereq['stated_but_empty']:>6,}"
+              f"   — a prerequisite block carrying nothing")
+    print(f"  across                 {prereq['distinct_publishers']:>6,} "
+          f"distinct publishers")
+
+
 def print_registry(registry: dict) -> None:
     """The Registry tables.
 
@@ -390,8 +420,14 @@ def print_registry(registry: dict) -> None:
                 f"({', '.join(failed)}), so this is not attributable")
     elif len(secured) == 1:
         note = f"   (the gated community: {secured[0]})"
-    else:
+    elif secured:
         note = f"   ({len(secured)} gated communities, so not attributable to one)"
+    else:
+        # Nothing gated, nothing failed, and still a remainder. That is not a
+        # gated community — it is one COMMUNITIES does not list, and saying
+        # "0 gated communities" invited the reader to shrug at it.
+        note = ("   — every community answered, so this belongs to one "
+                "the probe does not list")
     print(f"    {'unattributed':22} {n(registry['unattributed']):>10}{note}")
 
     print("\n  ce-registry resources by type\n")
@@ -407,17 +443,7 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
     if not quiet:
         print_registry(registry)
 
-        print("\nprerequisites in published courses\n")
-        print(f"  sampled                {prereq['courses_sampled']:>6,}   "
-              f"{prereq['sampling']}")
-        print(f"  stating a prerequisite {prereq['stating_a_prerequisite']:>6,}")
-        print(f"  resolvable reference   {prereq['resolvable']:>6,}")
-        print(f"  free text only         {prereq['free_text_only']:>6,}")
-        if prereq["stated_but_empty"]:
-            print(f"  stated but empty       {prereq['stated_but_empty']:>6,}"
-                  f"   — a prerequisite block carrying nothing")
-        print(f"  across                 {prereq['distinct_publishers']:>6,} "
-              f"distinct publishers")
+        print_prerequisites(prereq)
         print(f"\n  measured {stamp}")
         print("  reproduce with: python -m etl.probe_registry\n")
 
@@ -435,27 +461,43 @@ def positive(value: str) -> int:
     return number
 
 
-def main(argv: list[str] | None = None) -> int:
-    summary = (__doc__ or "").splitlines()
-    parser = argparse.ArgumentParser(description=summary[0] if summary else None)
+def run_cli(argv, doc: str, probe_fn, module: str) -> int:
+    """The command line both probes present.
+
+    Identical in both modules, byte for byte, which is how the exit categories
+    drifted apart once already — probe_ctdl kept `type=int` and did not catch
+    MalformedSource for a round after probe_registry gained both. One
+    implementation means the categories cannot diverge again:
+
+        1  refused          a figure we decline to report
+        2  unreachable      the source did not answer
+        3  malformed        the source answered, and it did not parse
+    """
+    summary = (doc or "").splitlines()
+    parser = argparse.ArgumentParser(prog=f"python -m {module}",
+                                     description=summary[0] if summary else None)
     parser.add_argument("--courses", type=positive, default=600,
                         help="How many published courses to sample (default 600).")
     parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
     args = parser.parse_args(argv)
     try:
-        result = probe(sample=args.courses, quiet=args.json)
+        result = probe_fn(sample=args.courses, quiet=args.json)
     except ValueError as exc:
         print(f"\nrefused: {exc}", file=sys.stderr)
         return 1
-    except RuntimeError as exc:
-        print(f"\nsource unreachable: {exc}", file=sys.stderr)
-        return 2
     except MalformedSource as exc:
         print(f"\nsource malformed: {exc}", file=sys.stderr)
         return 3
+    except RuntimeError as exc:
+        print(f"\nsource unreachable: {exc}", file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(result, indent=2))
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    return run_cli(argv, __doc__, probe, "etl.probe_registry")
 
 
 if __name__ == "__main__":

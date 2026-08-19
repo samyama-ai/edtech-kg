@@ -111,19 +111,26 @@ reads each one's `x-total` header rather than paging:
 | `fdoe` — Florida Department of Education | **10,577** |
 | `mytxlibrary` — Texas | 0 |
 | `learning-registry` | 0 |
-| `chaffeycollege` | access-gated — 401 |
-| *unattributed* | 1 |
-| **all communities** | **682,259** |
+| `chaffeycollege` | `secured` — refuses an unauthenticated search (401) |
+| **all communities** | **682,259** — measured, not summed |
+| *unattributed* | 1 — the measured total minus the four readable |
 
 Two of those are state education departments — **the same Florida and Texas
 whose own websites returned 403 or carried no prerequisites in #40.** Florida
 publishes 10,577 records here; Texas publishes none, so the Registry is not a
 route past #40 for Texas.
 
-`chaffeycollege` refuses an unauthenticated search, so its count is unknown;
-the one resource unaccounted for between the readable communities and the global
-total is presumably its. The probe prints `secured` rather than a blank, because
-a gated community and an empty one are different facts and Texas's 0 is real.
+**The last two rows are different kinds of number.** *All communities* is
+measured — one `x-total` for the whole Registry. *Unattributed* is arithmetic:
+that figure minus the four communities we can read. It is not a fifth
+measurement.
+
+`chaffeycollege` refuses an unauthenticated search, so its count is unknown, and
+the single unattributed resource is most likely its — but that is inference, not
+measurement, and the probe does not assert it. It prints `secured` rather than a
+blank, because a gated community and an empty one are different facts and
+Texas's 0 is real. If a community ever failed for another reason, the probe says
+so and declines to call the remainder gated at all.
 
 ### The two totals count two different things — #59
 
@@ -203,8 +210,7 @@ correction nearly doubled the number of courses *stating* a prerequisite — and
 left the resolvable count at zero. #58 sweeps all 47,861 to remove the caveat.
 
 The Registry figures on this page come from `python -m etl.probe_registry`; the
-vocabulary figures from `python -m etl.probe_ctdl`. Two sources, two licences,
-two scripts.
+vocabulary figures from `python -m etl.probe_ctdl`.
 
 ## What this means for #33 and #5
 
