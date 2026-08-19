@@ -176,7 +176,8 @@ from sources.* Orphans are a data-quality finding as much as a student one.
 **Q71.** Are there cycles in the prerequisite graph? ✅ *Cycle detection.* A cycle
 is a publishing error and finding one is worth reporting to the district.
 **Q72.** Which two courses are furthest apart in the prerequisite graph? ✅
-*Graph diameter.*
+*Graph diameter.* Computable from the measured edges; like Q66, the value
+itself has not been computed and put in a document yet.
 **Q73.** How many distinct prerequisite chains lead to this course? ✅ *Path
 enumeration.*
 **Q74.** Which courses sit on the most paths between others? ✅ *Betweenness
@@ -310,7 +311,11 @@ The schema has to serve the 74. In particular it has to make tier 4 cheap, which
 means the prerequisite edge is the load-bearing structure and everything else
 hangs off the CIP-SOC join.
 
-`docs/ontology-reuse.md` already chose the shape:
-`schema:coursePrerequisites`, which accepts a course reference **or** free text —
-so the 240 resolvable edges and the 138 free-text requirements both have a home,
-and neither is forced into the other.
+[`sources/course-prerequisites.md`](sources/course-prerequisites.md) already
+names the shape:
+[`schema:coursePrerequisites`](https://schema.org/coursePrerequisites), which
+accepts a course reference **or** free text — so the 240 resolvable edges and the
+138 free-text requirements both have a home, and neither is forced into the
+other. (The reuse decision that picks it over CTDL's stricter
+`ceterms:prerequisite` is #33, landing separately in #61 — named rather than
+linked, because that file is not in this branch's tree.)

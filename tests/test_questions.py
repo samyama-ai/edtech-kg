@@ -31,6 +31,12 @@ def counted() -> dict:
             # Occurrences, not distinct membership. Membership could not see a
             # question carrying the same mark twice, though the test that reads
             # these counts claims to catch "two marks".
+            #
+            # Failure mode, for whoever debugs this next: the count is over the
+            # whole question block, so a question whose explanatory prose
+            # legitimately contains a status mark — quoting another question's
+            # status, say — turns the suite red for the wrong reason. If that
+            # happens, the prose is the thing to change, not this.
             for mark in MARKS:
                 marks[mark] += question.count(mark)
         out[name] = {"questions": len(questions), **marks}
@@ -54,7 +60,14 @@ def tabulated() -> dict:
 
 
 def test_the_document_has_the_questions_it_claims():
-    assert sum(t["questions"] for t in counted().values()) == 102
+    """Derived from the table, not hardcoded. A literal here would be the one
+    number in this file needing a hand edit when the document grows — the class
+    of thing the rest of it was written to eliminate."""
+    counts = counted()
+    assert sum(t["questions"] for t in counts.values()) == tabulated()["Total"]["questions"]
+    # And the headline sentence agrees with both.
+    claimed = int(re.search(r"\*\*(\d+) questions, tiered", DOC.read_text()).group(1))
+    assert claimed == sum(t["questions"] for t in counts.values())
 
 
 def test_every_question_carries_exactly_one_status():
