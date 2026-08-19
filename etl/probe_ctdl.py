@@ -29,19 +29,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 
 # The Registry is a different source with a different licence, so it has its own
-# probe. Imported rather than duplicated — one place measures it.
-from etl.probe_registry import REGISTRY, course_prerequisites, get, registry_totals, total
+# probe. Imported rather than duplicated — one place measures it. `get` carries
+# the shared User-Agent, which is why this module defines none of its own.
+from etl.probe_registry import course_prerequisites, get, registry_totals
 
 VOCAB = "https://credreg.net/ctdl/schema/encoding/json"
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
-
-__all__ = ["vocabulary", "probe", "main", "registry_totals", "course_prerequisites",
-           "get", "total", "REGISTRY"]
 
 
 def vocabulary() -> dict:

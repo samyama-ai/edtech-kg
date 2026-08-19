@@ -37,21 +37,22 @@ def test_pages_are_spread_across_the_population_not_taken_from_the_head():
     """Reading pages 1..12 samples whatever sorts first, which one publisher's
     bulk upload can dominate. Spreading them changed the measured rate from
     83/600 to 150/600 — the concern was real."""
-    pages, how = probe.sample_pages(600, 47861)
+    pages, size, how = probe.sample_pages(600, 47861)
     assert pages[0] == 1 and len(pages) == 12
     assert pages[-1] > 800                      # reaches the far end
     assert len(set(pages)) == 12                # no page read twice
+    assert size == probe.PER_PAGE
     assert "stride" in how and "not random" in how
 
 
 def test_the_sampling_description_never_claims_randomness():
     for population in (None, 0, 100, 47861):
-        assert "random" not in probe.sample_pages(600, population)[1].replace(
+        assert "random" not in probe.sample_pages(600, population)[2].replace(
             "not random", "")
 
 
 def test_a_population_smaller_than_the_sample_reads_everything():
-    pages, how = probe.sample_pages(600, 120)
+    pages, size, how = probe.sample_pages(600, 120)
     assert pages == [1, 2, 3]
     assert "whole population, not a sample" in how
 
@@ -59,7 +60,7 @@ def test_a_population_smaller_than_the_sample_reads_everything():
 def test_an_unknown_population_falls_back_and_says_so():
     """If x-total is missing the pages cannot be spread. That is a weaker
     sample and the description has to admit it rather than look identical."""
-    pages, how = probe.sample_pages(600, None)
+    pages, size, how = probe.sample_pages(600, None)
     assert pages == list(range(1, 13))
     assert "population unknown" in how and "biased" in how
 
@@ -248,7 +249,7 @@ def prereq(description="PSYC101"):
 def test_every_sampled_page_is_accumulated(monkeypatch):
     """Twelve pages must contribute twelve pages' worth. A stub that ignores the
     page number cannot tell that apart from reading page 1 twelve times."""
-    pages, _ = probe.sample_pages(600, 47861)
+    pages, _, _ = probe.sample_pages(600, 47861)
     paged(monkeypatch, {p: [course(**prereq()), course()] for p in pages})
     r = probe.course_prerequisites(sample=600)
     assert r["courses_sampled"] == 2 * len(pages) == 24
@@ -256,7 +257,7 @@ def test_every_sampled_page_is_accumulated(monkeypatch):
 
 
 def test_a_page_that_returns_nothing_does_not_abort_the_walk(monkeypatch):
-    pages, _ = probe.sample_pages(600, 47861)
+    pages, _, _ = probe.sample_pages(600, 47861)
     bodies = {p: [course(**prereq())] for p in pages}
     bodies[pages[3]] = []
     paged(monkeypatch, bodies)
@@ -330,3 +331,113 @@ def test_query_values_are_url_encoded(monkeypatch):
                         lambda rq, *a, **k: (seen.append(rq.full_url), R())[1])
     probe.total("/ce-registry/search", fts="a b&c")
     assert " " not in seen[0] and "a+b%26c" in seen[0]
+
+
+# --------------------------------------------------------------------------
+# the third review of #57 — status, caps, categories
+# --------------------------------------------------------------------------
+
+def test_a_status_is_read_from_the_error_not_from_its_text(monkeypatch):
+    """"secured" used to be decided by searching the exception text for "401".
+    A URL containing those digits satisfied that search."""
+    url = "https://credentialengineregistry.org/401-not-a-status/search"
+    monkeypatch.setattr(probe.urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            urllib.error.HTTPError(url, 500, "boom", {}, io.BytesIO(b""))))
+    assert probe.total("/401-not-a-status/search") is None      # not "secured"
+
+
+def test_a_real_401_is_still_secured(monkeypatch):
+    monkeypatch.setattr(probe.urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            urllib.error.HTTPError("u", 401, "no", {}, io.BytesIO(b""))))
+    assert probe.total("/chaffeycollege/search") == "secured"
+
+
+def test_the_header_lookup_is_case_insensitive(monkeypatch):
+    """The live service sends `X-Total`. dict(response.headers) threw the
+    case-insensitive lookup away and left a fragile two-key fallback."""
+    import email.message
+    msg = email.message.Message()
+    msg["X-Total"] = "4242"
+    class R:
+        headers = msg
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: R())
+    assert probe.total("/ce-registry/search") == 4242
+
+
+def test_a_graph_of_many_courses_cannot_push_past_the_cap(monkeypatch):
+    """The cap was checked once per envelope. One @graph carrying 40 Course
+    nodes then sampled 40 when 10 were asked for."""
+    paged(monkeypatch, {1: [{"decoded_resource": {"@graph": [
+        {"@type": "ceterms:Course"} for _ in range(40)]}}]})
+    assert probe.course_prerequisites(sample=10)["courses_sampled"] == 10
+
+
+def test_reaching_the_cap_stops_fetching_further_pages(monkeypatch):
+    """`break` only left the inner loop, so every remaining page was still
+    downloaded and discarded.
+
+    A page of 50 envelopes normally yields 50 courses, so the cap lands exactly
+    at the end of the last page and nothing is skipped. It bites early only when
+    envelopes carry multi-node @graphs — which is the common shape here.
+    """
+    fetched = []
+    class R:
+        headers = {"x-total": "47861"}
+        def __init__(self, body): self._b = body
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return self._b
+    def urlopen(request, *a, **k):
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+        if "page" in query:
+            fetched.append(int(query["page"][0]))
+        # 50 envelopes, each a @graph of 20 courses = 1,000 courses per page.
+        return R(json.dumps([{"decoded_resource": {"@graph": [
+            {"@type": "ceterms:Course"} for _ in range(20)]}} for _ in range(50)]).encode())
+    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
+    r = probe.course_prerequisites(sample=600)
+    assert r["courses_sampled"] == 600
+    assert len(fetched) == 1, f"cap reached on page 1 but fetched pages {fetched}"
+
+
+def test_the_sampling_description_does_not_claim_the_tail_it_skips():
+    """Stride 79 over 12 pages reaches page 870 of 958. Saying "spread across
+    all 958 pages" claimed 88 pages — about 4,400 courses — that are never read."""
+    pages, _, how = probe.sample_pages(600, 47861)
+    assert pages[-1] == 870
+    assert "1-870" in how and "958" in how
+    assert "not sampled" in how
+    assert "all 958 pages" not in how
+
+
+def test_asking_for_zero_or_fewer_courses_is_refused():
+    """It used to build per_page=0 and then fail with "no course records
+    returned", blaming the source for a bad argument."""
+    for bad in (0, -5):
+        with pytest.raises(ValueError, match="at least 1"):
+            probe.sample_pages(bad, 47861)
+
+
+def test_a_corrupt_body_is_malformed_not_refused(monkeypatch):
+    """json.JSONDecodeError subclasses ValueError, so a truncated response used
+    to exit 1 under "refused" — the category for figures we decline to report,
+    not for a broken source."""
+    class R:
+        headers = {"x-total": "47861"}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'[{"decoded_resource": '
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: R())
+    with pytest.raises(probe.MalformedSource, match="did not parse"):
+        probe.course_prerequisites(sample=50)
+
+
+def test_a_corrupt_body_exits_three_through_main(monkeypatch):
+    monkeypatch.setattr(probe, "registry_totals", lambda: {"source": "x"})
+    monkeypatch.setattr(probe, "course_prerequisites",
+                        lambda sample: (_ for _ in ()).throw(probe.MalformedSource("bad")))
+    assert probe.main([]) == 3

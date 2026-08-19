@@ -42,9 +42,8 @@ rich; the published data is thin.
 
 ## The measurement that decides it
 
-600 courses from `ce-registry` — **12 pages of 50 at a stride of 79, spread
-across all 958 pages** of the 47,861-record population, rather than the first
-600:
+600 courses from `ce-registry` — **12 pages of 50 at a stride of 79, reaching
+pages 1–870 of 958**, rather than the first 600:
 
 | | Count | Share |
 |---|---:|---:|
@@ -71,7 +70,13 @@ both samples.**
 
 The spread sample is deterministic — a fixed stride, so the figure reproduces —
 but it is still **not random**, and 13 distinct publishers across 600 records is
-a narrow base. #58 exists to sweep all 47,861 and remove the caveat entirely.
+a narrow base.
+
+**And it does not reach the end.** A fixed stride from page 1 stops at page 870,
+so the last **88 pages — roughly 4,400 courses — are never read**. An earlier
+draft of this page said "spread across all 958 pages", which claimed a reach the
+method does not have. The probe now prints the range it actually covers. #58
+sweeps all 47,861 and removes the caveat entirely.
 
 What is published instead:
 
@@ -168,7 +173,9 @@ would blur the distinction #56 exists to protect. `probe_ctdl` imports from it,
 so the Registry is measured in one place.
 
 Totals come from `x-total` headers, which count *resources*; the API root's
-`total_envelopes` counts *envelopes*, and the two are reconciled above. The
+`total_envelopes` counts *envelopes*. The two are reconciled in
+[`ctdl.md`](ctdl.md#the-two-totals-count-two-different-things--59) against the
+Registry's own source, not on this page. The
 course sample parses `decoded_resource`, walks `@graph`, counts conditions by
 `ceterms:name` and classifies each by whether it carries a target reference.
 The probe refuses rather than reporting a rate over an empty sample.

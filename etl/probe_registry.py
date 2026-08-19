@@ -44,18 +44,39 @@ RESOLVABLE = ("ceterms:targetLearningOpportunity", "ceterms:targetCredential",
 PER_PAGE = 50
 
 
+class HttpStatus(RuntimeError):
+    """A failed request that knows its own status code.
+
+    The code used to be recovered by searching the exception text for "401",
+    which a URL containing those digits would satisfy.
+    """
+
+    def __init__(self, code: int | None, url: str, detail: str = ""):
+        super().__init__(f"{code or 'unreachable'} from {url}{detail}")
+        self.code = code
+
+
+class MalformedSource(Exception):
+    """Reachable, but the body did not parse.
+
+    `json.JSONDecodeError` subclasses `ValueError`, so a corrupt body used to
+    exit under "refused" — the category reserved for figures we decline to
+    report — rather than being flagged as a broken source.
+    """
+
+
 def get(url: str, headers_only: bool = False):
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT},
                                      method="HEAD" if headers_only else "GET")
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
             if headers_only:
-                return dict(response.headers)
+                return response.headers
             return response.read()
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"{exc.code} from {url}") from exc
+        raise HttpStatus(exc.code, url) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"unreachable: {url} ({exc})") from exc
+        raise HttpStatus(None, url, f" ({exc})") from exc
 
 
 def total(path: str, **params) -> int | str | None:
@@ -68,10 +89,18 @@ def total(path: str, **params) -> int | str | None:
     query = urllib.parse.urlencode({"per_page": 1, **params})
     try:
         headers = get(f"{REGISTRY}{path}?{query}", headers_only=True)
-    except RuntimeError as exc:
-        return "secured" if ("401" in str(exc) or "403" in str(exc)) else None
-    raw = headers.get("x-total") or headers.get("X-Total")
-    return int(raw) if raw and raw.isdigit() else None
+    except HttpStatus as exc:
+        return "secured" if exc.code in (401, 403) else None
+    # HTTPMessage looks up case-insensitively; dict() threw that away.
+    raw = headers.get("x-total")
+    return int(raw) if raw and str(raw).isdigit() else None
+
+
+def parse(payload: bytes, what: str):
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise MalformedSource(f"{what} did not parse as JSON ({exc})") from exc
 
 
 def registry_totals() -> dict:
@@ -94,7 +123,7 @@ def registry_totals() -> dict:
     Both alternative explanations are measured rather than assumed away:
     deleted resources and provisional ones each come back zero.
     """
-    root = json.loads(get(f"{REGISTRY}/"))
+    root = parse(get(f"{REGISTRY}/"), "the API root")
     communities = {c: total(f"/{c}/search") for c in COMMUNITIES}
     everywhere = total("/search")
     readable = sum(v for v in communities.values() if isinstance(v, int))
@@ -114,7 +143,7 @@ def registry_totals() -> dict:
     }
 
 
-def sample_pages(wanted: int, population: int | None) -> tuple[list[int], str]:
+def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int, str]:
     """Which pages to read, and an honest description of how they were chosen.
 
     Reading pages 1..N consecutively is not a sample of the Registry — it is a
@@ -126,30 +155,37 @@ def sample_pages(wanted: int, population: int | None) -> tuple[list[int], str]:
     It is still not a random sample, and the returned description says so
     rather than letting the reader assume otherwise.
     """
+    if wanted < 1:
+        raise ValueError(f"--courses must be at least 1, got {wanted}")
+
     pages_wanted = max(1, wanted // PER_PAGE)
-    # A request below one page reads one short page, not a full one.
+    # A request below one page reads one short page, not a full one. This is the
+    # only place the size is decided; the fetch loop uses what it returns.
     size = min(PER_PAGE, wanted) if pages_wanted == 1 else PER_PAGE
 
     if not isinstance(population, int) or population <= 0:
-        return (list(range(1, pages_wanted + 1)),
+        return (list(range(1, pages_wanted + 1)), size,
                 f"first {pages_wanted} page(s) of {size} — population unknown, "
                 f"so the pages could not be spread; biased toward whatever sorts first")
 
     total_pages = max(1, -(-population // PER_PAGE))
     if total_pages <= pages_wanted:
-        return (list(range(1, total_pages + 1)),
+        return (list(range(1, total_pages + 1)), size,
                 f"every page — {population:,} records is the whole population, not a sample")
 
     if pages_wanted == 1:
-        return ([1], f"the first {size} of {population:,} records — a single page, "
-                     f"so nothing is spread; biased toward whatever sorts first")
+        return ([1], size, f"the first {size} of {population:,} records — a single page, "
+                           f"so nothing is spread; biased toward whatever sorts first")
 
     stride = total_pages // pages_wanted
     pages = [1 + i * stride for i in range(pages_wanted)]
-    return (pages,
-            f"{pages_wanted} pages of {size} at a stride of {stride}, spread across all "
-            f"{total_pages:,} pages of {population:,} records — deterministic, "
-            f"not random")
+    # Stating the reach honestly: a fixed stride from page 1 stops short of the
+    # end, so the tail is never seen. "Spread across all N pages" overstated it.
+    return (pages, size,
+            f"{pages_wanted} pages of {size} at a stride of {stride}, reaching pages "
+            f"{pages[0]}-{pages[-1]} of {total_pages:,} ({population:,} records); "
+            f"the last {total_pages - pages[-1]:,} pages are not sampled — "
+            f"deterministic, not random")
 
 
 def course_prerequisites(sample: int = 600) -> dict:
@@ -184,22 +220,25 @@ def course_prerequisites(sample: int = 600) -> dict:
         return v if isinstance(v, list) else [v]
 
     population = total("/ce-registry/course/search")
-    pages, how = sample_pages(sample, population)
+    pages, size, how = sample_pages(sample, population)
 
     courses = named = resolvable = 0
     prose: list[str] = []
     publishers: set[str] = set()
     for page in pages:
-        # --courses 20 used to read a whole page of 50 and report "20 sampled".
-        # Ask for what was asked for.
-        size = min(PER_PAGE, sample) if len(pages) == 1 else PER_PAGE
+        if courses >= sample:
+            break                       # the cap ends the walk, not just the page
         body = get(f"{REGISTRY}/ce-registry/course/search"
                    f"?per_page={size}&page={page}")
-        for envelope in json.loads(body):
+        for envelope in parse(body, f"page {page} of the course search"):
             if courses >= sample:
                 break
             resource = envelope.get("decoded_resource") or {}
             for node in (resource.get("@graph") or [resource]):
+                # Checked per course, not per envelope: one @graph can carry
+                # many Course nodes and used to push the count past the cap.
+                if courses >= sample:
+                    break
                 if not isinstance(node, dict) or "Course" not in str(node.get("@type", "")):
                     continue
                 courses += 1
@@ -293,6 +332,9 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(f"\nsource unreachable: {exc}", file=sys.stderr)
         return 2
+    except MalformedSource as exc:
+        print(f"\nsource malformed: {exc}", file=sys.stderr)
+        return 3
     if args.json:
         print(json.dumps(result, indent=2))
     return 0

@@ -2,8 +2,9 @@
 
 Issue #28 asked whether a pathway ontology already exists before #5 mints one.
 
-Every figure below is produced by `python -m etl.probe_ctdl`. Nothing here is
-hand-counted.
+Vocabulary figures below are produced by `python -m etl.probe_ctdl`, Registry
+figures by `python -m etl.probe_registry` — two sources, two licences, two
+scripts. Nothing here is hand-counted.
 
 **It does — and separately, almost nobody publishes against it.** The
 Credential Transparency Description Language publishes an openly licensed
@@ -170,10 +171,14 @@ stated prerequisite:
 
 | | courses |
 |---|---:|
-| sampled | 600 — spread across all 47,861, not the first 600 |
+| sampled | **600** |
 | stating a prerequisite | **150** |
 | by a resolvable reference | **0** |
 | as free text only | **150** |
+
+The 600 are read at a fixed stride reaching pages 1–870 of 958, not taken from
+the head of the list — and not the whole population either; the last 88 pages
+are unsampled.
 
 `ceterms:prerequisite` — the typed Course→Course edge this document opened by
 celebrating — is used **zero times in 600 courses**. Every one of the 150 is a
@@ -192,11 +197,10 @@ record does not say. So the finding splits in two, and both halves are real:
 - **as a schema**, CTDL gives us the edge and we should adopt it (#33);
 - **as a data source**, it does not give us a single resolved prerequisite.
 
-The 600 are spread at a fixed stride across all 958 pages rather than taken
-from the head, after the review of #57 pointed out that a consecutive read
-samples whatever sorts first. That correction nearly doubled the number of
-courses *stating* a prerequisite — and left the resolvable count at zero. #58
-sweeps all 47,861 to remove the caveat.
+The stride replaced a consecutive read of pages 1–12, after the review of #57
+pointed out that reading from the head samples whatever sorts first. That
+correction nearly doubled the number of courses *stating* a prerequisite — and
+left the resolvable count at zero. #58 sweeps all 47,861 to remove the caveat.
 
 The Registry figures on this page come from `python -m etl.probe_registry`; the
 vocabulary figures from `python -m etl.probe_ctdl`. Two sources, two licences,

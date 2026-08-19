@@ -12,6 +12,9 @@ import urllib.error
 import pytest
 
 from etl import probe_ctdl as probe
+# The network lives in probe_registry — probe_ctdl imports `get` from it and no
+# longer touches urllib itself. Patching here is what the code actually calls.
+from etl import probe_registry as net
 
 
 def stub(monkeypatch, payload: bytes):
@@ -20,7 +23,7 @@ def stub(monkeypatch, payload: bytes):
         def __exit__(self, *a): return False
         def read(self): return payload
         headers = {}
-    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
+    monkeypatch.setattr(net.urllib.request, "urlopen", lambda *a, **k: Response())
 
 
 GRAPH = {
@@ -84,11 +87,11 @@ def test_an_empty_graph_is_refused(monkeypatch):
 
 
 def test_an_http_error_names_the_status(monkeypatch):
-    monkeypatch.setattr(probe.urllib.request, "urlopen",
+    monkeypatch.setattr(net.urllib.request, "urlopen",
                         lambda *a, **k: (_ for _ in ()).throw(
                             urllib.error.HTTPError("u", 503, "no", {}, io.BytesIO(b""))))
     with pytest.raises(RuntimeError, match="503"):
-        probe.get("https://example.invalid/x")
+        net.get("https://example.invalid/x")
 
 
 # --------------------------------------------------------------------------
@@ -102,7 +105,7 @@ def test_refusal_exits_nonzero_without_printing_a_table(monkeypatch, capsys):
 
 
 def test_an_unreachable_source_exits_two(monkeypatch):
-    monkeypatch.setattr(probe.urllib.request, "urlopen",
+    monkeypatch.setattr(net.urllib.request, "urlopen",
                         lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("dns")))
     assert probe.main([]) == 2
 
