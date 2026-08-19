@@ -165,7 +165,8 @@ over?** ✅ *Intersection of two ancestor sets.*
 **Q65. I want to be a nurse. What do I take next semester?** ✅ *Frontier of the
 reachable set given what is completed.* The question the product exists for.
 **Q66.** How deep does the deepest prerequisite chain run? ✅ *Longest path.*
-Not yet measured — the probe counts edges, not depth.
+The edges are measured and the depth is computed from them; the probe reports
+edge counts, not path length, so the number itself is not in a document yet.
 **Q67.** Which courses are unreachable from any entry point? ✅ *Reachability
 from sources.* Orphans are a data-quality finding as much as a student one.
 **Q68.** Which single course, if removed, disconnects the most others? ✅
@@ -189,7 +190,8 @@ domains.*
 *Reachability.*
 **Q78.** What is the minimum set of courses covering the most pathways? ✅ *Set
 cover over paths.*
-**Q79.** Which prerequisite chains cross subject boundaries? ✅
+**Q79.** Which prerequisite chains cross subject boundaries? ✅ *Path
+enumeration with a property filter on the nodes.*
 **Q80.** Nationally, what is the shortest path from any course to any
 occupation? ❌ — needs prerequisites beyond one district (#19)
 
@@ -291,7 +293,7 @@ above), and anything needing a second district (#19).
 
 ## What this tells us before designing anything
 
-The schema has to serve the 73. In particular it has to make tier 4 cheap, which
+The schema has to serve the 74. In particular it has to make tier 4 cheap, which
 means the prerequisite edge is the load-bearing structure and everything else
 hangs off the CIP-SOC join.
 
