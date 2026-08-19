@@ -112,6 +112,25 @@ def total(path: str, **params) -> int | str | None:
     return "no x-total header"
 
 
+def is_reference(value) -> bool:
+    """Does this point at something, or is it prose?
+
+    One test, called from both branches. They had drifted apart: the typed
+    `ceterms:prerequisite` branch required an @id or a URI-shaped string while
+    the `ceterms:requires` branch accepted any truthy value — and since every
+    resolvable hit in the sample arrives through `requires`, the strict test was
+    on the path that never fires and the loose one on the path that does.
+
+    A publisher writing `ceterms:targetLearningOpportunity: "PSYC101"` — free
+    text in the target field, which is the behaviour this whole page documents —
+    would otherwise have counted as a resolved edge, moving the one figure the
+    module exists to produce on the strength of a string.
+    """
+    if isinstance(value, dict):
+        return bool(value.get("@id"))
+    return isinstance(value, str) and value.strip().lower().startswith(("http", "ce-"))
+
+
 def parse(payload: bytes, what: str):
     try:
         return json.loads(payload)
@@ -316,25 +335,16 @@ def course_prerequisites(sample: int = 600) -> dict:
                     # alone would credit the Registry with resolvable edges it
                     # does not publish — the opposite of this probe's finding.
                     states = True
-                    # A dict carries an @id; a bare string has to look like a
-                    # reference rather than be prose. Any non-empty string
-                    # counted, so "see the catalogue" would have moved the one
-                    # number this file exists to produce.
-                    resolves = any(
-                        (isinstance(v, dict) and v.get("@id"))
-                        or (isinstance(v, str) and v.strip().startswith(("http", "ce-")))
-                        for v in as_list(typed))
+                    resolves = any(is_reference(v) for v in as_list(typed))
 
                 for condition in as_list(node.get("ceterms:requires")):
                     if not isinstance(condition, dict):
                         continue
                     if "prereq" not in text(condition.get("ceterms:name")).lower():
                         continue
-                    # Truthy, not merely present — the same test the typed branch
-                    # above applies. A present-but-empty targetCredential is not
-                    # a reference, and counting it would inflate the one number
-                    # this module exists to produce.
-                    if any(condition.get(k) for k in RESOLVABLE):
+                    # The same test the typed branch applies, not a weaker one.
+                    if any(is_reference(v) for k in RESOLVABLE
+                           for v in as_list(condition.get(k))):
                         states = resolves = True
                         continue
                     described = text(condition.get("ceterms:description")).strip()

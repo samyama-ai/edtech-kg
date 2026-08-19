@@ -476,3 +476,53 @@ def test_both_probes_share_one_command_line():
     from etl import probe_ctdl
     assert "run_cli(" in inspect.getsource(probe_ctdl.main)
     assert "add_argument" not in inspect.getsource(probe_ctdl.main)
+
+
+# --------------------------------------------------------------------------
+# both branches apply the same reference test — the mirror of the typed cases
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("field", list(probe.RESOLVABLE))
+def test_a_bare_string_target_is_not_a_reference(monkeypatch, field):
+    """The mirror of test_a_bare_string_prerequisite_must_look_like_a_reference,
+    on the branch that actually fires: every resolvable hit in the live sample
+    arrives through `ceterms:requires`, so the strict test was on the dead path
+    and the loose one on the live path."""
+    paged(monkeypatch, {1: [course(**{"ceterms:requires": [
+        {"ceterms:name": {"en-US": "Prerequisites"}, field: ["PSYC101"],
+         "ceterms:description": {"en-US": "PSYC101"}}]})]})
+    r = probe.course_prerequisites(sample=50)
+    assert (r["stating_a_prerequisite"], r["resolvable"]) == (1, 0)
+
+
+@pytest.mark.parametrize("field", list(probe.RESOLVABLE))
+def test_a_target_without_an_id_is_not_a_reference(monkeypatch, field):
+    paged(monkeypatch, {1: [course(**{"ceterms:requires": [
+        {"ceterms:name": {"en-US": "Prerequisites"},
+         field: [{"@type": "ceterms:Credential"}],
+         "ceterms:description": {"en-US": "a credential"}}]})]})
+    assert probe.course_prerequisites(sample=50)["resolvable"] == 0
+
+
+@pytest.mark.parametrize("field", list(probe.RESOLVABLE))
+def test_a_target_with_an_id_still_resolves(monkeypatch, field):
+    paged(monkeypatch, {1: [course(**{"ceterms:requires": [
+        {"ceterms:name": {"en-US": "Prerequisites"},
+         field: [{"@id": "https://x/c/1"}]}]})]})
+    assert probe.course_prerequisites(sample=50)["resolvable"] == 1
+
+
+@pytest.mark.parametrize("value,expected", [
+    ({"@id": "https://x/c/1"}, True),
+    ({"@type": "ceterms:Course"}, False),
+    ("https://x/c/1", True),
+    ("ce-registry/course/1", True),
+    ("PSYC101", False),
+    ("", False),
+    (None, False),
+    (42, False),
+])
+def test_one_reference_test_governs_both_branches(value, expected):
+    """Asserted directly, so the two call sites cannot drift apart again — the
+    asymmetry this closes is the fourth of its kind in this PR."""
+    assert probe.is_reference(value) is expected
