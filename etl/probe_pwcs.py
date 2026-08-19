@@ -6,7 +6,7 @@ which, and *"answering that question comes before the ontology"*. If a real
 district publishes prerequisites that resolve to real courses, prerequisite
 chains are the demo. If not, the demo is programme → occupation → earnings.
 
-    python -m etl.probe_pwcs                # the full sweep, 982 pages
+    python -m etl.probe_pwcs                # the full sweep, 960 course pages
     python -m etl.probe_pwcs --limit 50     # a quick run, and it says it is one
     python -m etl.probe_pwcs --json         # machine-readable, with timestamp
 
@@ -16,7 +16,7 @@ is known exactly rather than crawled blind.
 
 **Pages are cached under `data/pwcs/`** (gitignored). The first run fetches; the
 rest read from disk. That keeps a re-run of the figures free rather than costing
-a school district 982 requests every time somebody checks a number.
+a school district ~960 requests every time somebody checks a number.
 
 **The measurement that matters is not "does it state a prerequisite".** It is
 whether the stated prerequisite *resolves* — names a course this catalogue also
@@ -45,6 +45,7 @@ SITEMAP = "https://catalog.pwcs.edu/sitemap.xml"
 USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 CACHE = Path("data/pwcs")
 DELAY = 0.3          # seconds between live fetches; this is a school district
+RED_FLAG = "!! "     # prefixes a count that means the parser, not the source, is wrong
 
 # Pages under these paths are catalogue furniture, not courses.
 NOT_A_COURSE = ("/high-school-course-catalog/", "/middle-school-course-catalog/",
@@ -66,11 +67,18 @@ HREF = re.compile(r'<a href="([^"]+)"[^>]*>(.*?)</a>', re.S)
 # A separate free-text field, labelled "Requirements" in the page — things like
 # "Enrolled in Agriculture Specialty Program". Not a course reference, and
 # counting it as one would overstate what can be loaded as an edge.
+# Bounded the same way PREREQ_BLOCK is. Unbounded, a page carrying the wrapper
+# but rendering its value differently would match the *next* field__item
+# anywhere later in the document and attribute unrelated text to this course.
 REQUIREMENTS = re.compile(
-    r'field--name-field-recommended.*?field__item"><p>(.*?)</p>', re.S)
+    r'field--name-field-recommended'
+    r'(?:(?!<div class="field field--).)*?'
+    r'field__item"><p>(.*?)</p>', re.S)
 
-# A page that carries the prerequisite field but no links at all is a parse
-# failure, not a course without prerequisites — the field would not be rendered.
+# A page that renders the prerequisite field but yields no links is a parse
+# failure, not a course without prerequisites — the field would not be rendered
+# at all if there were none. Counting it as "no prerequisite" would lower the
+# rate with no trace, which is the class of error this probe exists to correct.
 PREREQ_FIELD_PRESENT = re.compile(r'field--name-field-prerequisite-courses')
 
 
@@ -138,13 +146,27 @@ def parse_course(markup: str, url: str) -> dict | None:
             {"href": href, "name": " ".join(text_of(name).split())}
             for href, name in links
         ],
+        # Field rendered, nothing extracted — reported, never read as absence.
+        "field_present_no_links": bool(PREREQ_FIELD_PRESENT.search(markup)) and not links,
         "requirements_text": (" ".join(text_of(requirement.group(1)).split())
                               if requirement else None),
     }
 
 
-def path_of(url: str) -> str:
-    return urllib.parse.urlparse(url).path.rstrip("/")
+CATALOGUE_HOST = urllib.parse.urlparse(SITEMAP).netloc
+
+
+def path_of(url: str) -> str | None:
+    """The catalogue-relative path, or None for an off-site link.
+
+    Hrefs in the prerequisite field are relative in practice, but an absolute
+    off-site URL whose path happened to exist in the catalogue would otherwise
+    resolve — and the claim being made here is 100%, which should be airtight.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.netloc and parsed.netloc != CATALOGUE_HOST:
+        return None
+    return parsed.path.rstrip("/")
 
 
 def resolve(records: list[dict], catalogue: list[str] | None = None) -> dict:
@@ -161,14 +183,19 @@ def resolve(records: list[dict], catalogue: list[str] | None = None) -> dict:
     read — which would report almost everything as broken and look like a
     finding.
     """
-    published = {path_of(u) for u in (catalogue or [])} | {path_of(r["url"]) for r in records}
-    stating = fully = partly = broken = with_requirements = 0
+    # Strictly the sitemap, so the invariant matches what the docstring and the
+    # document both claim. Unioning the read records in made resolution partly
+    # self-referential, and it is what let a slash-sensitivity bug hide.
+    published = {path_of(u) for u in (catalogue or [])} - {None}
+    stating = fully = partly = broken = with_requirements = unparsed_field = 0
     edges: list[tuple[str, str]] = []
     dangling: list[str] = []
 
     for record in records:
         if record.get("requirements_text"):
             with_requirements += 1
+        if record.get("field_present_no_links"):
+            unparsed_field += 1
         links = record.get("prerequisite_links") or []
         if not links:
             continue
@@ -193,6 +220,7 @@ def resolve(records: list[dict], catalogue: list[str] | None = None) -> dict:
         "resolvable_edges": len(edges),
         "dangling_links": len(dangling),
         "with_free_text_requirements": with_requirements,
+        "prerequisite_field_unparsed": unparsed_field,
         "dangling_examples": sorted(set(dangling))[:8],
         "edge_examples": edges[:8],
     }
@@ -212,6 +240,7 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
         try:
             markup = fetch(url, use_cache)
         except RuntimeError:
+            time.sleep(DELAY)          # do not hit a struggling server twice at once
             try:
                 markup = fetch(url, use_cache)
             except RuntimeError as exc:
@@ -255,6 +284,10 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
         print(f"  dangling links         {result['dangling_links']:>6,}")
         print(f"  free-text requirements alongside: "
               f"{result['with_free_text_requirements']:,} courses")
+        if result["prerequisite_field_unparsed"]:
+            print(f"  {RED_FLAG}prerequisite field rendered but no links read: "
+                  f"{result['prerequisite_field_unparsed']:,} — markup drift, "
+                  f"not courses without prerequisites")
         print(f"\n  measured {stamp}")
         print("  reproduce with: python -m etl.probe_pwcs\n")
 

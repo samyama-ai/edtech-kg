@@ -256,3 +256,86 @@ def test_json_output_carries_a_timestamp_and_the_coverage(monkeypatch, capsys):
     assert probe.main(["--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert "retrieved_at" in out and "coverage" in out
+
+
+# --------------------------------------------------------------------------
+# the third review of #63
+# --------------------------------------------------------------------------
+
+def test_a_rendered_field_with_no_links_is_flagged_not_read_as_absence():
+    """The guard the comment promised and the code did not implement. If the
+    markup drifts so HREF stops matching, every course silently becomes one
+    without a prerequisite — the rate drops with no trace, which is the class
+    of error this probe exists to correct."""
+    drifted = COURSE.replace('<a href="/agriculture/landscaping-1">Landscaping 1</a>',
+                             '<span data-href="/agriculture/landscaping-1">Landscaping 1</span>')
+    r = probe.parse_course(drifted, "https://catalog.pwcs.edu/agriculture/landscaping-2")
+    assert r["prerequisite_links"] == []
+    assert r["field_present_no_links"] is True
+
+
+def test_a_course_with_no_field_at_all_is_not_flagged():
+    r = probe.parse_course(NO_PREREQ, "https://catalog.pwcs.edu/agriculture/landscaping-1")
+    assert r["field_present_no_links"] is False
+
+
+def test_the_unparsed_count_is_reported(monkeypatch):
+    drifted = COURSE.replace('<a href="/agriculture/landscaping-1">Landscaping 1</a>',
+                             '<span>Landscaping 1</span>')
+    recs = [probe.parse_course(drifted, "https://catalog.pwcs.edu/agriculture/landscaping-2")]
+    assert probe.resolve(recs, catalogue=[])["prerequisite_field_unparsed"] == 1
+
+
+def test_an_empty_requirements_field_does_not_steal_later_text():
+    """Unbounded, the pattern matched the *next* `field__item"><p>` anywhere
+    later in the document and attributed unrelated text to this course —
+    inflating the 138. Real pages carry several such fields after it, which is
+    why the fixture must too."""
+    page = COURSE.replace(
+        '<div class="field__item"><p>Enrolled in Agriculture Specialty Program</p></div>',
+        '<div class="field__item"></div>').replace(
+        '<div><h3>Prerequisites</h3>',
+        '<div class="field field--name-field-description">'
+        '<div class="field__item"><p>An unrelated course description.</p></div></div>\n'
+        '<div><h3>Prerequisites</h3>')
+    r = probe.parse_course(page, "https://x/a/b")
+    assert r["requirements_text"] is None, "stole the description field"
+
+
+def test_the_requirements_field_is_still_read_when_it_has_a_value():
+    """The bound must not break the happy path — 138 courses depend on it."""
+    page = COURSE.replace(
+        '<div><h3>Prerequisites</h3>',
+        '<div class="field field--name-field-description">'
+        '<div class="field__item"><p>An unrelated course description.</p></div></div>\n'
+        '<div><h3>Prerequisites</h3>')
+    r = probe.parse_course(page, "https://x/a/b")
+    assert r["requirements_text"] == "Enrolled in Agriculture Specialty Program"
+
+
+def test_resolution_is_strictly_against_the_sitemap():
+    """`published` used to union the read records in, so resolution was partly
+    self-referential and did not match what the docstring claimed."""
+    recs = [probe.parse_course(COURSE, "https://catalog.pwcs.edu/agriculture/landscaping-2"),
+            probe.parse_course(NO_PREREQ, "https://catalog.pwcs.edu/agriculture/landscaping-1")]
+    r = probe.resolve(recs, catalogue=[])
+    assert r["no_link_resolves"] == 1        # the target was read, but is not in the sitemap
+
+
+def test_an_off_site_link_does_not_resolve():
+    """An absolute URL on another host whose path coincidentally exists in the
+    catalogue must not count toward a 100% claim."""
+    page = COURSE.replace('href="/agriculture/landscaping-1"',
+                          'href="https://example.com/agriculture/landscaping-1"')
+    recs = [probe.parse_course(page, "https://catalog.pwcs.edu/agriculture/landscaping-2")]
+    r = probe.resolve(recs, catalogue=["https://catalog.pwcs.edu/agriculture/landscaping-1"])
+    assert r["no_link_resolves"] == 1
+    assert r["dangling_links"] == 1
+
+
+def test_an_absolute_link_on_the_catalogue_host_does_resolve():
+    page = COURSE.replace('href="/agriculture/landscaping-1"',
+                          'href="https://catalog.pwcs.edu/agriculture/landscaping-1"')
+    recs = [probe.parse_course(page, "https://catalog.pwcs.edu/agriculture/landscaping-2")]
+    r = probe.resolve(recs, catalogue=["https://catalog.pwcs.edu/agriculture/landscaping-1"])
+    assert r["every_link_resolves"] == 1

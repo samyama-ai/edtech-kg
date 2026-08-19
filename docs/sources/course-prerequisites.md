@@ -27,6 +27,7 @@ exactly rather than crawled blind. All of it was read — not a sample.
 | …where no link resolves | 0 | |
 | **Resolvable prerequisite edges** | **240** | loadable today |
 | Dangling links | **0** | |
+| Prerequisite field rendered but unreadable | **0** | the parser is not silently missing any |
 | Carrying free-text requirements as well | 138 | not edges — see below |
 
 ## Why it resolves, and the FDA comparison
@@ -117,6 +118,17 @@ The prerequisite is read from its own markup block rather than from flattened
 page text, because flattening leaks the footer into the value. Navigation links
 are excluded by construction — only the prerequisite field counts.
 
+Resolution is strictly against the sitemap. The read pages are not folded into
+the set of published paths, so the check is not partly self-referential, and an
+off-site link is never counted even if its path happens to exist here — the
+claim being made is 100% and it should be airtight.
+
+A page that **renders the prerequisite field but yields no links** is counted and
+reported separately, not read as a course without prerequisites. If the
+catalogue's markup drifts, that number rises instead of the rate quietly
+falling — which is the same class of error this page was written to correct. It
+is currently zero, so the parse is verified rather than assumed.
+
 The probe refuses rather than reporting a figure it cannot vouch for: a sitemap
 with no `<loc>` entries, a sitemap with no course pages, or a sweep that parsed
 no courses. A page that cannot be read after one retry is **reported as unread**
@@ -124,4 +136,4 @@ rather than dropped, because a page we could not read is not a course without a
 prerequisite.
 
 `tests/test_probe_pwcs.py` covers the parsing, the resolution and the refusals;
-ten mutations were tried against it and all ten turn the suite red.
+fourteen mutations were tried against it and all fourteen turn the suite red.
