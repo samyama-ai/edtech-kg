@@ -2,8 +2,9 @@
 
 Issue #28 asked whether a pathway ontology already exists before #5 mints one.
 
-Every figure below is produced by `python -m etl.probe_ctdl`. Nothing here is
-hand-counted.
+Vocabulary figures below are produced by `python -m etl.probe_ctdl`, Registry
+figures by `python -m etl.probe_registry` — two sources, two licences, two
+scripts. Nothing here is hand-counted.
 
 **It does — and separately, almost nobody publishes against it.** The
 Credential Transparency Description Language publishes an openly licensed
@@ -104,49 +105,90 @@ which is finer than SOC alone.
 `credentialengineregistry.org` publishes five metadata communities. The probe
 reads each one's `x-total` header rather than paging:
 
-| community | records |
+| community | resources |
 |---|---:|
 | `ce-registry` | **671,681** |
 | `fdoe` — Florida Department of Education | **10,577** |
 | `mytxlibrary` — Texas | 0 |
 | `learning-registry` | 0 |
-| `chaffeycollege` | no total header |
+| `chaffeycollege` | `secured` — refuses an unauthenticated search (401) |
+| **all communities** | **682,259** — measured, not summed |
+| *unattributed* | 1 — the measured total minus the four readable |
 
 Two of those are state education departments — **the same Florida and Texas
 whose own websites returned 403 or carried no prerequisites in #40.** Florida
 publishes 10,577 records here; Texas publishes none, so the Registry is not a
 route past #40 for Texas.
 
-**One figure does not reconcile, and is left unreconciled.** The API root
-reports `total_envelopes: 406,431`, which is *smaller* than the 671,681 that
-`ce-registry` alone returns. Both are reported as measured; which one counts
-what is not established, and picking the flattering number would be guessing.
+**The last two rows are different kinds of number.** *All communities* is
+measured — one `x-total` for the whole Registry. *Unattributed* is arithmetic:
+that figure minus the four communities we can read. It is not a fifth
+measurement.
 
-Within `ce-registry`, by type:
+`chaffeycollege` refuses an unauthenticated search, so its count is unknown, and
+the single unattributed resource is most likely its — but that is inference, not
+measurement, and the probe does not assert it. It prints `secured` rather than a
+blank, because a gated community and an empty one are different facts and
+Texas's 0 is real. If a community ever failed for another reason, the probe says
+so and declines to call the remainder gated at all.
 
-| type | records |
+### The two totals count two different things — #59
+
+The API root reports `total_envelopes: 406,431`, *smaller* than the 682,259 that
+search returns across the same communities. That looked like a contradiction. It
+is not:
+
+| | counts | value |
+|---|---|---:|
+| root `total_envelopes` | **envelopes** — the deposited documents | 406,431 |
+| search `x-total` | **resources** — JSON-LD objects inside them | 682,259 |
+
+From the Registry's own source, `app/api/v1/root.rb` computes the root figure as
+`Envelope.not_deleted.count`, while search queries `EnvelopeResource`, which the
+model file describes as *"A JSON-LD object stored in an envelope."* One envelope
+can hold many: sampling across the result set found envelopes carrying up to
+**49 resources**, though most carry one.
+
+Two other explanations were plausible and were measured rather than argued away.
+Both are zero — `include_deleted=only` returns 0 and `provisional=only` returns
+0 — so neither deleted nor unpublished records account for the difference.
+
+**Which figure to use: the resource count.** "How many courses are published" is
+a question about resources. The envelope count answers "how many documents were
+deposited", which is not a question this graph asks. The `course` and `pathway`
+figures below are resource counts and are the right basis for the ratio.
+
+Within `ce-registry`, by type — resource counts on the basis just established:
+
+| type | resources |
 |---|---:|
 | `credential` | 133,346 |
 | `course` | **47,861** |
 | `learning_opportunity_profile` | 22,226 |
 | `pathway` | **98** |
 
-Ninety-eight pathways against 47,861 courses is the headline. The pathway
-vocabulary is rich and almost unused.
+Ninety-eight pathways against 47,861 courses is the headline, and it survives
+#59: both are resource counts on the same basis, so the ratio is a like-for-like
+comparison rather than an artefact of counting documents against objects.
 
 ## The edge exists and nobody uses it
 
-The probe samples 600 published courses and looks for a stated prerequisite:
+`python -m etl.probe_registry` samples 600 published courses and looks for a
+stated prerequisite:
 
 | | courses |
 |---|---:|
-| sampled | 600 |
-| stating a prerequisite | **83** |
+| sampled | **600** |
+| courses stating a prerequisite | **150** |
 | by a resolvable reference | **0** |
-| as free text only | **83** |
+| as free text only | **150** |
+
+The 600 are read at a fixed stride reaching pages 1–870 of 958, not taken from
+the head of the list — and not the whole population either; the last 88 pages
+are unsampled.
 
 `ceterms:prerequisite` — the typed Course→Course edge this document opened by
-celebrating — is used **zero times in 600 courses**. Every one of the 83 is a
+celebrating — is used **zero times in 600 courses**. Every one of the 150 is a
 `ConditionProfile` whose content is a description string:
 
 ```
@@ -162,9 +204,13 @@ record does not say. So the finding splits in two, and both halves are real:
 - **as a schema**, CTDL gives us the edge and we should adopt it (#33);
 - **as a data source**, it does not give us a single resolved prerequisite.
 
-A sample of 600 bounds this at the head of the result set, not across all
-47,861 — raise `--courses` to widen it. A larger sample could find a publisher
-using the typed form; it would not change that the common practice is prose.
+The stride replaced a consecutive read of pages 1–12, after the review of #57
+pointed out that reading from the head samples whatever sorts first. That
+correction nearly doubled the number of courses *stating* a prerequisite — and
+left the resolvable count at zero. #58 sweeps all 47,861 to remove the caveat.
+
+The Registry figures on this page come from `python -m etl.probe_registry`; the
+vocabulary figures from `python -m etl.probe_ctdl`.
 
 ## What this means for #33 and #5
 
@@ -195,8 +241,6 @@ is no such sentence.
 
 - **Whether any publisher anywhere uses the typed edge.** 600 courses found
   none. A full sweep of 47,861 is a different job and may find one
-- **Why the root total and the community totals disagree** — 406,431 against
-  671,681
 - Whether Florida's 10,577 records contain course data with prerequisites,
   which would be a direct route past #40's finding. Texas publishes nothing
   here, so that half is closed
@@ -210,7 +254,10 @@ is no such sentence.
 `credreg.net/ctdl/schema/encoding/json`, parsed with the standard library — no
 third-party dependency, as with the other probes. Property expectations read
 from `schema:domainIncludes` and `schema:rangeIncludes` and printed under those
-names. Registry totals from each community's `x-total` response header.
+names. Registry totals from each community's `x-total` response header, which counts
+resources; the root's `total_envelopes` counts envelopes, and the two are
+reconciled above against `app/api/v1/root.rb` and `app/models/envelope_resource.rb`
+in `github.com/CredentialEngine/CredentialRegistry`.
 Prerequisite rate from a 600-course sample of `/ce-registry/course/search`.
 Licence quoted from `credreg.net/page/termsofuse`.
 
