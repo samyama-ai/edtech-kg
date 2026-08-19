@@ -165,14 +165,15 @@ comparison rather than an artefact of counting documents against objects.
 
 ## The edge exists and nobody uses it
 
-The probe samples 600 published courses and looks for a stated prerequisite:
+`python -m etl.probe_registry` samples 600 published courses and looks for a
+stated prerequisite:
 
 | | courses |
 |---|---:|
-| sampled | 600 |
-| stating a prerequisite | **83** |
+| sampled | 600 — spread across all 47,861, not the first 600 |
+| stating a prerequisite | **150** |
 | by a resolvable reference | **0** |
-| as free text only | **83** |
+| as free text only | **150** |
 
 `ceterms:prerequisite` — the typed Course→Course edge this document opened by
 celebrating — is used **zero times in 600 courses**. Every one of the 150 is a

@@ -123,12 +123,18 @@ whether that institution published its other courses too.
 ## What this does and does not change
 
 **It does not move `docs/scope.md` §3.** Prerequisites remain unresolvable at
-scale. A 14% free-text rate over 47,861 courses is not a prerequisite graph.
+scale. A 25% free-text rate over 47,861 courses is not a prerequisite graph —
+a quarter of courses saying *something* about prerequisites is no help when none
+of it resolves.
 
-**It does change the comparison with PWCS.** Measured in #4: PWCS names a
-prerequisite on 45% of courses and **89% of those resolve** to a real course
-page, because both ends come from the same catalogue. The Registry has more
-courses and worse resolvability.
+**It does change the comparison with PWCS.** In #4, PWCS names a prerequisite on
+45% of courses and **89% of those resolve** to a real course page, because both
+ends come from the same catalogue. The Registry has far more courses and no
+resolvability at all.
+
+Those two PWCS figures come from #4, not from `probe_registry`, and are carried
+here for comparison. They are the one thing on this page not printed by the
+script — flagged rather than blended in.
 
 **Florida published 10,577 records** into the Registry while returning 403 on its
 own website (#40, #50). Whether those are courses with prerequisites was not
@@ -152,7 +158,9 @@ python -m etl.probe_registry --courses 2000  # widen the sample
 ```
 
 The same standard as `probe_education.py`, `probe_cipsoc.py` and
-`probe_state_courses.py`. Nothing on this page is hand-typed.
+`probe_state_courses.py`. **Every Registry figure on this page is printed by the
+script**; the two PWCS percentages in the comparison above come from #4 and are
+labelled where they appear.
 
 It is a separate script from `probe_ctdl.py` on purpose: **the vocabulary and
 the Registry are different sources with different licences**, and merging them

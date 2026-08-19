@@ -28,6 +28,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+import urllib.parse
 from datetime import datetime, timezone
 
 REGISTRY = "https://credentialengineregistry.org"
@@ -64,7 +65,7 @@ def total(path: str, **params) -> int | str | None:
     unauthenticated request. A gated community and an empty one are different
     facts and must not both print as a blank.
     """
-    query = "&".join(f"{k}={v}" for k, v in {"per_page": 1, **params}.items())
+    query = urllib.parse.urlencode({"per_page": 1, **params})
     try:
         headers = get(f"{REGISTRY}{path}?{query}", headers_only=True)
     except RuntimeError as exc:
@@ -126,9 +127,12 @@ def sample_pages(wanted: int, population: int | None) -> tuple[list[int], str]:
     rather than letting the reader assume otherwise.
     """
     pages_wanted = max(1, wanted // PER_PAGE)
+    # A request below one page reads one short page, not a full one.
+    size = min(PER_PAGE, wanted) if pages_wanted == 1 else PER_PAGE
+
     if not isinstance(population, int) or population <= 0:
         return (list(range(1, pages_wanted + 1)),
-                f"first {pages_wanted} pages of {PER_PAGE} — population unknown, "
+                f"first {pages_wanted} page(s) of {size} — population unknown, "
                 f"so the pages could not be spread; biased toward whatever sorts first")
 
     total_pages = max(1, -(-population // PER_PAGE))
@@ -136,10 +140,14 @@ def sample_pages(wanted: int, population: int | None) -> tuple[list[int], str]:
         return (list(range(1, total_pages + 1)),
                 f"every page — {population:,} records is the whole population, not a sample")
 
+    if pages_wanted == 1:
+        return ([1], f"the first {size} of {population:,} records — a single page, "
+                     f"so nothing is spread; biased toward whatever sorts first")
+
     stride = total_pages // pages_wanted
     pages = [1 + i * stride for i in range(pages_wanted)]
     return (pages,
-            f"{pages_wanted} pages of {PER_PAGE} at a stride of {stride}, spread across all "
+            f"{pages_wanted} pages of {size} at a stride of {stride}, spread across all "
             f"{total_pages:,} pages of {population:,} records — deterministic, "
             f"not random")
 
@@ -157,7 +165,23 @@ def course_prerequisites(sample: int = 600) -> dict:
     and the reader should be able to see that without asking.
     """
     def text(v):
-        return (v.get("en-US") or v.get("en") or "") if isinstance(v, dict) else (v or "")
+        """A CTDL language map, which is a dict, a bare string, or a list of
+        either. A list-valued map used to read as empty, which silently turned a
+        stated prerequisite into a course with none."""
+        if isinstance(v, list):
+            return " ".join(text(i) for i in v)
+        if isinstance(v, dict):
+            value = v.get("en-US") or v.get("en") or next(iter(v.values()), "")
+            return text(value)
+        return v or ""
+
+    def as_list(v):
+        """`ceterms:requires` is a list when a course has several conditions and
+        a bare object when it has one. Assuming the list raised AttributeError
+        on the single-condition form."""
+        if v is None:
+            return []
+        return v if isinstance(v, list) else [v]
 
     population = total("/ce-registry/course/search")
     pages, how = sample_pages(sample, population)
@@ -166,9 +190,14 @@ def course_prerequisites(sample: int = 600) -> dict:
     prose: list[str] = []
     publishers: set[str] = set()
     for page in pages:
+        # --courses 20 used to read a whole page of 50 and report "20 sampled".
+        # Ask for what was asked for.
+        size = min(PER_PAGE, sample) if len(pages) == 1 else PER_PAGE
         body = get(f"{REGISTRY}/ce-registry/course/search"
-                   f"?per_page={PER_PAGE}&page={page}")
+                   f"?per_page={size}&page={page}")
         for envelope in json.loads(body):
+            if courses >= sample:
+                break
             resource = envelope.get("decoded_resource") or {}
             for node in (resource.get("@graph") or [resource]):
                 if not isinstance(node, dict) or "Course" not in str(node.get("@type", "")):
@@ -180,7 +209,9 @@ def course_prerequisites(sample: int = 600) -> dict:
                     resolvable += 1
                     named += 1
                     continue
-                for condition in node.get("ceterms:requires") or []:
+                for condition in as_list(node.get("ceterms:requires")):
+                    if not isinstance(condition, dict):
+                        continue
                     if "prereq" not in text(condition.get("ceterms:name")).lower():
                         continue
                     named += 1
@@ -234,7 +265,7 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
         for t, v in registry["ce_registry_by_type"].items():
             print(f"    {t:34} {n(v):>8}")
 
-        print(f"\nprerequisites in published courses\n")
+        print("\nprerequisites in published courses\n")
         print(f"  sampled                {prereq['courses_sampled']:>6,}   "
               f"{prereq['sampling']}")
         print(f"  stating a prerequisite {prereq['stating_a_prerequisite']:>6,}")
