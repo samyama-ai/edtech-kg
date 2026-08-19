@@ -22,9 +22,17 @@ That reason is an argument, not a measurement, and it is labelled as one.
 | **New York** | ✅ XLSX | **2,012** | **No** | Comprehensive Course Catalog, SCED-based, full descriptions |
 | Florida | ✖ not parsed | — | not established | fldoe.org answered **403** on this run; CPALMS course search is a JavaScript app with no course API |
 | Virginia | ✖ not parsed | — | not established | doe.virginia.gov answered **403** on this run |
-| California | ✖ not parsed | — | not established | cde.ca.gov answered **303** on this run; code sets are inside a manual-download workbook |
+| California | ✖ not parsed | — | not established | cde.ca.gov answered **303 in a redirect loop** on this run — see below; code sets are inside a manual-download workbook |
 
 Two states measured, three not. Saying so rather than generalising from two.
+
+**California is a firewall, not a redirect.** The 303 is what `urlopen` reports
+after following the chain until it gives up; following it by hand takes 50 hops
+and lands on `www6.cde.ca.gov/wafalert.html`, a web-application-firewall alert
+page. So California is the same kind of finding as Florida and Virginia — an
+automated request being turned away — rather than a page that has moved. The
+probe records `redirect_loop: true` for it, which is the distinction #50 turns
+on: a blocked fetch is not evidence that data does not exist.
 
 **Those three statuses are re-fetched on every run, not remembered.** They were
 a hardcoded constant in the first version of the script, which meant Florida
@@ -144,7 +152,10 @@ that do not parse are fetched on every run and report whatever status the server
 gives today.
 
 It refuses rather than reporting a figure it cannot vouch for — an emptied
-source, a workbook with no `All courses` sheet, a response that is not a zip.
+source, a workbook with no `All courses` sheet, a response that is not a zip,
+or a Texas response missing the `Code` and `Translation` columns. That last one
+matters because a maintenance page served with a 200 parses as CSV perfectly
+well, and would otherwise be counted as courses.
 A file that is reachable but corrupt exits under `source malformed` rather than
 `refused`, because a broken download and an honest zero are different findings.
 

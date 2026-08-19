@@ -56,6 +56,11 @@ STRONG_TERMS = ("prerequisit", "pre-requisit", "must have completed", "before ta
 # printed table contradict the conclusion the document draws from it.
 WEAK_TERMS = ("prior to", "successful completion")
 
+# Columns TEA's C022 table has carried throughout. Their absence means the
+# response is not the code table — a 200 carrying a maintenance page parses as
+# CSV perfectly well and would otherwise be counted as courses.
+TEXAS_COLUMNS = ("code", "translation")
+
 # The sheet the course count comes from. If a future edition renames it, the
 # probe refuses rather than counting whichever sheet happens to be first.
 NY_COURSE_SHEET = "all courses"
@@ -101,7 +106,13 @@ def attempt(state: str, url: str) -> dict:
                     "redirected_to": final if final != url else None,
                     "bytes": len(response.read())}
     except urllib.error.HTTPError as exc:
-        return {"state": state, "url": url, "status": exc.code, "reason": exc.reason}
+        reason = str(exc.reason)
+        # urlopen follows redirects, so a 3xx only surfaces here when it gave up —
+        # in practice a loop, which is what a firewall bouncing the request looks
+        # like. Worth distinguishing from an ordinary redirect.
+        looping = 300 <= exc.code < 400 and "infinite loop" in reason.lower()
+        return {"state": state, "url": url, "status": exc.code,
+                "reason": reason.splitlines()[0], "redirect_loop": looping or None}
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return {"state": state, "url": url, "status": None, "reason": str(exc)}
 
@@ -115,6 +126,14 @@ def texas() -> dict:
     rows = list(csv.reader(io.StringIO(fetch(TEXAS).decode("utf-8-sig", "replace"))))
     if len(rows) < 2:
         raise ValueError("Texas C022 returned no rows — refusing to report that as a count")
+    header = [c.strip().lower() for c in rows[0]]
+    missing = [c for c in TEXAS_COLUMNS if not any(c in h for h in header)]
+    if missing:
+        raise ValueError(
+            f"Texas C022 is missing the {missing} column(s) — got {rows[0]!r}. "
+            f"An error page served with a 200 parses as CSV and would be counted "
+            f"as courses; refusing to report a figure from it."
+        )
     blob = " ".join(" ".join(r) for r in rows).lower()
     return {
         "state": "Texas",
@@ -146,14 +165,18 @@ def _cell_text(cell, strings: list[str]) -> str:
 
 
 def new_york() -> dict:
-    book = zipfile.ZipFile(io.BytesIO(fetch(NEW_YORK, expect=b"PK")))
+    payload = fetch(NEW_YORK, expect=b"PK")
     try:
+        # A truncated download starts with PK and is still not a workbook, so the
+        # magic-byte check above is necessary and not sufficient.
+        book = zipfile.ZipFile(io.BytesIO(payload))
         workbook = ET.fromstring(book.read("xl/workbook.xml"))
         rels = ET.fromstring(book.read("xl/_rels/workbook.xml.rels"))
         strings = ["".join(t.text or "" for t in si.iter(f"{{{NS['m']}}}t"))
                    for si in ET.fromstring(book.read("xl/sharedStrings.xml"))]
-    except (KeyError, ET.ParseError) as exc:
-        raise MalformedSource(f"the New York workbook is not readable ({exc})") from exc
+    except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+        raise MalformedSource(
+            f"the New York workbook is not readable ({type(exc).__name__}: {exc})") from exc
 
     target = {r.get("Id"): r.get("Target") for r in rels}
     sheets = {}

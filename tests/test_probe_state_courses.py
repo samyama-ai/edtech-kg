@@ -58,20 +58,35 @@ def test_an_http_error_names_the_url(monkeypatch):
 def test_texas_does_not_count_the_header_as_a_course(monkeypatch):
     """The bug this probe found. The document said 1,636; the file has 1,635
     courses and one header row."""
-    serve(monkeypatch, b"Code,Description\n01,Algebra I\n02,Biology\n")
+    serve(monkeypatch, b"Code,Translation\n01,Algebra I\n02,Biology\n")
     assert probe.texas()["courses"] == 2
 
 
 def test_texas_refuses_a_header_only_file(monkeypatch):
     """A source that has been emptied must not report as zero courses — that
     reads as a finding rather than as a broken download."""
-    serve(monkeypatch, b"Code,Description\n")
+    serve(monkeypatch, b"Code,Translation\n")
     with pytest.raises(ValueError, match="refusing"):
         probe.texas()
 
 
+def test_texas_refuses_a_page_that_parses_as_csv_but_is_not_the_table(monkeypatch):
+    """TEA serving a 200 maintenance page parses as CSV perfectly well. Without
+    a column check the probe prints a confident "Texas … N courses" — the exact
+    wrong-number-that-looks-right this file exists to prevent. New York was
+    guarded by its magic bytes and Texas was not."""
+    serve(monkeypatch, b"<html><body>\nService unavailable\nPlease try later\n</body></html>")
+    with pytest.raises(ValueError, match="missing the"):
+        probe.texas()
+
+
+def test_texas_accepts_the_real_header(monkeypatch):
+    serve(monkeypatch, b"Code,Translation,Subject\n01,Algebra I,Math\n")
+    assert probe.texas()["courses"] == 1
+
+
 def test_texas_finds_a_prerequisite_term_if_one_is_there(monkeypatch):
-    serve(monkeypatch, b"Code,Description\n01,Algebra II. Prerequisite: Algebra I\n")
+    serve(monkeypatch, b"Code,Translation\n01,Algebra II. Prerequisite: Algebra I\n")
     assert probe.texas()["prerequisite_terms"]["strong"]["prerequisit"] == 1
 
 
@@ -151,6 +166,21 @@ def test_trailing_rows_with_no_values_are_not_courses(monkeypatch):
     assert r["courses"] == 1
 
 
+def test_a_truncated_zip_is_malformed_not_a_traceback(monkeypatch):
+    """A partial download starts with PK and is still not a workbook, so the
+    magic-byte check is necessary and not sufficient. BadZipFile used to escape
+    main() entirely — a stack trace, not the documented exit 3."""
+    serve(monkeypatch, b"PK\x03\x04garbage-not-a-real-zip")
+    with pytest.raises(probe.MalformedSource, match="BadZipFile"):
+        probe.new_york()
+
+
+def test_a_truncated_zip_exits_three_through_main(monkeypatch):
+    monkeypatch.setattr(probe, "texas", lambda: {"state": "Texas", "courses": 1})
+    serve(monkeypatch, b"PK\x03\x04garbage-not-a-real-zip")
+    assert probe.main([]) == 3
+
+
 def test_an_empty_courses_sheet_is_refused(monkeypatch):
     with pytest.raises(ValueError, match="refusing"):
         ny(monkeypatch, {"All courses": [s(0)]}, ["Code"])
@@ -213,6 +243,29 @@ def test_a_state_that_starts_serving_is_not_reported_as_blocked(monkeypatch):
     assert probe.attempt("Florida", "https://x")["status"] == 200
 
 
+def test_a_redirect_loop_is_named_as_one(monkeypatch):
+    """California answers 303 because urlopen follows redirects until it gives
+    up — 50 hops ending on a firewall alert page. That is a block, not a
+    relocation, and #50 turns on the difference."""
+    monkeypatch.setattr(probe.urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            urllib.error.HTTPError(
+                                "u", 303,
+                                "The HTTP server returned a redirect error that would "
+                                "lead to an infinite loop.\nSee Other", {}, io.BytesIO(b""))))
+    r = probe.attempt("California", "https://x")
+    assert r["status"] == 303
+    assert r["redirect_loop"] is True
+    assert "\n" not in r["reason"]          # one line, for the table
+
+
+def test_an_ordinary_block_is_not_reported_as_a_loop(monkeypatch):
+    monkeypatch.setattr(probe.urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b""))))
+    assert probe.attempt("Florida", "https://x")["redirect_loop"] is None
+
+
 def test_a_redirect_records_where_it_went(monkeypatch):
     class R:
         status = 200
@@ -250,7 +303,7 @@ def test_weak_terms_are_kept_out_of_the_strong_count():
 # --------------------------------------------------------------------------
 
 def test_a_refusal_exits_one_and_prints_no_table(monkeypatch, capsys):
-    serve(monkeypatch, b"Code,Description\n")
+    serve(monkeypatch, b"Code,Translation\n")
     assert probe.main([]) == 1
     assert "courses" not in capsys.readouterr().out
 
