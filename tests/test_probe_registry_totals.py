@@ -40,7 +40,7 @@ def test_deleted_and_provisional_are_measured_not_assumed(monkeypatch):
     asking rather than by asserting they are zero."""
     headers_stub(monkeypatch, {
         f"{probe.REGISTRY}/ce-registry/search?per_page=1&include_deleted=only": 7,
-        f"{probe.REGISTRY}/search?per_page=1&provisional=only": 3,
+        f"{probe.REGISTRY}/ce-registry/search?per_page=1&provisional=only": 3,
         "/search": 100})
     r = probe.registry_totals()
     assert r["deleted_resources"] == 7 and r["provisional_resources"] == 3

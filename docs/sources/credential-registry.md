@@ -49,7 +49,8 @@ pages 1–870 of 958**, rather than the first 600:
 |---|---:|---:|
 | Courses inspected | 600 | 1.25% of 47,861 |
 | Distinct publishers in the sample | 13 | |
-| Whose condition is named "Prerequisites" | **150** | **25%** |
+| **Courses** stating a prerequisite | **150** | **25%** |
+| …whose prerequisite block carries nothing | 0 | not counted above |
 | …pointing at a resolvable target | **0** | **0%** |
 | …free text only | **150** | **100%** |
 
@@ -71,6 +72,16 @@ both samples.**
 The spread sample is deterministic — a fixed stride, so the figure reproduces —
 but it is still **not random**, and 13 distinct publishers across 600 records is
 a narrow base.
+
+**The 150 is courses, not condition profiles.** The review of this PR found the
+count was per-condition, so a course carrying both "Prerequisites" and
+"Prerequisite (recommended)" would have counted twice; and a profile named
+"Prerequisites" whose description was absent, empty, or the word "None" counted
+as stating one and then as free text. Both are fixed, and **re-measuring did not
+move the figure** — no sampled course carries two matching profiles and none
+carries an empty block. So the 83 → 150 rise is the sampling change, which is
+what this page already claimed and can now say with the overcount ruled out
+rather than assumed away.
 
 **And it does not reach the end.** A fixed stride from page 1 stops at page 870,
 so the last **88 pages — roughly 4,400 courses — are never read**. An earlier

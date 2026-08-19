@@ -76,7 +76,7 @@ def test_a_missing_property_is_none_rather_than_an_invented_blank(monkeypatch):
 def test_an_html_error_page_is_refused(monkeypatch):
     """A 200 carrying an error page would otherwise be reported as zero classes."""
     stub(monkeypatch, b"<html>Service Unavailable</html>")
-    with pytest.raises(ValueError, match="did not return JSON"):
+    with pytest.raises(net.MalformedSource, match="did not return JSON"):
         probe.vocabulary()
 
 
@@ -98,9 +98,11 @@ def test_an_http_error_names_the_status(monkeypatch):
 # the CLI
 # --------------------------------------------------------------------------
 
-def test_refusal_exits_nonzero_without_printing_a_table(monkeypatch, capsys):
+def test_an_html_error_page_exits_as_malformed_not_refused(monkeypatch, capsys):
+    """A 200 carrying HTML and a truncated JSON body are the same class of
+    failure. They were exiting under two different categories."""
     stub(monkeypatch, b"<html>down</html>")
-    assert probe.main(["--json"]) == 1
+    assert probe.main(["--json"]) == 3
     assert "terms" not in capsys.readouterr().out
 
 

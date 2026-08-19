@@ -34,8 +34,8 @@ from datetime import datetime, timezone
 # The Registry is a different source with a different licence, so it has its own
 # probe. Imported rather than duplicated — one place measures it. `get` carries
 # the shared User-Agent, which is why this module defines none of its own.
-from etl.probe_registry import (MalformedSource, course_prerequisites, get,
-                                parse, print_registry, registry_totals)
+from etl.probe_registry import (MalformedSource, course_prerequisites, get, parse,
+                                positive, print_registry, registry_totals)
 
 VOCAB = "https://credreg.net/ctdl/schema/encoding/json"
 
@@ -44,7 +44,10 @@ def vocabulary() -> dict:
     """Count the published vocabulary by RDF type."""
     payload = get(VOCAB)
     if not payload.lstrip().startswith(b"{"):
-        raise ValueError(
+        # MalformedSource, not ValueError: an HTML error page and a truncated
+        # JSON body are the same class of failure and were exiting under two
+        # different categories.
+        raise MalformedSource(
             f"{VOCAB} did not return JSON — got {payload[:40]!r}. A 200 carrying "
             f"an error page would otherwise be counted as zero classes."
         )
@@ -99,9 +102,7 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
             print(f"    {k:24} {v:>6,}")
         print(f"    {'pathway-related classes':24} {len(vocab['pathway_classes']):>6}")
 
-    if not quiet:
         print_registry(registry)
-
         print("\nprerequisites in published courses\n")
         print(f"  sampled                {prereq['courses_sampled']:>6,}   "
               f"{prereq['sampling']}")
@@ -118,7 +119,7 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
 def main(argv: list[str] | None = None) -> int:
     summary = (__doc__ or "").splitlines()
     parser = argparse.ArgumentParser(description=summary[0] if summary else None)
-    parser.add_argument("--courses", type=int, default=600,
+    parser.add_argument("--courses", type=positive, default=600,
                         help="How many published courses to sample (default 600).")
     parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
     args = parser.parse_args(argv)

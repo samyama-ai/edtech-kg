@@ -331,7 +331,8 @@ def test_an_empty_target_is_not_a_resolvable_reference(monkeypatch):
     above already applied — and inflating the one number this module produces."""
     paged(monkeypatch, {1: [course(**{"ceterms:requires": [
         {"ceterms:name": {"en-US": "Prerequisites"},
-         "ceterms:targetCredential": []}]})]})
+         "ceterms:targetCredential": [],
+         "ceterms:description": {"en-US": "PSYC101"}}]})]})
     r = probe.course_prerequisites(sample=50)
     assert (r["stating_a_prerequisite"], r["resolvable"]) == (1, 0)
 
@@ -348,3 +349,67 @@ def test_a_non_dict_envelope_is_skipped_not_crashed(monkeypatch):
     array raised AttributeError on `.get`."""
     paged(monkeypatch, {1: ["a bare string", course(), None]})
     assert probe.course_prerequisites(sample=50)["courses_sampled"] == 1
+
+
+def test_two_matching_conditions_on_one_course_count_once(monkeypatch):
+    """The loop had no per-course flag, so a course carrying "Prerequisites"
+    and "Prerequisite (recommended)" incremented the count twice — the figure
+    counted condition profiles while both documents read it as a share of
+    courses."""
+    paged(monkeypatch, {1: [course(**{"ceterms:requires": [
+        {"ceterms:name": {"en-US": "Prerequisites"},
+         "ceterms:description": {"en-US": "PSYC101"}},
+        {"ceterms:name": {"en-US": "Prerequisite (recommended)"},
+         "ceterms:description": {"en-US": "MATH100"}}]})]})
+    r = probe.course_prerequisites(sample=50)
+    assert r["courses_sampled"] == 1
+    assert r["stating_a_prerequisite"] == 1
+
+
+@pytest.mark.parametrize("description", [None, "", "   ", "None", "n/a"])
+def test_a_prerequisite_block_carrying_nothing_is_not_free_text(monkeypatch, description):
+    """A profile named "Prerequisites" whose description is absent, empty, or
+    the word "None" was counted as stating one and then as free text. "None" is
+    a statement that there are none; an empty one says nothing at all."""
+    condition = {"ceterms:name": {"en-US": "Prerequisites"}}
+    if description is not None:
+        condition["ceterms:description"] = {"en-US": description}
+    paged(monkeypatch, {1: [course(**{"ceterms:requires": [condition]})]})
+    r = probe.course_prerequisites(sample=50)
+    assert r["stating_a_prerequisite"] == 0
+    assert r["free_text_only"] == 0
+    assert r["stated_but_empty"] == 1
+
+
+def test_pages_read_is_what_was_fetched_not_what_was_planned(monkeypatch):
+    """`pages_read` returned the plan. The cap can end the walk early, so on
+    such a run the documents quoted a reach the run did not have."""
+    paged(monkeypatch, {1: [{"decoded_resource": {"@graph": [
+        {"@type": "ceterms:Course"} for _ in range(20)]}} for _ in range(50)]})
+    r = probe.course_prerequisites(sample=600)
+    assert r["pages_read"] == [1], r["pages_read"]
+    assert "single page" in r["sampling"], r["sampling"]
+    assert "1-870" not in r["sampling"], "claimed a reach the walk did not have"
+
+
+def test_a_competency_target_is_not_a_resolvable_prerequisite(monkeypatch):
+    """A competency target says what you must be able to do, not which course
+    you must have taken. The page argues about the Course -> Course edge."""
+    paged(monkeypatch, {1: [course(**{"ceterms:requires": [
+        {"ceterms:name": {"en-US": "Prerequisites"},
+         "ceterms:targetCompetency": [{"@id": "https://x/c/1"}],
+         "ceterms:description": {"en-US": "Able to weld"}}]})]})
+    assert probe.course_prerequisites(sample=50)["resolvable"] == 0
+
+
+def test_the_publisher_spread_is_printed_not_only_in_json(monkeypatch, capsys):
+    """The docstring says publisher spread is reported alongside the rate, and
+    the document quotes "13 distinct publishers" — but only --json carried it."""
+    paged(monkeypatch, {1: [course()]})
+    monkeypatch.setattr(probe, "registry_totals", lambda: {
+        "source": "x", "envelopes_root": 1, "resources_all_communities": 1,
+        "communities": {}, "ce_registry_by_type": {}, "deleted_resources": 0,
+        "provisional_resources": 0, "unattributed": 0,
+        "secured_communities": [], "failed_communities": []})
+    probe.probe(sample=50)
+    assert "distinct publishers" in capsys.readouterr().out

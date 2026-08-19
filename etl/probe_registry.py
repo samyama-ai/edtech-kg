@@ -38,8 +38,11 @@ COMMUNITIES = ["ce-registry", "fdoe", "mytxlibrary", "learning-registry", "chaff
 TYPES = ["course", "credential", "learning_opportunity_profile", "pathway"]
 
 # Terms whose presence would mean a prerequisite is stated in a resolvable way.
-RESOLVABLE = ("ceterms:targetLearningOpportunity", "ceterms:targetCredential",
-              "ceterms:targetCompetency")
+# A resolvable prerequisite points at something a learner completes. A
+# competency target is a different claim — it says what you must be able to do,
+# not which course you must have taken — so it is deliberately not here. The
+# page argues about the Course -> Course edge and this list must match it.
+RESOLVABLE = ("ceterms:targetLearningOpportunity", "ceterms:targetCredential")
 
 PER_PAGE = 50
 MAX_EXAMPLES = 6     # enough to check the "free text" claim, not to reproduce the sample
@@ -150,8 +153,11 @@ def registry_totals() -> dict:
         "resources_all_communities": everywhere,
         "communities": communities,
         "ce_registry_by_type": {t: total(f"/ce-registry/{t}/search") for t in TYPES},
+        # Both ce-registry-scoped. They were printed side by side against a
+        # global gap while one was global and one was not, so the comparison
+        # did not say what it looked like it said.
         "deleted_resources": total("/ce-registry/search", include_deleted="only"),
-        "provisional_resources": total("/search", provisional="only"),
+        "provisional_resources": total("/ce-registry/search", provisional="only"),
         # What the readable communities do not account for. The remainder
         # belongs to the gated community; if it ever exceeds what that can hold,
         # a community exists which COMMUNITIES does not list.
@@ -162,6 +168,33 @@ def registry_totals() -> dict:
         "failed_communities": failed,
         "unattributed": (everywhere - readable) if isinstance(everywhere, int) else None,
     }
+
+
+def describe(read: list[int], size: int, population: int | None) -> str:
+    """How the sample was actually taken.
+
+    Takes the pages that were *read*, never the pages that were planned. The
+    two differ whenever the per-course cap ends the walk early, and describing
+    the plan let the documents quote a reach the run did not have.
+    """
+    if not read:
+        return "nothing was read"
+    if not isinstance(population, int) or population <= 0:
+        return (f"{len(read)} page(s) of {size} — population unknown, so the pages "
+                f"could not be spread; biased toward whatever sorts first")
+
+    total_pages = max(1, -(-population // PER_PAGE))
+    if len(read) >= total_pages:
+        return f"every page — {population:,} records is the whole population, not a sample"
+    if len(read) == 1:
+        return (f"the first {size} of {population:,} records — a single page, so nothing "
+                f"is spread; biased toward whatever sorts first")
+
+    stride = read[1] - read[0]
+    tail = total_pages - read[-1]
+    return (f"{len(read)} pages of {size} at a stride of {stride}, reaching pages "
+            f"{read[0]}-{read[-1]} of {total_pages:,} ({population:,} records); "
+            f"the last {tail:,} pages are not sampled — deterministic, not random")
 
 
 def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int, str]:
@@ -242,14 +275,16 @@ def course_prerequisites(sample: int = 600) -> dict:
         return v if isinstance(v, list) else [v]
 
     population = total("/ce-registry/course/search")
-    pages, size, how = sample_pages(sample, population)
+    planned, size, _ = sample_pages(sample, population)
+    read: list[int] = []
 
-    courses = named = resolvable = 0
+    courses = named = resolvable = stated_but_empty = 0
     prose: list[str] = []
     publishers: set[str] = set()
-    for page in pages:
+    for page in planned:
         if courses >= sample:
             break                       # the cap ends the walk, not just the page
+        read.append(page)
         body = get(f"{REGISTRY}/ce-registry/course/search"
                    f"?per_page={size}&page={page}")
         page_body = parse(body, f"page {page} of the course search")
@@ -273,42 +308,64 @@ def course_prerequisites(sample: int = 600) -> dict:
                 courses += 1
                 publishers.add(str(envelope.get("published_by")
                                    or envelope.get("owned_by") or "unknown"))
+                # Per COURSE, not per condition. Without these flags a course
+                # carrying "Prerequisites" and "Prerequisite (recommended)"
+                # incremented the count twice, so the figure counted profiles
+                # while the documents read it as a share of courses.
+                states = resolves = empty = False
+
                 typed = node.get("ceterms:prerequisite")
                 if typed:
                     # Present but empty is not a reference. Counting the key
                     # alone would credit the Registry with resolvable edges it
                     # does not publish — the opposite of this probe's finding.
-                    named += 1
-                    if any(isinstance(v, (dict, str)) and v for v in as_list(typed)):
-                        resolvable += 1
-                    continue
+                    states = True
+                    resolves = any(isinstance(v, (dict, str)) and v for v in as_list(typed))
+
                 for condition in as_list(node.get("ceterms:requires")):
                     if not isinstance(condition, dict):
                         continue
                     if "prereq" not in text(condition.get("ceterms:name")).lower():
                         continue
-                    named += 1
                     # Truthy, not merely present — the same test the typed branch
                     # above applies. A present-but-empty targetCredential is not
                     # a reference, and counting it would inflate the one number
                     # this module exists to produce.
                     if any(condition.get(k) for k in RESOLVABLE):
-                        resolvable += 1
+                        states = resolves = True
+                        continue
+                    described = text(condition.get("ceterms:description")).strip()
+                    # "Prerequisites: None" is a statement that there are none.
+                    # An absent or empty description says nothing at all. Neither
+                    # is free text naming a course, and counting either inflates
+                    # the rate the documents quote.
+                    if described and described.lower() not in ("none", "n/a", "na", "-"):
+                        states = True
+                        prose.append(described[:EXAMPLE_CHARS])
                     else:
-                        described = text(condition.get("ceterms:description")).strip()
-                        if described:
-                            prose.append(described[:EXAMPLE_CHARS])
+                        empty = True
+
+                named += states
+                resolvable += resolves
+                stated_but_empty += empty and not states
     if not courses:
         raise ValueError("no course records returned — refusing to report a rate over zero")
+    # Described AFTER the walk, from the pages actually fetched. Describing the
+    # plan let the documents quote a reach the run did not have whenever the cap
+    # ended the walk early — the same failure the "does not claim the tail it
+    # skips" fix addresses one level up.
     return {
         "courses_sampled": courses,
         "population": population,
-        "sampling": how,
-        "pages_read": pages,
+        "sampling": describe(read, size, population),
+        "pages_read": read,
         "distinct_publishers": len(publishers),
         "stating_a_prerequisite": named,
         "resolvable": resolvable,
         "free_text_only": named - resolvable,
+        # A prerequisite block carrying nothing — no description, an empty one,
+        # or the word "None". Reported rather than folded into either figure.
+        "stated_but_empty": stated_but_empty,
         "examples": prose[:MAX_EXAMPLES],
     }
 
@@ -328,7 +385,7 @@ def print_registry(registry: dict) -> None:
           f"{n(registry['resources_all_communities']):>10}")
     print("  — different objects, not a contradiction: one envelope holds "
           "one or many resources")
-    print(f"  deleted {n(registry['deleted_resources'])}, "
+    print(f"  ce-registry deleted {n(registry['deleted_resources'])}, "
           f"provisional {n(registry['provisional_resources'])} — "
           f"neither explains the gap")
 
@@ -365,6 +422,11 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
         print(f"  stating a prerequisite {prereq['stating_a_prerequisite']:>6,}")
         print(f"  resolvable reference   {prereq['resolvable']:>6,}")
         print(f"  free text only         {prereq['free_text_only']:>6,}")
+        if prereq["stated_but_empty"]:
+            print(f"  stated but empty       {prereq['stated_but_empty']:>6,}"
+                  f"   — a prerequisite block carrying nothing")
+        print(f"  across                 {prereq['distinct_publishers']:>6,} "
+              f"distinct publishers")
         print(f"\n  measured {stamp}")
         print("  reproduce with: python -m etl.probe_registry\n")
 

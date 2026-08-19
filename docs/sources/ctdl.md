@@ -172,7 +172,7 @@ stated prerequisite:
 | | courses |
 |---|---:|
 | sampled | **600** |
-| stating a prerequisite | **150** |
+| courses stating a prerequisite | **150** |
 | by a resolvable reference | **0** |
 | as free text only | **150** |
 
