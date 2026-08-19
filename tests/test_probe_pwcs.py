@@ -339,3 +339,54 @@ def test_an_absolute_link_on_the_catalogue_host_does_resolve():
     recs = [probe.parse_course(page, "https://catalog.pwcs.edu/agriculture/landscaping-2")]
     r = probe.resolve(recs, catalogue=["https://catalog.pwcs.edu/agriculture/landscaping-1"])
     assert r["every_link_resolves"] == 1
+
+
+def test_the_reported_path_count_is_the_set_used_for_resolution(monkeypatch):
+    """`published_paths` reported a set built differently from the one
+    resolution uses.
+
+    No behavioural test can separate the two: inside `probe()` every record is
+    parsed from a sitemap URL, so the old union was provably equal to the
+    sitemap set. The fix is that the reported figure is now built the same way
+    resolution builds its set, rather than happening to agree — so this asserts
+    the count, and the invariant is stated rather than pretended to be
+    observable."""
+    serve(monkeypatch, {probe.SITEMAP: SITEMAP,
+                        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+                        "https://catalog.pwcs.edu/agriculture/landscaping-2": COURSE})
+    result = probe.probe(quiet=True)
+    assert result["published_paths"] == 2, "counted more than the sitemap publishes"
+    assert result["published_paths"] == result["population"]
+
+
+def test_the_cache_write_states_its_encoding():
+    """A behavioural test cannot see this on a UTF-8 system, and the read
+    states `encoding="utf-8"` — so the write must too, or the pair only agrees
+    by accident of locale."""
+    import inspect
+    source = inspect.getsource(probe.fetch)
+    write = [line for line in source.splitlines() if "write_text" in line]
+    assert write, "no write in fetch()"
+    assert all('encoding="utf-8"' in line for line in write), write
+
+
+def test_a_cache_write_is_atomic(monkeypatch, tmp_path):
+    """A direct write interrupted midway leaves a truncated page that every
+    later run reads as though it were real — a silent wrong answer with no
+    retry. Written to a sibling and renamed instead."""
+    monkeypatch.setattr(probe, "CACHE", tmp_path)
+    renamed = []
+    real_replace = probe.Path.replace
+    monkeypatch.setattr(probe.Path, "replace",
+                        lambda self, target: (renamed.append(self.suffix), real_replace(self, target))[1])
+
+    class R:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"<html><h1>X</h1></html>"
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: R())
+    monkeypatch.setattr(probe.time, "sleep", lambda *a: None)
+
+    probe.fetch("https://catalog.pwcs.edu/a/b")
+    assert renamed == [".partial"], "wrote straight to the cache key"
+    assert not list(tmp_path.glob("*.partial")), "left a partial behind"

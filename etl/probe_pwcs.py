@@ -104,7 +104,13 @@ def fetch(url: str, use_cache: bool = True) -> str:
         raise RuntimeError(f"unreachable: {url} ({exc})") from exc
     if use_cache:
         key.parent.mkdir(parents=True, exist_ok=True)
-        key.write_text(body, encoding="utf-8")
+        # Written to a sibling and renamed. A direct write interrupted midway
+        # leaves a truncated page that every later run reads from cache as
+        # though it were the real one — a silent wrong answer with no retry.
+        # Encoding is stated on the write because the read states it.
+        partial = key.with_suffix(".partial")
+        partial.write_text(body, encoding="utf-8")
+        partial.replace(key)
     time.sleep(DELAY)
     return body
 
@@ -261,8 +267,10 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     result |= {"population": population, "pages_read": len(read),
                "not_a_course_page": skipped,
                "unread": len(unread), "unread_examples": unread[:5], "coverage": coverage,
-               "published_paths": len({path_of(u) for u in urls}
-                                     | {path_of(r["url"]) for r in records})}
+               # The number reported must BE the set used for resolution.
+               # Reporting a wider one made the 100% look like it was checked
+               # against more than it was.
+               "published_paths": len({path_of(u) for u in urls} - {None})}
 
     if not quiet:
         print(f"\nPWCS course catalogue — catalog.pwcs.edu\n")

@@ -28,6 +28,7 @@ exactly rather than crawled blind. All of it was read — not a sample.
 | **Resolvable prerequisite edges** | **240** | loadable today |
 | Dangling links | **0** | |
 | Prerequisite field rendered but unreadable | **0** | the parser is not silently missing any |
+| Pages that could not be read | **0** | excluded, never counted as having no prerequisite |
 | Carrying free-text requirements as well | 138 | not edges — see below |
 
 ## Why it resolves, and the FDA comparison
@@ -66,9 +67,14 @@ These are real conditions and they are **not course references**. They are
 counted and reported separately, never folded into the 240, because loading them
 as edges would claim a link the source does not make.
 
-This matches the reuse decision in `docs/ontology-reuse.md`:
-`schema:coursePrerequisites` accepts a `Course` **or** free `Text`, so both
-shapes have a home without inventing one.
+Both shapes have a home without inventing one, because
+[`schema:coursePrerequisites`](https://schema.org/coursePrerequisites) accepts a
+`Course` **or** free `Text` — its own definition says *"may be completion of
+another Course or a textual description like 'permission of instructor'"*.
+
+(The reuse decision that picks that term over CTDL's stricter
+`ceterms:prerequisite` is #33, landing separately in #61. It is named here
+rather than linked, because that file is not in this branch's tree.)
 
 ## Three corrections this probe produced
 
