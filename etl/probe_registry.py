@@ -92,10 +92,21 @@ def total(path: str, **params) -> int | str | None:
     try:
         headers = get(f"{REGISTRY}{path}?{query}", headers_only=True)
     except HttpStatus as exc:
-        return "secured" if exc.code in (401, 403) else None
+        # Three different facts, three different answers. "secured" is a claim
+        # about the community; anything else is a claim about the request, and
+        # print_registry must not label the remainder "the gated community"
+        # when a community merely failed.
+        if exc.code in (401, 403):
+            return "secured"
+        return f"error {exc.code}" if exc.code else "unreachable"
     # HTTPMessage looks up case-insensitively; dict() threw that away.
     raw = headers.get("x-total")
-    return int(raw) if raw and str(raw).isdigit() else None
+    if raw and str(raw).isdigit():
+        return int(raw)
+    # Answered, but not with a count. Degrading this to None reads as "unknown
+    # population" and silently widens the sampling caveat instead of saying the
+    # source is broken.
+    return "no x-total header"
 
 
 def parse(payload: bytes, what: str):
@@ -129,7 +140,9 @@ def registry_totals() -> dict:
     communities = {c: total(f"/{c}/search") for c in COMMUNITIES}
     everywhere = total("/search")
     readable = sum(v for v in communities.values() if isinstance(v, int))
-    unreadable = [c for c, v in communities.items() if not isinstance(v, int)]
+    secured = [c for c, v in communities.items() if v == "secured"]
+    failed = [c for c, v in communities.items()
+              if not isinstance(v, int) and v != "secured"]
 
     return {
         "source": REGISTRY,
@@ -145,7 +158,8 @@ def registry_totals() -> dict:
         #
         # `unreadable_communities` names the ones that did not answer, so the
         # remainder is not quietly absorbing an error and reading as records.
-        "unreadable_communities": unreadable,
+        "secured_communities": secured,
+        "failed_communities": failed,
         "unattributed": (everywhere - readable) if isinstance(everywhere, int) else None,
     }
 
@@ -162,9 +176,6 @@ def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int, s
     It is still not a random sample, and the returned description says so
     rather than letting the reader assume otherwise.
     """
-    if wanted < 1:
-        raise ValueError(f"--courses must be at least 1, got {wanted}")
-
     # Ceiling, not floor: --courses 130 asked for three pages' worth and got
     # two, silently sampling 100. The per-course cap trims the overshoot.
     pages_wanted = max(1, -(-wanted // PER_PAGE))
@@ -249,6 +260,8 @@ def course_prerequisites(sample: int = 600) -> dict:
         for envelope in page_body:
             if courses >= sample:
                 break
+            if not isinstance(envelope, dict):
+                continue        # the list shape is checked; its elements are not
             resource = envelope.get("decoded_resource") or {}
             for node in (resource.get("@graph") or [resource]):
                 # Checked per course, not per envelope: one @graph can carry
@@ -275,7 +288,11 @@ def course_prerequisites(sample: int = 600) -> dict:
                     if "prereq" not in text(condition.get("ceterms:name")).lower():
                         continue
                     named += 1
-                    if any(k in condition for k in RESOLVABLE):
+                    # Truthy, not merely present — the same test the typed branch
+                    # above applies. A present-but-empty targetCredential is not
+                    # a reference, and counting it would inflate the one number
+                    # this module exists to produce.
+                    if any(condition.get(k) for k in RESOLVABLE):
                         resolvable += 1
                     else:
                         described = text(condition.get("ceterms:description")).strip()
@@ -318,11 +335,16 @@ def print_registry(registry: dict) -> None:
     print("\n  resources by community\n")
     for community, value in registry["communities"].items():
         print(f"    {community:22} {n(value):>10}")
-    unreadable = registry.get("unreadable_communities") or []
-    print(f"    {'unattributed':22} {n(registry['unattributed']):>10}"
-          + ("   (the gated community)" if len(unreadable) < 2 else
-             f"   — but {len(unreadable)} communities did not answer, so this "
-             f"is not attributable: {', '.join(unreadable)}"))
+    secured = registry.get("secured_communities") or []
+    failed = registry.get("failed_communities") or []
+    if failed:
+        note = (f"   — {len(failed)} community/ies did not answer "
+                f"({', '.join(failed)}), so this is not attributable")
+    elif len(secured) == 1:
+        note = f"   (the gated community: {secured[0]})"
+    else:
+        note = f"   ({len(secured)} gated communities, so not attributable to one)"
+    print(f"    {'unattributed':22} {n(registry['unattributed']):>10}{note}")
 
     print("\n  ce-registry resources by type\n")
     for kind, value in registry["ce_registry_by_type"].items():
@@ -350,10 +372,20 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
             "course_prerequisites": prereq}
 
 
+def positive(value: str) -> int:
+    """A CLI argument check. Bad input is argparse's job — exiting under
+    "refused" would put it in the category this module reserves for figures it
+    declines to report, which is a different thing entirely."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {number}")
+    return number
+
+
 def main(argv: list[str] | None = None) -> int:
     summary = (__doc__ or "").splitlines()
     parser = argparse.ArgumentParser(description=summary[0] if summary else None)
-    parser.add_argument("--courses", type=int, default=600,
+    parser.add_argument("--courses", type=positive, default=600,
                         help="How many published courses to sample (default 600).")
     parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
     args = parser.parse_args(argv)
