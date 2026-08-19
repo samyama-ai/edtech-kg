@@ -31,11 +31,15 @@ Recording that rather than letting the silence read as absence.
 
 **The CIP-SOC crosswalk is the important one.** It is the join every answerable
 question in `../questions.md` depends on — the government-published link from a
-degree programme to the occupations it leads to. It is published as a
-spreadsheet rather than an API, so it needs its own probe once the file is
-mirrored somewhere citable. Counted by hand on 2026-08-13 at 6,097 rows, 2,143
-CIP codes and 868 SOC codes; **that figure is not yet reproducible from code
-and should not be quoted as measured until it is.**
+degree programme to the occupations it leads to. NCES publishes it as a
+spreadsheet rather than an API, so it has its own probe:
+`python -m etl.probe_cipsoc`. Measured 2026-08-18 at **6,097 mappings**, 2,143
+CIP codes and 868 SOC codes, with 194 programmes mapping to no occupation and
+180 occupations reachable from no programme. Full detail in
+[`cip-soc-crosswalk.md`](cip-soc-crosswalk.md).
+
+O*NET remains a bulk download rather than a queryable count, and is still
+unprobed.
 
 ## Reproducing
 

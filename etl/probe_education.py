@@ -14,9 +14,8 @@ rather than a walk.
 
 Sources it does NOT reach, and why:
 
-  CIP-SOC crosswalk   Published by NCES as a spreadsheet, not an API. It is the
-                      join the whole graph rests on, so it gets its own probe
-                      once the file is mirrored somewhere citable.
+  CIP-SOC crosswalk   Published by NCES as a spreadsheet, not an API, so it has
+                      its own probe — `python -m etl.probe_cipsoc`.
   O*NET               A bulk database download rather than a queryable count.
 
 Recording those gaps here rather than leaving the reader to wonder why the
@@ -53,8 +52,8 @@ SOURCES = [
 # Not queryable through the API above. Named so the table's silence is
 # explained rather than mistaken for absence.
 UNPROBED = [
-    ("NCES-BLS CIP-SOC crosswalk", "xlsx download",
-     "The programme-to-occupation join this graph rests on"),
+    ("NCES-BLS CIP-SOC crosswalk", "see probe_cipsoc",
+     "The programme-to-occupation join — its own probe, since it is a spreadsheet"),
     ("O*NET occupation database", "bulk download",
      "Occupation attributes, skills and earnings"),
 ]
