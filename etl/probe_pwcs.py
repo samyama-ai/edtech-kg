@@ -1,0 +1,297 @@
+"""Probe one district's course catalogue — do its prerequisites resolve?
+
+This is the fork in the road for the whole build. `docs/questions.md` says it
+outright: everything in section A depends on knowing which course requires
+which, and *"answering that question comes before the ontology"*. If a real
+district publishes prerequisites that resolve to real courses, prerequisite
+chains are the demo. If not, the demo is programme → occupation → earnings.
+
+    python -m etl.probe_pwcs                # the full sweep, 982 pages
+    python -m etl.probe_pwcs --limit 50     # a quick run, and it says it is one
+    python -m etl.probe_pwcs --json         # machine-readable, with timestamp
+
+Prince William County Schools publishes `catalog.pwcs.edu` on Clean Catalog, a
+Drupal product. Its sitemap lists every course page, which is why the population
+is known exactly rather than crawled blind.
+
+**Pages are cached under `data/pwcs/`** (gitignored). The first run fetches; the
+rest read from disk. That keeps a re-run of the figures free rather than costing
+a school district 982 requests every time somebody checks a number.
+
+**The measurement that matters is not "does it state a prerequisite".** It is
+whether the stated prerequisite *resolves* — names a course this catalogue also
+publishes. That is the distinction the Credential Registry failed (#53): 150
+courses in 600 stated one, and none resolved. A course code with no catalogue to
+resolve it against is a string, not an edge.
+
+No third-party dependency, as with the other probes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+SITEMAP = "https://catalog.pwcs.edu/sitemap.xml"
+USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
+CACHE = Path("data/pwcs")
+DELAY = 0.3          # seconds between live fetches; this is a school district
+
+# Pages under these paths are catalogue furniture, not courses.
+NOT_A_COURSE = ("/high-school-course-catalog/", "/middle-school-course-catalog/",
+                "/sitemap", "/search")
+
+# The catalogue publishes prerequisites as *entity references* — links to other
+# course pages — not as prose. This block is the edge, already typed by the
+# publisher. Reading it out of flattened page text instead would run it into the
+# footer and turn the school's street address into a course name.
+# `\Z` matters: without an end-of-string alternative the block is only found
+# when a terminator follows it, so a page whose markup ends differently reports
+# zero prerequisites instead of failing. A silent zero is the worst outcome here
+# — it reads as "this district publishes none".
+PREREQ_BLOCK = re.compile(
+    r'field--name-field-prerequisite-courses'
+    r'.*?(?=<div class="field field--|</article>|<footer|\Z)', re.S)
+HREF = re.compile(r'<a href="([^"]+)"[^>]*>(.*?)</a>', re.S)
+
+# A separate free-text field, labelled "Requirements" in the page — things like
+# "Enrolled in Agriculture Specialty Program". Not a course reference, and
+# counting it as one would overstate what can be loaded as an edge.
+REQUIREMENTS = re.compile(
+    r'field--name-field-recommended.*?field__item"><p>(.*?)</p>', re.S)
+
+# A page that carries the prerequisite field but no links at all is a parse
+# failure, not a course without prerequisites — the field would not be rendered.
+PREREQ_FIELD_PRESENT = re.compile(r'field--name-field-prerequisite-courses')
+
+
+class MalformedSource(Exception):
+    """Reachable, but not the page we asked for."""
+
+
+def text_of(markup: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", " ", markup))
+
+
+def fetch(url: str, use_cache: bool = True) -> str:
+    key = CACHE / (urllib.parse.quote(url, safe="") + ".html")
+    if use_cache and key.exists():
+        return key.read_text(encoding="utf-8", errors="replace")
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            body = response.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"{exc.code} from {url}") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise RuntimeError(f"unreachable: {url} ({exc})") from exc
+    if use_cache:
+        key.parent.mkdir(parents=True, exist_ok=True)
+        key.write_text(body, encoding="utf-8")
+    time.sleep(DELAY)
+    return body
+
+
+def course_urls(use_cache: bool = True) -> list[str]:
+    sitemap = fetch(SITEMAP, use_cache)
+    if "<loc>" not in sitemap:
+        raise MalformedSource(
+            f"{SITEMAP} returned no <loc> entries — got {sitemap[:60]!r}. "
+            f"An error page here would otherwise report zero courses."
+        )
+    urls = re.findall(r"<loc>([^<]+)</loc>", sitemap)
+    courses = [u for u in urls if not any(p in u for p in NOT_A_COURSE)]
+    if not courses:
+        raise ValueError("the sitemap lists no course pages — refusing to report that")
+    return sorted(set(courses))
+
+
+def parse_course(markup: str, url: str) -> dict | None:
+    """Title, linked prerequisites and free-text requirements.
+
+    Returns None if this is not a course page, so catalogue furniture and 404s
+    are skipped rather than counted as courses with no prerequisite.
+    """
+    heading = re.search(r"<h1[^>]*>(.*?)</h1>", markup, re.S)
+    if not heading:
+        return None
+    title = " ".join(text_of(heading.group(1)).split())
+    if not title or title.lower().startswith("page not found"):
+        return None
+
+    block = PREREQ_BLOCK.search(markup)
+    links = HREF.findall(block.group()) if block else []
+    requirement = REQUIREMENTS.search(markup)
+    return {
+        "url": url,
+        "title": title,
+        "prerequisite_links": [
+            {"href": href, "name": " ".join(text_of(name).split())}
+            for href, name in links
+        ],
+        "requirements_text": (" ".join(text_of(requirement.group(1)).split())
+                              if requirement else None),
+    }
+
+
+def path_of(url: str) -> str:
+    return urllib.parse.urlparse(url).path.rstrip("/")
+
+
+def resolve(records: list[dict], catalogue: list[str] | None = None) -> dict:
+    """Do the linked prerequisites point at courses this catalogue publishes?
+
+    Resolution is by **URL against the sitemap**, not by name matching. Both
+    ends of the edge come from the same publisher, so a link either lands on a
+    published course page or provably does not. That is the property the
+    Credential Registry lacks (#53), where "PSYC101" is a string with no
+    catalogue to resolve it against.
+
+    `catalogue` is every course URL in the sitemap, so a partial run still
+    resolves against the whole catalogue rather than the pages it happened to
+    read — which would report almost everything as broken and look like a
+    finding.
+    """
+    published = {path_of(u) for u in (catalogue or [])} | {path_of(r["url"]) for r in records}
+    stating = fully = partly = broken = with_requirements = 0
+    edges: list[tuple[str, str]] = []
+    dangling: list[str] = []
+
+    for record in records:
+        if record.get("requirements_text"):
+            with_requirements += 1
+        links = record.get("prerequisite_links") or []
+        if not links:
+            continue
+        stating += 1
+        hit = [l for l in links if path_of(l["href"]) in published]
+        miss = [l for l in links if path_of(l["href"]) not in published]
+        if not miss:
+            fully += 1
+        elif hit:
+            partly += 1
+        else:
+            broken += 1
+        dangling += [l["href"] for l in miss]
+        edges += [(record["title"], l["name"]) for l in hit]
+
+    return {
+        "courses": len(records),
+        "stating_a_prerequisite": stating,
+        "every_link_resolves": fully,
+        "some_links_resolve": partly,
+        "no_link_resolves": broken,
+        "resolvable_edges": len(edges),
+        "dangling_links": len(dangling),
+        "with_free_text_requirements": with_requirements,
+        "dangling_examples": sorted(set(dangling))[:8],
+        "edge_examples": edges[:8],
+    }
+
+
+def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False) -> dict:
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    urls = course_urls(use_cache)
+    population = len(urls)
+    read = urls[:limit] if limit else urls
+
+    records, skipped, unread = [], 0, []
+    for url in read:
+        # One slow page must not lose the whole sweep. Retried once, then
+        # recorded as unread — reported, never silently dropped, because a page
+        # we could not read is not a course without a prerequisite.
+        try:
+            markup = fetch(url, use_cache)
+        except RuntimeError:
+            try:
+                markup = fetch(url, use_cache)
+            except RuntimeError as exc:
+                unread.append({"url": url, "why": str(exc)})
+                continue
+        parsed = parse_course(markup, url)
+        if parsed:
+            records.append(parsed)
+        else:
+            skipped += 1
+    if not records:
+        raise ValueError("no course pages parsed — refusing to report a rate over zero")
+
+    result = resolve(records, catalogue=urls)
+    coverage = ("every course page in the sitemap" if not limit
+                else f"the first {len(read)} of {population} sitemap course pages — "
+                     f"a partial run, not the catalogue")
+    result |= {"population": population, "pages_read": len(read),
+               "not_a_course_page": skipped,
+               "unread": len(unread), "unread_examples": unread[:5], "coverage": coverage,
+               "published_paths": len({path_of(u) for u in urls}
+                                     | {path_of(r["url"]) for r in records})}
+
+    if not quiet:
+        print(f"\nPWCS course catalogue — catalog.pwcs.edu\n")
+        print(f"  coverage               {coverage}")
+        print(f"  course pages parsed    {result['courses']:>6,}")
+        if result["unread"]:
+            print(f"  could not be read      {result['unread']:>6,}"
+                  f"   — excluded, not counted as having no prerequisite")
+        print(f"  linking a prerequisite {result['stating_a_prerequisite']:>6,}"
+              f"   ({pct(result['stating_a_prerequisite'], result['courses'])})")
+        print(f"    every link resolves  {result['every_link_resolves']:>6,}"
+              f"   ({pct(result['every_link_resolves'], result['stating_a_prerequisite'])} of those)")
+        print(f"    some links resolve   {result['some_links_resolve']:>6,}")
+        print(f"    no link resolves     {result['no_link_resolves']:>6,}")
+        print(f"  resolvable edges       {result['resolvable_edges']:>6,}")
+        print(f"  resolved against       {result['published_paths']:>6,}"
+              f"   published course paths, from the sitemap — the whole catalogue,")
+        print(f"                                  not only the pages read")
+        print(f"  dangling links         {result['dangling_links']:>6,}")
+        print(f"  free-text requirements alongside: "
+              f"{result['with_free_text_requirements']:,} courses")
+        print(f"\n  measured {stamp}")
+        print("  reproduce with: python -m etl.probe_pwcs\n")
+
+    return {"retrieved_at": stamp, "source": SITEMAP, **result}
+
+
+def pct(part: int, whole: int) -> str:
+    return f"{100 * part / whole:.0f}%" if whole else "—"
+
+
+def main(argv: list[str] | None = None) -> int:
+    summary = (__doc__ or "").splitlines()
+    parser = argparse.ArgumentParser(description=summary[0] if summary else None)
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Read only the first N pages. The output says it was partial.")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Fetch live even when a cached copy exists.")
+    parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    args = parser.parse_args(argv)
+    if args.limit is not None and args.limit < 1:
+        print("\nrefused: --limit must be at least 1", file=sys.stderr)
+        return 1
+    try:
+        result = probe(limit=args.limit, use_cache=not args.no_cache, quiet=args.json)
+    except ValueError as exc:
+        print(f"\nrefused: {exc}", file=sys.stderr)
+        return 1
+    except RuntimeError as exc:
+        print(f"\nsource unreachable: {exc}", file=sys.stderr)
+        return 2
+    except MalformedSource as exc:
+        print(f"\nsource malformed: {exc}", file=sys.stderr)
+        return 3
+    if args.json:
+        print(json.dumps(result, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

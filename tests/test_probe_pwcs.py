@@ -1,0 +1,258 @@
+"""Tests for the PWCS catalogue probe.
+
+The network and the cache are stubbed throughout. Under test: reading the
+prerequisite out of its own markup block rather than out of flattened page text,
+resolving links by URL, and the refusals.
+
+The bug this file pins hardest: an earlier version flattened the page to text
+and matched `Prerequisite:\\s*(...)`, which ran the value into the page footer
+and turned the school's street address into a course name. It also read
+"Prerequisite: None" — an explicit statement that a course has none — as a
+stated prerequisite.
+"""
+
+import json
+import urllib.error
+
+import pytest
+
+from etl import probe_pwcs as probe
+
+
+COURSE = """<html>
+<nav><a href="/">Home</a><a href="/agriculture">Agriculture</a>
+     <a href="/agriculture/landscaping-1">Landscaping 1</a></nav>
+<h1>Landscaping 2</h1>
+<div class="field field--name-field-recommended field--type-text-long">
+  <div class="field__label">Requirements</div>
+  <div class="field__item"><p>Enrolled in Agriculture Specialty Program</p></div>
+</div>
+<div><h3>Prerequisites</h3>
+  <div class="field field--name-field-prerequisite-courses field__items">
+    <div class="field__item">
+      <a href="/agriculture/landscaping-1">Landscaping 1</a>
+    </div>
+  </div>
+</div>
+<footer><a href="/contact">Contact</a>14715 Bristow Rd</footer></html>"""
+
+NO_PREREQ = """<html>
+<nav><a href="/">Home</a><a href="/agriculture/landscaping-2">Landscaping 2</a></nav>
+<h1>Landscaping 1</h1>
+<div class="field field--name-field-description"><p>An introduction.</p></div>
+<footer>14715 Bristow Rd</footer></html>"""
+
+
+def serve(monkeypatch, pages: dict):
+    """Serve markup by URL, and disable the on-disk cache."""
+    def fetch(url, use_cache=True):
+        if url not in pages:
+            raise RuntimeError(f"404 from {url}")
+        return pages[url]
+    monkeypatch.setattr(probe, "fetch", fetch)
+
+
+# --------------------------------------------------------------------------
+# parsing — the value must come from its own block, not from page text
+# --------------------------------------------------------------------------
+
+def test_the_prerequisite_is_read_as_links_not_as_prose():
+    r = probe.parse_course(COURSE, "https://x/agriculture/landscaping-2")
+    assert [l["name"] for l in r["prerequisite_links"]] == ["Landscaping 1"]
+    assert [l["href"] for l in r["prerequisite_links"]] == ["/agriculture/landscaping-1"]
+
+
+def test_the_page_footer_does_not_leak_into_the_prerequisite():
+    """Flattening the page ran the value into the footer and produced
+    "Landscaping 1 14715 Bristow Rd" as a course name."""
+    r = probe.parse_course(COURSE, "https://x/a/b")
+    assert all("Bristow" not in l["name"] for l in r["prerequisite_links"])
+
+
+def test_free_text_requirements_are_kept_apart_from_linked_prerequisites():
+    """"Enrolled in Agriculture Specialty Program" is a condition, not a course
+    reference. Counting it as one would overstate what can be loaded."""
+    r = probe.parse_course(COURSE, "https://x/a/b")
+    assert r["requirements_text"] == "Enrolled in Agriculture Specialty Program"
+    assert len(r["prerequisite_links"]) == 1
+
+
+def test_a_course_with_no_prerequisite_block_has_no_links():
+    """The page still carries navigation links, including one to another
+    course. Scanning the whole page for <a href> would invent a prerequisite."""
+    r = probe.parse_course(NO_PREREQ, "https://x/a/landscaping-1")
+    assert r["prerequisite_links"] == []
+    assert r["title"] == "Landscaping 1"
+
+
+def test_navigation_links_are_not_prerequisites():
+    """The nav bar links to Landscaping 1 and the footer to /contact. Only the
+    prerequisite block counts — one link, not four."""
+    r = probe.parse_course(COURSE, "https://x/a/landscaping-2")
+    assert len(r["prerequisite_links"]) == 1
+    hrefs = [l["href"] for l in r["prerequisite_links"]]
+    assert "/" not in [h for h in hrefs] and "/contact" not in hrefs
+
+
+def test_a_page_that_ends_at_the_prerequisite_block_still_parses():
+    """The block regex only matches when something follows it. A page whose
+    markup ends right after the prerequisites reported zero — a silent zero,
+    which reads as "this district publishes none"."""
+    truncated = COURSE.split("<footer")[0]
+    r = probe.parse_course(truncated, "https://x/a/landscaping-2")
+    assert len(r["prerequisite_links"]) == 1
+
+
+def test_a_page_without_a_heading_is_not_a_course():
+    assert probe.parse_course("<html><p>nothing</p></html>", "https://x/y") is None
+
+
+def test_a_404_page_is_not_counted_as_a_course():
+    """Otherwise it becomes a course with no prerequisite, quietly lowering
+    the rate."""
+    assert probe.parse_course("<html><h1>Page not found</h1></html>", "https://x/y") is None
+
+
+# --------------------------------------------------------------------------
+# resolution — by URL, against the whole catalogue
+# --------------------------------------------------------------------------
+
+def records():
+    return [probe.parse_course(COURSE, "https://catalog.pwcs.edu/agriculture/landscaping-2"),
+            probe.parse_course(NO_PREREQ, "https://catalog.pwcs.edu/agriculture/landscaping-1")]
+
+
+def test_a_link_to_a_published_course_resolves():
+    r = probe.resolve(records(), catalogue=["https://catalog.pwcs.edu/agriculture/landscaping-1"])
+    assert r["stating_a_prerequisite"] == 1
+    assert r["every_link_resolves"] == 1
+    assert r["resolvable_edges"] == 1
+    assert r["dangling_links"] == 0
+
+
+def test_a_link_to_nothing_is_counted_as_dangling():
+    page = COURSE.replace("/agriculture/landscaping-1", "/agriculture/does-not-exist")
+    recs = [probe.parse_course(page, "https://catalog.pwcs.edu/agriculture/landscaping-2")]
+    r = probe.resolve(recs, catalogue=["https://catalog.pwcs.edu/agriculture/landscaping-1"])
+    assert r["no_link_resolves"] == 1
+    assert r["dangling_links"] == 1
+    assert r["resolvable_edges"] == 0
+
+
+def test_resolution_uses_the_whole_catalogue_not_only_the_pages_read():
+    """A partial run resolved against the handful of pages it had fetched and
+    reported almost everything as broken — an artefact of the sample that read
+    like a finding. The sitemap gives the full course list for free."""
+    recs = [probe.parse_course(COURSE, "https://catalog.pwcs.edu/agriculture/landscaping-2")]
+    without = probe.resolve(recs, catalogue=[])
+    with_full = probe.resolve(recs, catalogue=["https://catalog.pwcs.edu/agriculture/landscaping-1"])
+    assert without["no_link_resolves"] == 1
+    assert with_full["every_link_resolves"] == 1
+
+
+def test_a_trailing_slash_does_not_break_resolution():
+    """Only the linking course is passed, so resolution must come from the
+    catalogue URL rather than from the target's own record — which is what let
+    this pass while the path comparison was slash-sensitive."""
+    recs = [probe.parse_course(COURSE, "https://catalog.pwcs.edu/agriculture/landscaping-2")]
+    r = probe.resolve(recs, catalogue=["https://catalog.pwcs.edu/agriculture/landscaping-1/"])
+    assert r["every_link_resolves"] == 1
+    assert r["dangling_links"] == 0
+
+
+def test_free_text_requirements_are_counted_separately():
+    r = probe.resolve(records(), catalogue=[])
+    assert r["with_free_text_requirements"] == 1
+
+
+# --------------------------------------------------------------------------
+# the sweep
+# --------------------------------------------------------------------------
+
+SITEMAP = ("<urlset><loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>"
+           "<loc>https://catalog.pwcs.edu/agriculture/landscaping-2</loc>"
+           "<loc>https://catalog.pwcs.edu/high-school-course-catalog/welcome</loc></urlset>")
+
+
+def test_catalogue_furniture_is_not_treated_as_a_course():
+    """`/high-school-course-catalog/welcome` is a landing page. Counting it
+    would add courses that have no prerequisite by definition."""
+    def fetch(url, use_cache=True):
+        return SITEMAP
+    import etl.probe_pwcs as m
+    original, m.fetch = m.fetch, fetch
+    try:
+        urls = probe.course_urls()
+    finally:
+        m.fetch = original
+    assert len(urls) == 2
+    assert all("course-catalog" not in u for u in urls)
+
+
+def test_a_sitemap_that_is_not_a_sitemap_is_refused(monkeypatch):
+    serve(monkeypatch, {probe.SITEMAP: "<html>503 Service Unavailable</html>"})
+    with pytest.raises(probe.MalformedSource, match="no <loc> entries"):
+        probe.course_urls()
+
+
+def test_a_sitemap_with_no_course_pages_is_refused(monkeypatch):
+    serve(monkeypatch, {probe.SITEMAP:
+                        "<urlset><loc>https://catalog.pwcs.edu/high-school-course-catalog/x</loc></urlset>"})
+    with pytest.raises(ValueError, match="refusing"):
+        probe.course_urls()
+
+
+def test_a_page_that_cannot_be_read_is_reported_not_dropped(monkeypatch):
+    """One slow page used to lose a 17-minute sweep. It is now retried and then
+    recorded — a page we could not read is not a course without a prerequisite,
+    and quietly excluding it would lower the rate with no trace."""
+    serve(monkeypatch, {probe.SITEMAP: SITEMAP,
+                        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ})
+    result = probe.probe(quiet=True)
+    assert result["unread"] == 1
+    assert result["courses"] == 1
+    assert "landscaping-2" in result["unread_examples"][0]["url"]
+
+
+def test_a_partial_run_says_it_is_partial(monkeypatch):
+    serve(monkeypatch, {probe.SITEMAP: SITEMAP,
+                        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+                        "https://catalog.pwcs.edu/agriculture/landscaping-2": COURSE})
+    partial = probe.probe(limit=1, quiet=True)
+    full = probe.probe(quiet=True)
+    assert "partial run, not the catalogue" in partial["coverage"]
+    assert "every course page" in full["coverage"]
+
+
+def test_no_courses_parsed_is_refused(monkeypatch):
+    serve(monkeypatch, {probe.SITEMAP: SITEMAP})
+    with pytest.raises(ValueError, match="refusing"):
+        probe.probe(quiet=True)
+
+
+# --------------------------------------------------------------------------
+# the CLI
+# --------------------------------------------------------------------------
+
+def test_a_limit_below_one_is_refused():
+    assert probe.main(["--limit", "0"]) == 1
+
+
+def test_a_malformed_sitemap_exits_three(monkeypatch):
+    serve(monkeypatch, {probe.SITEMAP: "<html>down</html>"})
+    assert probe.main([]) == 3
+
+
+def test_an_unreachable_source_exits_two(monkeypatch):
+    monkeypatch.setattr(probe, "course_urls",
+                        lambda use_cache=True: (_ for _ in ()).throw(RuntimeError("dns")))
+    assert probe.main([]) == 2
+
+
+def test_json_output_carries_a_timestamp_and_the_coverage(monkeypatch, capsys):
+    serve(monkeypatch, {probe.SITEMAP: SITEMAP,
+                        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+                        "https://catalog.pwcs.edu/agriculture/landscaping-2": COURSE})
+    assert probe.main(["--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "retrieved_at" in out and "coverage" in out
