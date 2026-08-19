@@ -243,8 +243,8 @@ reachability most? ✅ *Counterfactual over the graph.*
 
 ## The competency gap
 
-Six questions above are blocked on the same thing, and it is worth naming
-because no source we have measured fills it.
+Three questions above — Q41, Q59 and Q94 — are blocked on the same thing, and it
+is worth naming because no source we have measured fills it.
 
 Every awarding body and every learning platform defines its own levels, and
 **none publishes what a level means in competency terms**. A pass mark of 30%
@@ -285,9 +285,22 @@ them.** That is the argument for building this as a graph rather than a
 database, and three days ago it was not true — every tier-4 question was blocked
 on prerequisites that #63 has since measured.
 
-**Fourteen blocked**, and they cluster: student-level records (out of scope by
-choice), employer demand (no public source), competency definitions (the gap
-above), and anything needing a second district (#19).
+**Fourteen blocked**, in five clusters:
+
+| Cluster | Questions | Why |
+|---|---|---|
+| Student-level records | Q20, Q38, Q44 | out of scope by choice (`scope.md` §1) |
+| Employer demand | Q40, Q87 | no public source |
+| Competency definitions | Q41, Q59, Q94 | the gap above |
+| Needs a second district | Q80, Q88 | #19 |
+| **Rules joining the two tiers** | Q39, Q57, Q58, Q93 | nobody publishes them as data |
+
+That last cluster is the interesting one, and it was missed on the first pass.
+Course-to-programme entry rules, state graduation requirements, accreditation
+and dual enrolment are four different questions with one shape: **the rule that
+connects secondary to post-secondary exists, and is published as prose for
+humans rather than as data.** Same shape as the competency gap, and as the FDA
+predicate device. It is worth its own research issue.
 
 ---
 
