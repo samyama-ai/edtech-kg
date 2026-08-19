@@ -12,6 +12,7 @@ stop being true.
 
 import io
 import json
+import re
 import urllib.error
 import urllib.parse
 
@@ -37,18 +38,28 @@ def test_pages_are_spread_across_the_population_not_taken_from_the_head():
     """Reading pages 1..12 samples whatever sorts first, which one publisher's
     bulk upload can dominate. Spreading them changed the measured rate from
     83/600 to 150/600 — the concern was real."""
-    pages, size, how = probe.sample_pages(600, 47861)
-    assert pages[0] == 1 and len(pages) == 12
-    assert pages[-1] > 800                      # reaches the far end
-    assert len(set(pages)) == 12                # no page read twice
+    population = 47861
+    wanted = 600
+    pages, size, how = probe.sample_pages(wanted, population)
+    total_pages = -(-population // probe.PER_PAGE)
+
+    assert pages[0] == 1
+    assert len(pages) == len(set(pages)) == -(-wanted // probe.PER_PAGE)
+    # Derived from the constants rather than hard-coded, so changing PER_PAGE
+    # does not silently turn this into a test of nothing.
+    assert pages[-1] > total_pages * 0.8, "does not reach the far end"
     assert size == probe.PER_PAGE
     assert "stride" in how and "not random" in how
 
 
 def test_the_sampling_description_never_claims_randomness():
+    """Stripping the literal "not random" would also hide "not randomly-ish".
+    Asserting on the whole clause is what actually pins the claim."""
     for population in (None, 0, 100, 47861):
-        assert "random" not in probe.sample_pages(600, population)[2].replace(
-            "not random", "")
+        how = probe.sample_pages(600, population)[2]
+        for match in re.finditer(r"\brandom\w*", how):
+            prefix = how[max(0, match.start() - 4):match.start()]
+            assert prefix.endswith("not "), f"claims randomness: {how}"
 
 
 def test_a_population_smaller_than_the_sample_reads_everything():
@@ -79,9 +90,6 @@ def test_the_publisher_spread_is_reported(monkeypatch):
 # --------------------------------------------------------------------------
 # prerequisites in published courses — the number the probe exists for
 # --------------------------------------------------------------------------
-
-def course(**extra):
-    return {"decoded_resource": {"@type": "ceterms:Course", **extra}}
 
 
 def test_a_free_text_condition_is_not_counted_as_resolvable(monkeypatch):
@@ -307,12 +315,14 @@ def test_at_most_six_examples_are_kept(monkeypatch):
     """The examples exist to let a reader check the "free text" claim, not to
     reproduce the sample."""
     paged(monkeypatch, {1: [course(**prereq(f"COURSE{i}")) for i in range(20)]})
-    assert len(probe.course_prerequisites(sample=50)["examples"]) == 6
+    kept = probe.course_prerequisites(sample=50)["examples"]
+    assert len(kept) == probe.MAX_EXAMPLES
 
 
 def test_a_long_example_is_truncated(monkeypatch):
     paged(monkeypatch, {1: [course(**prereq("X" * 300))]})
-    assert len(probe.course_prerequisites(sample=50)["examples"][0]) == 90
+    example = probe.course_prerequisites(sample=50)["examples"][0]
+    assert len(example) == probe.EXAMPLE_CHARS
 
 
 def test_asking_for_fewer_than_one_page_samples_that_many(monkeypatch):
@@ -407,11 +417,14 @@ def test_reaching_the_cap_stops_fetching_further_pages(monkeypatch):
 def test_the_sampling_description_does_not_claim_the_tail_it_skips():
     """Stride 79 over 12 pages reaches page 870 of 958. Saying "spread across
     all 958 pages" claimed 88 pages — about 4,400 courses — that are never read."""
-    pages, _, how = probe.sample_pages(600, 47861)
-    assert pages[-1] == 870
-    assert "1-870" in how and "958" in how
+    population = 47861
+    pages, _, how = probe.sample_pages(600, population)
+    total_pages = -(-population // probe.PER_PAGE)
+    assert pages[-1] < total_pages, "the stride does reach the end after all"
+    assert f"{pages[0]}-{pages[-1]}" in how
+    assert f"{total_pages:,}" in how
     assert "not sampled" in how
-    assert "all 958 pages" not in how
+    assert f"all {total_pages:,} pages" not in how
 
 
 def test_asking_for_zero_or_fewer_courses_is_refused():
@@ -441,3 +454,76 @@ def test_a_corrupt_body_exits_three_through_main(monkeypatch):
     monkeypatch.setattr(probe, "course_prerequisites",
                         lambda sample: (_ for _ in ()).throw(probe.MalformedSource("bad")))
     assert probe.main([]) == 3
+
+
+# --------------------------------------------------------------------------
+# the third review of #57
+# --------------------------------------------------------------------------
+
+def test_a_sample_that_is_not_a_multiple_of_a_page_is_not_short_changed():
+    """`--courses 130` asked for three pages' worth and got two, silently
+    sampling 100 while reporting the request. Ceiling, not floor."""
+    pages, _, _ = probe.sample_pages(130, 47861)
+    assert len(pages) == 3
+
+
+def test_an_empty_typed_prerequisite_reads_as_absent(monkeypatch):
+    """The key alone used to count. `ceterms:prerequisite: []` is the key with
+    nothing in it, which is the same fact as not having the key."""
+    paged(monkeypatch, {1: [course(**{"ceterms:prerequisite": []})]})
+    r = probe.course_prerequisites(sample=50)
+    assert (r["stating_a_prerequisite"], r["resolvable"]) == (0, 0)
+
+
+def test_a_typed_prerequisite_holding_nothing_usable_is_stated_not_resolved(monkeypatch):
+    """A non-empty list whose entries carry no reference. Stated, because the
+    publisher meant to say something; not resolvable, because it does not
+    resolve — which is the distinction this whole page rests on."""
+    paged(monkeypatch, {1: [course(**{"ceterms:prerequisite": [{}, ""]})]})
+    r = probe.course_prerequisites(sample=50)
+    assert (r["stating_a_prerequisite"], r["resolvable"]) == (1, 0)
+
+
+def test_a_populated_typed_prerequisite_still_counts(monkeypatch):
+    paged(monkeypatch, {1: [course(**{"ceterms:prerequisite": [{"@id": "https://x/c/1"}]})]})
+    assert probe.course_prerequisites(sample=50)["resolvable"] == 1
+
+
+def test_a_community_that_does_not_answer_is_named(monkeypatch):
+    """`unattributed` is global minus the readable communities. A community
+    that errored used to vanish into that remainder and read as the gated
+    community's records."""
+    headers_stub(monkeypatch, {"/search": 100, "/ce-registry/search": 90,
+                               "/fdoe/search": None, "/mytxlibrary/search": 0,
+                               "/learning-registry/search": 0,
+                               "/chaffeycollege/search": 401})
+    r = probe.registry_totals()
+    assert "fdoe" in r["unreadable_communities"]
+    assert "chaffeycollege" in r["unreadable_communities"]
+
+
+def test_a_non_string_language_value_does_not_crash(monkeypatch):
+    """A CTDL value that is a number reached `.lower()` as-is."""
+    paged(monkeypatch, {1: [course(**{"ceterms:requires": [
+        {"ceterms:name": 101, "ceterms:description": {"en-US": "PSYC101"}}]})]})
+    assert probe.course_prerequisites(sample=50)["stating_a_prerequisite"] == 0
+
+
+def test_a_search_page_that_is_not_a_list_is_malformed(monkeypatch):
+    """An error object served with a 200 would be iterated as if it were
+    envelopes, yielding its keys."""
+    class R:
+        headers = {"x-total": "47861"}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"error": "rate limited"}'
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: R())
+    with pytest.raises(probe.MalformedSource, match="not a list"):
+        probe.course_prerequisites(sample=50)
+
+
+def test_the_paged_stub_serves_the_total_it_is_given(monkeypatch):
+    """`paged` took an x_total no test ever varied, so the population branch it
+    feeds was never exercised with anything but the default."""
+    paged(monkeypatch, {1: [course()]}, x_total=120)
+    assert probe.course_prerequisites(sample=600)["population"] == 120

@@ -154,6 +154,11 @@ Do not treat the CC BY 4.0 on CTDL as covering registry contents.
 
 ---
 
+**The Registry moves.** Re-running the probe a day later already returns
+133,345 credentials against the 133,346 recorded above. Figures on this page are
+what the endpoints returned on the date stamped at the top; small drift on
+re-run is the source changing, not the probe disagreeing with itself.
+
 **Method.** Every figure on this page is printed by:
 
 ```bash

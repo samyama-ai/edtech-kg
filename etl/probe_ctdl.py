@@ -34,7 +34,8 @@ from datetime import datetime, timezone
 # The Registry is a different source with a different licence, so it has its own
 # probe. Imported rather than duplicated — one place measures it. `get` carries
 # the shared User-Agent, which is why this module defines none of its own.
-from etl.probe_registry import course_prerequisites, get, registry_totals
+from etl.probe_registry import (MalformedSource, course_prerequisites, get,
+                                parse, print_registry, registry_totals)
 
 VOCAB = "https://credreg.net/ctdl/schema/encoding/json"
 
@@ -47,7 +48,7 @@ def vocabulary() -> dict:
             f"{VOCAB} did not return JSON — got {payload[:40]!r}. A 200 carrying "
             f"an error page would otherwise be counted as zero classes."
         )
-    graph = json.loads(payload).get("@graph") or []
+    graph = parse(payload, VOCAB).get("@graph") or []
     if not graph:
         raise ValueError("the CTDL graph is empty — refusing to report that as a count")
 
@@ -98,30 +99,10 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
             print(f"    {k:24} {v:>6,}")
         print(f"    {'pathway-related classes':24} {len(vocab['pathway_classes']):>6}")
 
-        def n(v):
-            return f"{v:,}" if isinstance(v, int) else (v or "—")
+    if not quiet:
+        print_registry(registry)
 
-        print(f"\nCredential Registry — {registry['source']}\n")
-        print(f"  envelopes  (root total_envelopes)   {n(registry['envelopes_root']):>10}")
-        print(f"  resources  (search x-total)         "
-              f"{n(registry['resources_all_communities']):>10}")
-        print("  — different objects, not a contradiction: one envelope holds "
-              "one or many resources")
-        print(f"  deleted {n(registry['deleted_resources'])}, "
-              f"provisional {n(registry['provisional_resources'])} — "
-              f"neither explains the gap")
-
-        print("\n  resources by community\n")
-        for c, v in registry["communities"].items():
-            print(f"    {c:22} {n(v):>10}")
-        print(f"    {'unattributed':22} {n(registry['unattributed']):>10}"
-              "   (the gated community)")
-
-        print("\n  ce-registry resources by type\n")
-        for t, v in registry["ce_registry_by_type"].items():
-            print(f"    {t:34} {n(v):>8}")
-
-        print(f"\nprerequisites in published courses\n")
+        print("\nprerequisites in published courses\n")
         print(f"  sampled                {prereq['courses_sampled']:>6,}   "
               f"{prereq['sampling']}")
         print(f"  stating a prerequisite {prereq['stating_a_prerequisite']:>6,}")
@@ -149,6 +130,9 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(f"\nsource unreachable: {exc}", file=sys.stderr)
         return 2
+    except MalformedSource as exc:
+        print(f"\nsource malformed: {exc}", file=sys.stderr)
+        return 3
     if args.json:
         print(json.dumps(result, indent=2))
     return 0

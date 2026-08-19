@@ -118,3 +118,24 @@ def test_json_output_carries_a_timestamp(monkeypatch, capsys):
                                         "resolvable": 0, "free_text_only": 0, "examples": []})
     assert probe.main(["--json"]) == 0
     assert "retrieved_at" in json.loads(capsys.readouterr().out)
+
+
+def test_a_corrupt_vocabulary_body_exits_three_not_as_a_traceback(monkeypatch):
+    """`vocabulary()` used bare json.loads, so a truncated body raised
+    JSONDecodeError — a ValueError, reported as "refused" — and MalformedSource
+    was not caught in main() at all, giving a traceback instead of exit 3."""
+    class R:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"@graph": [{"@id": '
+    monkeypatch.setattr(net.urllib.request, "urlopen", lambda *a, **k: R())
+    assert probe.main([]) == 3
+
+
+def test_the_registry_tables_come_from_one_place():
+    """The print block was duplicated verbatim in both modules and had already
+    drifted. probe_ctdl must use the shared one, not carry a copy."""
+    import inspect
+    source = inspect.getsource(probe)
+    assert "print_registry" in source
+    assert "resources by community" not in source, "a second copy of the block"

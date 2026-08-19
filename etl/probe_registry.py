@@ -42,6 +42,8 @@ RESOLVABLE = ("ceterms:targetLearningOpportunity", "ceterms:targetCredential",
               "ceterms:targetCompetency")
 
 PER_PAGE = 50
+MAX_EXAMPLES = 6     # enough to check the "free text" claim, not to reproduce the sample
+EXAMPLE_CHARS = 90   # a prerequisite string is short; this is a display bound
 
 
 class HttpStatus(RuntimeError):
@@ -127,6 +129,7 @@ def registry_totals() -> dict:
     communities = {c: total(f"/{c}/search") for c in COMMUNITIES}
     everywhere = total("/search")
     readable = sum(v for v in communities.values() if isinstance(v, int))
+    unreadable = [c for c, v in communities.items() if not isinstance(v, int)]
 
     return {
         "source": REGISTRY,
@@ -136,9 +139,13 @@ def registry_totals() -> dict:
         "ce_registry_by_type": {t: total(f"/ce-registry/{t}/search") for t in TYPES},
         "deleted_resources": total("/ce-registry/search", include_deleted="only"),
         "provisional_resources": total("/search", provisional="only"),
-        # What the communities we can read do not account for. The remainder
-        # belongs to the gated community; if this ever exceeds it, a community
-        # has appeared that COMMUNITIES does not list.
+        # What the readable communities do not account for. The remainder
+        # belongs to the gated community; if it ever exceeds what that can hold,
+        # a community exists which COMMUNITIES does not list.
+        #
+        # `unreadable_communities` names the ones that did not answer, so the
+        # remainder is not quietly absorbing an error and reading as records.
+        "unreadable_communities": unreadable,
         "unattributed": (everywhere - readable) if isinstance(everywhere, int) else None,
     }
 
@@ -158,7 +165,9 @@ def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int, s
     if wanted < 1:
         raise ValueError(f"--courses must be at least 1, got {wanted}")
 
-    pages_wanted = max(1, wanted // PER_PAGE)
+    # Ceiling, not floor: --courses 130 asked for three pages' worth and got
+    # two, silently sampling 100. The per-course cap trims the overshoot.
+    pages_wanted = max(1, -(-wanted // PER_PAGE))
     # A request below one page reads one short page, not a full one. This is the
     # only place the size is decided; the fetch loop uses what it returns.
     size = min(PER_PAGE, wanted) if pages_wanted == 1 else PER_PAGE
@@ -209,7 +218,9 @@ def course_prerequisites(sample: int = 600) -> dict:
         if isinstance(v, dict):
             value = v.get("en-US") or v.get("en") or next(iter(v.values()), "")
             return text(value)
-        return v or ""
+        # Anything else — a number, a bool — becomes a string rather than being
+        # handed to .lower() as-is.
+        return v if isinstance(v, str) else ("" if v is None else str(v))
 
     def as_list(v):
         """`ceterms:requires` is a list when a course has several conditions and
@@ -230,7 +241,12 @@ def course_prerequisites(sample: int = 600) -> dict:
             break                       # the cap ends the walk, not just the page
         body = get(f"{REGISTRY}/ce-registry/course/search"
                    f"?per_page={size}&page={page}")
-        for envelope in parse(body, f"page {page} of the course search"):
+        page_body = parse(body, f"page {page} of the course search")
+        if not isinstance(page_body, list):
+            raise MalformedSource(
+                f"page {page} of the course search returned "
+                f"{type(page_body).__name__}, not a list of envelopes")
+        for envelope in page_body:
             if courses >= sample:
                 break
             resource = envelope.get("decoded_resource") or {}
@@ -244,9 +260,14 @@ def course_prerequisites(sample: int = 600) -> dict:
                 courses += 1
                 publishers.add(str(envelope.get("published_by")
                                    or envelope.get("owned_by") or "unknown"))
-                if "ceterms:prerequisite" in node:
-                    resolvable += 1
+                typed = node.get("ceterms:prerequisite")
+                if typed:
+                    # Present but empty is not a reference. Counting the key
+                    # alone would credit the Registry with resolvable edges it
+                    # does not publish — the opposite of this probe's finding.
                     named += 1
+                    if any(isinstance(v, (dict, str)) and v for v in as_list(typed)):
+                        resolvable += 1
                     continue
                 for condition in as_list(node.get("ceterms:requires")):
                     if not isinstance(condition, dict):
@@ -259,7 +280,7 @@ def course_prerequisites(sample: int = 600) -> dict:
                     else:
                         described = text(condition.get("ceterms:description")).strip()
                         if described:
-                            prose.append(described[:90])
+                            prose.append(described[:EXAMPLE_CHARS])
     if not courses:
         raise ValueError("no course records returned — refusing to report a rate over zero")
     return {
@@ -271,8 +292,41 @@ def course_prerequisites(sample: int = 600) -> dict:
         "stating_a_prerequisite": named,
         "resolvable": resolvable,
         "free_text_only": named - resolvable,
-        "examples": prose[:6],
+        "examples": prose[:MAX_EXAMPLES],
     }
+
+
+def print_registry(registry: dict) -> None:
+    """The Registry tables.
+
+    Lives here so `probe_ctdl` can print them without carrying a second copy —
+    the two had drifted apart already, which is what a duplicated block does.
+    """
+    def n(v):
+        return f"{v:,}" if isinstance(v, int) else (v or "—")
+
+    print(f"\nCredential Registry — {registry['source']}\n")
+    print(f"  envelopes  (root total_envelopes)   {n(registry['envelopes_root']):>10}")
+    print(f"  resources  (search x-total)         "
+          f"{n(registry['resources_all_communities']):>10}")
+    print("  — different objects, not a contradiction: one envelope holds "
+          "one or many resources")
+    print(f"  deleted {n(registry['deleted_resources'])}, "
+          f"provisional {n(registry['provisional_resources'])} — "
+          f"neither explains the gap")
+
+    print("\n  resources by community\n")
+    for community, value in registry["communities"].items():
+        print(f"    {community:22} {n(value):>10}")
+    unreadable = registry.get("unreadable_communities") or []
+    print(f"    {'unattributed':22} {n(registry['unattributed']):>10}"
+          + ("   (the gated community)" if len(unreadable) < 2 else
+             f"   — but {len(unreadable)} communities did not answer, so this "
+             f"is not attributable: {', '.join(unreadable)}"))
+
+    print("\n  ce-registry resources by type\n")
+    for kind, value in registry["ce_registry_by_type"].items():
+        print(f"    {kind:34} {n(value):>8}")
 
 
 def probe(sample: int = 600, quiet: bool = False) -> dict:
@@ -280,29 +334,8 @@ def probe(sample: int = 600, quiet: bool = False) -> dict:
     registry = registry_totals()
     prereq = course_prerequisites(sample)
 
-    def n(v):
-        return f"{v:,}" if isinstance(v, int) else (v or "—")
-
     if not quiet:
-        print(f"\nCredential Registry — {registry['source']}\n")
-        print(f"  envelopes  (root total_envelopes)   {n(registry['envelopes_root']):>10}")
-        print(f"  resources  (search x-total)         "
-              f"{n(registry['resources_all_communities']):>10}")
-        print("  — different objects, not a contradiction: one envelope holds "
-              "one or many resources")
-        print(f"  deleted {n(registry['deleted_resources'])}, "
-              f"provisional {n(registry['provisional_resources'])} — "
-              f"neither explains the gap")
-
-        print("\n  resources by community\n")
-        for c, v in registry["communities"].items():
-            print(f"    {c:22} {n(v):>10}")
-        print(f"    {'unattributed':22} {n(registry['unattributed']):>10}"
-              "   (the gated community)")
-
-        print("\n  ce-registry resources by type\n")
-        for t, v in registry["ce_registry_by_type"].items():
-            print(f"    {t:34} {n(v):>8}")
+        print_registry(registry)
 
         print("\nprerequisites in published courses\n")
         print(f"  sampled                {prereq['courses_sampled']:>6,}   "
