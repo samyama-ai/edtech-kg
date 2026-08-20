@@ -80,9 +80,16 @@
 //                 fragment is a position within one page, and a query string
 //                 on these pages carries tracking rather than identity.
 //
-// Applies identically to Subject.url. If a catalogue is ever found that does
+// Applies identically to **Subject.url and Pathway.url** — every label keyed on
+// the address of a published page. If a catalogue is ever found that does
 // distinguish pages by query string, this rule changes and the reason changes
 // with it. It is not a default to be quietly widened.
+//
+// It is prose because 1.1.0 gives it nowhere else to live: a constraint cannot
+// carry a normaliser, and the engine does not enforce uniqueness anyway. The
+// one implementation is `etl/pwcs_source.absolute()`, and
+// `tests/test_load_pwcs.py` asserts the rule's parts are stated here — so the
+// prose cannot drift from the loader without a test noticing.
 CREATE CONSTRAINT ON (c:Course) ASSERT c.url IS UNIQUE;
 
 // Programme — a field of study, keyed on its 6-digit CIP code.

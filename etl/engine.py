@@ -16,6 +16,8 @@ Two engine facts shape everything here, both measured:
 from __future__ import annotations
 
 import json
+import math
+import re
 import time
 import urllib.error
 import urllib.request
@@ -36,10 +38,20 @@ class Engine:
                 f"{self.url}/api/query", data=payload,
                 headers={"Content-Type": "application/json"})
             try:
-                result = json.loads(urllib.request.urlopen(request, timeout=120).read())
+                # Closed explicitly. A load is thousands of statements, and an
+                # unclosed response holds its socket until the garbage
+                # collector gets to it.
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    result = json.loads(response.read())
                 break
             except urllib.error.HTTPError as exc:
-                body = exc.read().decode()[:300]
+                # Reading the error body can itself fail — a truncated response
+                # on a connection that has already gone. The status code is the
+                # part that matters and must not be lost to that.
+                try:
+                    body = exc.read().decode(errors="replace")[:300]
+                except Exception:  # noqa: BLE001
+                    body = "(the error body could not be read)"
                 # 4xx will fail identically every time; retrying only delays
                 # the report. Transient 5xx are worth another go.
                 if exc.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
@@ -56,15 +68,33 @@ class Engine:
                 raise RuntimeError(f"unreachable on: {query[:160]}\n{exc}") from exc
         # The engine answers 200 with an `error` key for a parse failure, so a
         # rejected statement is not an HTTP error and would otherwise pass.
-        if result is None or "error" in result:
-            raise RuntimeError(f"{(result or {}).get('error', 'no response')}\n"
-                               f"  on: {query[:160]}")
+        # The engine answers 200 with an `error` key for a parse failure, so a
+        # rejected statement is not an HTTP error and would otherwise pass.
+        # `in` on a non-dict is a different question — on a string it asks about
+        # substrings — so the shape is checked before the key.
+        if not isinstance(result, dict):
+            raise RuntimeError(f"the engine answered with {type(result).__name__}, "
+                               f"not an object\n  on: {query[:160]}")
+        if "error" in result:
+            raise RuntimeError(f"{result['error']}\n  on: {query[:160]}")
         self.statements += 1
         return result
 
     def scalar(self, query: str):
+        """One value, and `None` only when the engine returned one.
+
+        `records[0][0] if records and records[0] else None` returned None for
+        three different things: no rows, an empty row, and a null value. A
+        caller comparing a count against an expected number cannot tell "the
+        query matched nothing" from "the query returned nothing at all", and
+        the second is a bug in the query.
+        """
         records = self.run(query)["records"]
-        return records[0][0] if records and records[0] else None
+        if not records:
+            raise RuntimeError(f"no rows at all from: {query[:160]}")
+        if not records[0]:
+            raise RuntimeError(f"a row with no columns from: {query[:160]}")
+        return records[0][0]
 
 
 def upsert(engine: Engine, label: str, key: str, value: str, props: dict) -> None:
@@ -80,10 +110,36 @@ def upsert(engine: Engine, label: str, key: str, value: str, props: dict) -> Non
     separate MATCH … SET always refreshes, which is what a re-runnable loader
     has to do.
     """
+    identifier(label)
+    identifier(key)
+    for name in props:
+        identifier(name)
+
     engine.run(f"MERGE (n:{label} {{{key}: {lit(value)}}})")
     if props:
         assignments = ", ".join(f"n.{name} = {lit(v)}" for name, v in props.items())
         engine.run(f"MATCH (n:{label} {{{key}: {lit(value)}}}) SET {assignments}")
+
+
+IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def identifier(name: str) -> str:
+    """A label or property name, checked before it is interpolated.
+
+    `lit()` guards VALUES. Labels and property names are interpolated bare —
+    they have to be, Cypher has no other way to write them — so nothing guarded
+    them at all. Every name in this loader is a literal in the source today,
+    but the function takes whatever a caller passes, and the next loader may
+    build a property name from a column heading.
+
+    A name that is not an identifier cannot be escaped into one, so this raises
+    rather than sanitising. Silently rewriting `n.a b` to `n.a_b` would write
+    the value to a property nobody asked for.
+    """
+    if not IDENTIFIER.match(name or ""):
+        raise Unquotable(f"not a usable Cypher identifier: {name!r}")
+    return name
 
 
 class Unquotable(Exception):
@@ -120,6 +176,13 @@ def lit(value) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (int, float)):
+        # NaN and the infinities render as `nan` / `inf` / `-inf` through
+        # `str()`, none of which 1.1.0 parses — the statement is rejected at
+        # the far end with a message about the whole query rather than about
+        # the value. There is no literal for them, so this refuses here where
+        # the offending value can still be named.
+        if isinstance(value, float) and not math.isfinite(value):
+            raise Unquotable(f"1.1.0 has no literal for {value!r}")
         return str(value)
     text = str(value)
     if "'" not in text:

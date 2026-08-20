@@ -38,7 +38,7 @@ import sys
 import time
 from pathlib import Path
 
-from etl.engine import Engine, Unquotable, lit, upsert  # noqa: F401
+from etl.engine import Engine, lit, upsert
 from etl.pwcs_source import (absolute, parse_pathway, read, requirement_id,
                              segments)
 from etl import probe_pwcs as source
@@ -307,16 +307,41 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
             "pathway_rows_unresolvable": sum(len(p["dangling"]) for p in data["pathways"])}
 
 
-def apply_schema(engine: Engine, quiet: bool = False) -> int:
+def strip_comment(line: str) -> str:
+    """Drop a `//` comment, but not a `//` inside a string literal.
+
+    Splitting on `//` unconditionally truncates `MERGE (n {url: 'https://x'})`
+    at the scheme. No statement in the schema carries a URL today — the URLs
+    are in comments — so the naive split has never done damage, and would the
+    day a default or an example value was added.
+
+    Quote tracking only, no full parser: 1.1.0 has no escape sequence inside a
+    string literal (see `lit`), so a quote character always opens or closes one
+    and never appears within.
+    """
+    quote = None
+    for i, character in enumerate(line):
+        if quote:
+            if character == quote:
+                quote = None
+        elif character in "\'\"":
+            quote = character
+        elif character == "/" and line[i:i + 2] == "//":
+            return line[:i]
+    return line
+
+
+def apply_schema(engine: Engine, quiet: bool = False,
+                 schema: Path | None = None) -> int:
     """The constraints, from the schema file — not retyped here.
 
     A copy would drift from the file the tests execute, which is the defect
     this repo keeps finding: two things that should be one, with only one
     maintained.
     """
-    text = SCHEMA.read_text()
+    text = (schema or SCHEMA).read_text()
     statements = [s.strip() for s in
-                  "\n".join(line.split("//")[0] for line in text.splitlines()).split(";")
+                  "\n".join(strip_comment(line) for line in text.splitlines()).split(";")
                   if s.strip()]
     for statement in statements:
         engine.run(statement)

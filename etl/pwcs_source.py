@@ -118,27 +118,64 @@ def parse_pathway(markup: str, url: str, published: set[str]) -> dict:
     }
 
 
-def read(use_cache: bool = True) -> dict:
-    """Every page in the sitemap, split by what the catalogue says it is."""
-    urls = source.course_urls(use_cache)
-    published = {source.path_of(u) for u in urls} - {None}
+LEVELS = {1: "subject", 2: "course", 3: "pathway"}
 
-    subjects, courses, pathways = [], [], []
+
+def level(url: str) -> str | None:
+    """What the catalogue says a page is, from its depth. `None` for anything
+    else — the root, or something nested deeper than a pathway.
+
+    A function so it can be checked directly. It was an `if/elif/else` inside
+    `read()`, and the `else` swept every unexpected depth into "pathway",
+    where it would be parsed for a course table it does not have.
+    """
+    return LEVELS.get(len(segments(url)))
+
+
+def read(use_cache: bool = True, urls: list[str] | None = None,
+         fetch=None) -> dict:
+    """Every page in the sitemap, split by what the catalogue says it is.
+
+    Depth 1 is a subject index, 2 a course, 3 a CTE pathway. **Anything else is
+    counted, not guessed at.** The classifier was `if 1 … elif 2 … else
+    pathway`, so a depth-0 page — the catalogue root — or a depth-4 page would
+    have been read as a pathway and parsed for a course table it does not have.
+    Neither exists today (measured: the sitemap is 127 / 795 / 38 exactly),
+    which is the only reason a bare `else` looked harmless.
+
+    A pathway's course rows resolve against the COURSE paths, not against every
+    published page. `published` includes subject and pathway pages, so a row
+    pointing at one of those counted as resolved and then wrote no edge — the
+    count and the graph would disagree with nothing to say why. Zero rows do
+    that today; it is a property of this catalogue, not of the parser.
+    """
+    urls = source.course_urls(use_cache) if urls is None else urls
+    fetch = fetch or (lambda u: source.fetch(u, use_cache))
+    published = {source.path_of(u) for u in urls} - {None}
+    course_paths = {source.path_of(u) for u in urls if level(u) == "course"} - {None}
+
+    buckets = {"subject": [], "course": [], "pathway": []}
+    unclassified = []
     for url in urls:
-        markup = source.fetch(url, use_cache)
+        markup = fetch(url)
         record = source.parse_course(markup, url)
         if record is None:
             continue
-        depth = len(segments(url))
-        if depth == 1:
-            subjects.append(record)
-        elif depth == 2:
-            courses.append(record)
-        else:
-            record.update(parse_pathway(markup, url, published))
-            pathways.append(record)
-    return {"urls": urls, "published": published, "subjects": subjects,
-            "courses": courses, "pathways": pathways}
+        kind = level(url)
+        if kind is None:
+            unclassified.append(url)
+            continue
+        if kind == "pathway":
+            # Resolved against the COURSE paths, not every published page: a
+            # row pointing at a subject or pathway page would otherwise count
+            # as resolved and then write no edge.
+            record.update(parse_pathway(markup, url, course_paths))
+        buckets[kind].append(record)
+    subjects, courses, pathways = (buckets["subject"], buckets["course"],
+                                   buckets["pathway"])
+    return {"urls": urls, "published": published, "course_paths": course_paths,
+            "subjects": subjects, "courses": courses, "pathways": pathways,
+            "unclassified": unclassified}
 
 
 def requirement_id(course_url: str, text: str) -> str:
