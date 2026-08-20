@@ -33,6 +33,12 @@ messy data is handled — 138 conditions that are not course references, counted
 kept, and not pretended into edges. Q11 is the positive counterpart to Q15's
 twenty-eight: one course that opens five different careers.
 
+Every traversal is bounded at `*1..8`, tier 4 and tier 5 alike. The tier-5
+questions were bounded at 4, which returns the same rows today — the deepest
+chain in this catalogue is 4 — but "prerequisites of unknown depth" is the
+claim those two questions are making, and a bound tighter than the rest is a
+silent ceiling on it. Measured both ways before changing it: 7 rows either way.
+
 **ORDER BY names the source expression, never the alias.** `RETURN length(p) AS
 d ORDER BY d` is silently unsorted in 1.1.0 while `ORDER BY length(p)` sorts;
 aggregate aliases are the exception and do work. An unsorted list that looks
@@ -104,8 +110,8 @@ QUESTIONS: list[dict] = [
                    "ORDER BY nodes DESC")]),
 
     dict(tier=1, question="How big is this district's catalogue?",
-         aside="795 courses, 127 subjects, 38 CTE pathways. The sitemap has 960 "
-               "pages; the other 165 are not courses.",
+         aside="The sitemap has 960 pages and most, but not all, are courses. "
+               "The three levels are the district's own, not ours.",
          queries=[(["courses"], "MATCH (c:Course) RETURN count(c)"),
                   (["subjects"], "MATCH (s:Subject) RETURN count(s)"),
                   (["CTE pathways"], "MATCH (p:Pathway) RETURN count(p)")]),
@@ -119,15 +125,14 @@ QUESTIONS: list[dict] = [
                    "ORDER BY courses DESC LIMIT 10")]),
 
     dict(tier=1, question="What kinds of CTE pathway are published?",
-         aside="16 career pathways and 22 specialty programs — the district's "
-               "own two categories, not ours.",
+         aside="Two categories, and they are the district's own, not ours.",
          queries=[(["kind", "pathways"],
                    "MATCH (p:Pathway) RETURN p.kind AS kind, count(p) AS pathways "
                    "ORDER BY pathways DESC")]),
 
     dict(tier=1, question="Which pathways publish no course list at all?",
-         aside="Four. A gap in the district's own publishing, visible the "
-               "moment it is a graph. Nobody is looking for this today.",
+         aside="A gap in the district's own publishing, visible the moment it "
+               "is a graph. Nobody is looking for this today.",
          queries=[(["pathway with no courses listed"],
                    "MATCH (p:Pathway) WHERE NOT EXISTS { MATCH (p)-[:INCLUDES]->() } "
                    "RETURN p.name ORDER BY p.name")]),
@@ -150,8 +155,8 @@ QUESTIONS: list[dict] = [
                    "ORDER BY credits DESC LIMIT 10")]),
 
     dict(tier=2, question="How many courses state a prerequisite at all?",
-         aside="229 of 795. The catalogue publishes them as links between its "
-               "own pages — not as prose. That is the whole reason they load.",
+         aside="Under a third. The catalogue publishes them as links between "
+               "its own pages — not as prose. That is the whole reason they load.",
          queries=[(["courses in the catalogue"],
                    "MATCH (c:Course) RETURN count(c)"),
                   (["…stating a prerequisite"],
@@ -159,9 +164,9 @@ QUESTIONS: list[dict] = [
                    "RETURN count(c)")]),
 
     dict(tier=2, question="What conditions are stated that are NOT another course?",
-         aside="138 of them — an audition, a recommendation, a programme "
-               "enrolment. Held as data, never turned into a course link that "
-               "the district did not publish.",
+         aside="An audition, a recommendation, a programme enrolment. Held as "
+               "data, never turned into a course link that the district did "
+               "not publish.",
          queries=[(["condition", "courses"],
                    "MATCH (c:Course)-[:HAS_REQUIREMENT]->(r:Requirement) "
                    "RETURN substring(r.text, 0, 62) AS condition, count(c) AS courses "
@@ -169,14 +174,14 @@ QUESTIONS: list[dict] = [
 
     # ---- tier 3: the shape of the catalogue -------------------------------
     dict(tier=3, question="Where can a student start — courses with nothing needed first?",
-         aside="99 courses open a chain. This is the 'you can take this now' "
-               "list, and no page in the catalogue carries it.",
+         aside="The courses that open a chain — the 'you can take this now' "
+               "list, which no page in the catalogue carries.",
          queries=[(["courses that open a chain"],
                    "MATCH (c:Course) WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->() } "
                    "AND EXISTS { MATCH ()-[:REQUIRES]->(c) } RETURN count(c)")]),
 
     dict(tier=3, question="Which courses sit outside every chain and every pathway?",
-         aside="431 of 795 — over half. Not a criticism of the district: most "
+         aside="Over half of them. Not a criticism of the district: most "
                "courses genuinely stand alone. It is the honest denominator "
                "for everything that follows.",
          queries=[(["courses standing alone"],
@@ -185,7 +190,7 @@ QUESTIONS: list[dict] = [
                    "AND NOT EXISTS { MATCH ()-[:INCLUDES]->(c) } RETURN count(c)")]),
 
     dict(tier=3, question="Which single course opens the most career pathways?",
-         aside="One course, five different careers. This is the course a "
+         aside="One course, several different careers. This is the course a "
                "counsellor should push hardest, and nothing publishes it.",
          queries=[(["course", "pathways it appears in"],
                    "MATCH (c:Course)<-[:INCLUDES]-(p:Pathway) "
@@ -226,8 +231,8 @@ QUESTIONS: list[dict] = [
                    "RETURN count(DISTINCT blocked)")]),
 
     dict(tier=4, question="…and in which subjects?",
-         aside="Fourteen subjects. Chemistry, biology, IB and dual-enrolment "
-               "science — not just more maths. That is the counselling point.",
+         aside="Chemistry, biology, IB and dual-enrolment science — not just "
+               "more maths. That is the counselling point.",
          queries=[(["subject", "closed off"],
                    "MATCH (blocked:Course)-[:REQUIRES*1..8]->(:Course {name: 'Algebra 1'}) "
                    "MATCH (blocked)-[:IN_SUBJECT]->(s:Subject) "
@@ -257,7 +262,7 @@ QUESTIONS: list[dict] = [
                "prerequisites of unknown depth reaching outside it. A family "
                "reads the IT page, sees eleven courses, and misses four more.",
          queries=[(["pathway", "requirement it never lists", "reached by"],
-                   "MATCH (p:Pathway)-[:INCLUDES]->(c:Course)-[:REQUIRES*1..4]->(need:Course) "
+                   "MATCH (p:Pathway)-[:INCLUDES]->(c:Course)-[:REQUIRES*1..8]->(need:Course) "
                    "WHERE NOT EXISTS { MATCH (p)-[:INCLUDES]->(need) } "
                    "RETURN p.name AS pathway, need.name AS unlisted, "
                    "count(*) AS reached_by "
@@ -267,7 +272,7 @@ QUESTIONS: list[dict] = [
          aside="Pathways ranked by how much unlisted groundwork they assume. "
                "The last question, and the one a district would pay for.",
          queries=[(["pathway", "unlisted prerequisites"],
-                   "MATCH (p:Pathway)-[:INCLUDES]->(:Course)-[:REQUIRES*1..4]->(need:Course) "
+                   "MATCH (p:Pathway)-[:INCLUDES]->(:Course)-[:REQUIRES*1..8]->(need:Course) "
                    "WHERE NOT EXISTS { MATCH (p)-[:INCLUDES]->(need) } "
                    "RETURN p.name AS pathway, count(DISTINCT need) AS unlisted "
                    "ORDER BY unlisted DESC LIMIT 8")]),
@@ -302,7 +307,20 @@ def pause(seconds: float, wait: bool) -> None:
 
 
 def table(headers: list[str], rows: list[list], limit: int) -> None:
-    widths = [max(len(h), *(len(str(r[i])) for r in rows[:limit]) if rows else len(h))
+    """Column widths from the header and whatever rows there are — including none.
+
+    The previous line read `max(len(h), *(…) if rows else len(h))`, which Python
+    parses as `max(len(h), *(… if rows else len(h)))`: the star applies to the
+    whole conditional, so an empty result set unpacked an int and raised
+    `TypeError: argument after * must be an iterable`.
+
+    Every query happens to return rows against the catalogue loaded today, which
+    is the only reason it never fired. A demo run against a district where every
+    pathway lists its courses (Q4), or where 'Studio Art 5' is named differently
+    (Q13), would have traceback-crashed in front of an audience — the exact
+    failure `preflight` exists to prevent, one step further down.
+    """
+    widths = [max([len(h)] + [len(str(r[i])) for r in rows[:limit]])
               for i, h in enumerate(headers)]
     print("    " + "  ".join(f"{BOLD}{h:<{w}}{RESET}" for h, w in zip(headers, widths)))
     print("    " + "  ".join("─" * w for w in widths))
@@ -362,7 +380,12 @@ def chosen(argument: str | None) -> list[int]:
     for part in argument.split(","):
         if not part.strip():
             continue
-        number = int(part)
+        try:
+            number = int(part)
+        except ValueError:
+            # A clean message, not a traceback. The out-of-range case already
+            # had one and this did not, which is a difference nobody chose.
+            raise SystemExit(f"--only takes question numbers; {part.strip()!r} is not one")
         if not 0 <= number < len(QUESTIONS):
             raise SystemExit(f"no question {number}; there are "
                              f"{len(QUESTIONS)}, numbered 0 to {len(QUESTIONS) - 1}")
