@@ -1,7 +1,7 @@
 # Education-to-Career Pathways Knowledge Graph
 
 **1,098 nodes. 1,287 edges. One school district's published course catalogue, as a graph
-you can walk — plus seven measured public sources for the college and career side.**
+you can walk — plus eight measured public sources for the college and career side.**
 
 > Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
 > This repo holds the loader and source-data specifics for the KG.
@@ -116,6 +116,7 @@ Every figure below is printed by a probe in `etl/`. None is hand-typed.
 | CTDL vocabulary | `probe_ctdl` | the prerequisite property exists — and is used **0 times in 600 courses** |
 | schema.org | `probe_schemaorg` | 14 of the 14 terms this graph needs are present |
 | State course directories | `probe_state_courses` | statewide directories publish **no** prerequisites |
+| College Scorecard | `probe_scorecard` | median earnings for **25.5%** of programme rows — 58,112 of 169,868 |
 
 ---
 
@@ -159,6 +160,10 @@ preference, and the working is on the page.
   and cannot be resolved by URL. Reported, never dropped.
 - **The national spine is measured, not loaded.** No programme, occupation, institution or
   earnings data is in the graph yet.
+- **Earnings cover a quarter of programmes.** College Scorecard publishes a median
+  figure for 25.5% of programme rows; the rest are suppressed or not applicable, and
+  the figure is for graduates who took federal aid, not all graduates. That caveat has
+  to travel with any answer built on it.
 - **Pay and outlook are not here at all.** BLS covers them for 96% of the occupations a
   programme can reach, but that probe is still in review (#37) and this README describes
   only what is on `main`.
@@ -185,7 +190,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 327 tests
+pytest                           # 345 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
