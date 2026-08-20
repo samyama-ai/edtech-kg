@@ -23,9 +23,15 @@ perfectly to ones it cannot answer at all, in five tiers:
 Opening at tier 4 invites "couldn't you have done that in Excel?". The early
 questions are what make the later answers credible.
 
-Running it short — the six that carry a meeting:
+Running it short — the eight that carry a meeting:
 
-    python -m demo.demo --only 0,5,13,15,17,19
+    python -m demo.demo --only 0,5,8,11,13,15,17,19
+
+Q8 and Q11 are in that set for the same reason: an audience that hears only
+what is broken stops listening. Q8 is what to reach for when someone asks how
+messy data is handled — 138 conditions that are not course references, counted,
+kept, and not pretended into edges. Q11 is the positive counterpart to Q15's
+twenty-eight: one course that opens five different careers.
 
 **ORDER BY names the source expression, never the alias.** `RETURN length(p) AS
 d ORDER BY d` is silently unsorted in 1.1.0 while `ORDER BY length(p)` sorts;
@@ -372,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Run without waiting for a keypress.")
     parser.add_argument("--only", metavar="N,N,N",
                         help="Run just these questions, in this order. "
-                             "For a short meeting: --only 0,5,13,15,17,19")
+                             "For a short meeting: --only 0,5,8,11,13,15,17,19")
     parser.add_argument("--tier", type=int, choices=sorted(TIERS),
                         help="Run only the questions at this tier.")
     parser.add_argument("--rows", type=int, default=12,
