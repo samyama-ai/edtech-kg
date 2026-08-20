@@ -31,21 +31,27 @@ source holds, not what any graph contains.
 | `District` | `leaid` | A school district, CCD | 19,714 |
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
 | `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**, across the pages that state any. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key |
+| `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | 38 |
 | `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
 
-**Where the district's three figures come from.** `etl/probe_pwcs.py` reports
-960 — every page in the sitemap — and calls them all courses. The catalogue has
-three levels: 127 subject indexes, 795 courses, 38 CTE pathway pages.
+**`Pathway` moved here from tier 2**, and its key changed from `ctid` to `url`.
+It was modelled on the Credential Registry, which publishes 98 pathways against
+47,861 Registry *course records* — a different population from `Course` above,
+which is district catalogue pages — so it was declared and left empty. But a
+district publishes pathways too, as pages: PWCS publishes 38, and they load. A
+district pathway has no `ctid`, so keeping that key would have given all 38
+nodes a null value for the declared key — which 1.1.0 accepts in silence,
+because a constraint here declares the key and does not enforce it. The
+Registry's own pathways remain unloaded and will need a distinct label or a
+composite key carrying the publisher; that is **edtech-kg#85**, not a decision
+to take on one publisher's evidence.
 
-**The 38 are deliberately not modelled on this branch.** They have no node
-label here: `Pathway` is tier 2, keyed on the Credential Registry's `ctid`,
-which a district pathway page does not have. So the split closes as
-127 + 795 + 38 = 960 with one third of it declared and one third named and left
-alone, rather than a third of the subtraction going unaccounted for. Loading
-them is edtech-kg#80, and the key that would let them in is edtech-kg#85.
-
-So none of
-the three rows above is a number the probe prints as such today; each falls out
+**Where the district's figures come from.** `etl/probe_pwcs.py` reports 960 —
+every page in the sitemap — and calls them all courses. The catalogue has three
+levels: 127 subject indexes, 795 courses, 38 CTE pathway pages, and all three
+are declared above, so the split closes as 127 + 795 + 38 = 960 with nothing
+left over. So none of the
+district rows above is a number the probe prints as such today; each falls out
 of the depth split, and **edtech-kg#74** is where the probe is corrected to
 report them separately. The table carries the corrected figures because a
 reader skimming it should not take away a number this page goes on to refute.
@@ -59,7 +65,6 @@ loader, not about the source.
 | Label | Key | Why it is here, and why it is empty |
 |---|---|---|
 | `Credential` | `ctid` | 133,346 published, but under each publisher's own terms rather than CTDL's CC BY 4.0 (edtech-kg#56) |
-| `Pathway` | `ctid` | CTDL's pathway vocabulary is rich; the Registry publishes **98** pathways against 47,861 Registry *course records* — a different population from `Course` above, which is district catalogue pages |
 | `AwardingBody` | `id` | The competency gap, below |
 | `Level` | `id` = `body\|code` | Same |
 | `Competency` | `id` | Same |
@@ -71,7 +76,8 @@ loader, not about the source.
 | Edge | From → To | Meaning |
 |---|---|---|
 | `REQUIRES` | Course → Course | **The prerequisite edge.** 240 measured, all resolving |
-| `HAS_REQUIREMENT` | Course → Requirement | A prose condition — not a course reference |
+| `HAS_REQUIREMENT` | Course / Pathway → Requirement | A prose condition — not a course reference |
+| `INCLUDES` | Pathway → Course | What a published pathway is made of. 185 edges from 202 rows, carrying the district's section name and credit value |
 | `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 6,097 mappings |
 | `OFFERS` | Institution → Programme | What a college teaches |
 | `AT` / `IN` | Completion → Institution / Programme | Who graduated, where, in what |

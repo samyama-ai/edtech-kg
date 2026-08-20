@@ -304,9 +304,25 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
         if not quiet:
             print(message, flush=True)
 
-    published = data["published"]
+    # **Resolve against what PARSED, not against the sitemap.**
+    #
+    # `published` is every URL in the sitemap. `by_path` holds only pages that
+    # `parse_course` returned a record for — it returns None for a page with no
+    # `<h1>` or one titled "Page not found". So a page listed in the sitemap but
+    # 404ing, or one whose heading markup the CMS changes, is in `published` and
+    # absent from `by_path`, and `by_path[parent]` raises KeyError mid-load,
+    # after partial writes.
+    #
+    # Every loop below tests `by_path` and counts what it could not resolve. A
+    # sitemap entry that did not parse is exactly the "reported, never silently
+    # dropped" case this file argues for everywhere else, and it was the one
+    # place that would have crashed instead.
     by_path = {source.path_of(r["url"]): r["url"]
                for r in data["subjects"] + data["courses"] + data["pathways"]}
+    unparsed = {p for p in data["published"] if p not in by_path}
+    if unparsed:
+        say(f"  {len(unparsed)} sitemap page(s) did not parse and cannot be "
+            f"linked to: {sorted(unparsed)[:3]}")
 
     say(f"  subjects   {len(data['subjects']):>5,}")
     for record in data["subjects"]:
@@ -329,42 +345,60 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     # Course -> Subject, from the catalogue's own URL hierarchy. The parent path
     # is the subject page; a course whose parent is not published is left
     # unattached rather than attached to something invented.
-    in_subject = 0
+    in_subject, orphaned = 0, 0
     for record in data["courses"]:
         parent = "/" + segments(record["url"])[0]
-        if parent not in published:
+        if parent not in by_path:
+            orphaned += 1
             continue
         engine.run(
             f"MATCH (c:Course {{url: {lit(record['url'])}}}), "
             f"(s:Subject {{url: {lit(by_path[parent])}}}) MERGE (c)-[:IN_SUBJECT]->(s)")
         in_subject += 1
     say(f"  IN_SUBJECT {in_subject:>5,}")
+    if orphaned:
+        say(f"  {orphaned} course(s) have no published subject page; left "
+            f"unattached rather than attached to something invented")
 
     # Course -> Course. The edge this graph exists for.
-    requires = 0
+    requires, unresolved = 0, 0
     for record in data["courses"]:
         for link in record["prerequisite_links"]:
             path = source.path_of(link["href"])
-            if path not in published:
-                continue        # measured at zero; never assumed to be zero
+            if path not in by_path:
+                # Measured at zero today — 240 of 240 resolve — but never
+                # ASSUMED to be zero, and never a KeyError.
+                unresolved += 1
+                continue
             engine.run(
                 f"MATCH (a:Course {{url: {lit(record['url'])}}}), "
                 f"(b:Course {{url: {lit(by_path[path])}}}) "
                 f"MERGE (a)-[:REQUIRES]->(b)")
             requires += 1
     say(f"  REQUIRES   {requires:>5,}")
+    if unresolved:
+        say(f"  {unresolved} prerequisite link(s) point at a page that did not "
+            f"parse — counted, not dropped")
 
     # The condition that is NOT a course reference. A node, not an edge — see
     # the schema: asserting a REQUIRES to a course that was never named would
     # invent a link the source does not make.
+    # Courses and pathways only. Subjects were in this loop behind two
+    # conditionals that cancelled out — the second `continue` could never fire
+    # for a record the first had already labelled — so a subject page carrying a
+    # requirement was silently skipped. None does today (measured: 0 of 127),
+    # which is why it had to be counted rather than left to a reader to notice.
+    skipped_subjects = sum(1 for r in data["subjects"] if r.get("requirements_text"))
+    if skipped_subjects:
+        say(f"  {skipped_subjects} subject page(s) state a requirement; not "
+            f"loaded — a subject is not a thing a student enrols in")
+
     requirements = 0
-    for record in data["courses"] + data["pathways"] + data["subjects"]:
+    for record in data["courses"] + data["pathways"]:
         text = record.get("requirements_text")
         if not text:
             continue
         label = "Course" if len(segments(record["url"])) == 2 else "Pathway"
-        if label == "Pathway" and len(segments(record["url"])) == 1:
-            continue
         upsert(engine, "Requirement", "id", requirement_id(record["url"], text),
                {"text": " ".join(text.split()), "source": CATALOGUE})
         engine.run(
@@ -394,18 +428,30 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     for record in data["pathways"]:
         for course in record["courses"]:
             entry = grouped.setdefault((record["url"], course["url"]),
-                                       {"sections": [], "credits": course["credits"]})
+                                       {"sections": [], "credits": course["credits"],
+                                        "credit_values": set()})
             if course["section"] and course["section"] not in entry["sections"]:
                 entry["sections"].append(course["section"])
+            # The section names are preserved when rows are folded together;
+            # the credit value must not quietly not be. Keeping the first and
+            # discarding the rest would hide a course worth 1 credit in one
+            # section and 2 in another — a real difference, and the same class
+            # of silent loss #77 is about.
+            entry["credit_values"].add(course["credits"])
     collapsed = sum(len(e["sections"]) - 1 for e in grouped.values()
                     if len(e["sections"]) > 1)
+    conflicting = [pair for pair, e in grouped.items() if len(e["credit_values"]) > 1]
+    if conflicting:
+        say(f"  {len(conflicting)} course(s) carry different credit values in "
+            f"different sections of one pathway; the first is kept and the "
+            f"difference is reported rather than lost")
 
     includes = 0
     for (pathway, course), entry in grouped.items():
         engine.run(
             f"MATCH (p:Pathway {{url: {lit(pathway)}}}), "
             f"(c:Course {{url: {lit(course)}}}) "
-            f"MERGE (p)-[e:INCLUDES]->(c)")
+            f"MERGE (p)-[:INCLUDES]->(c)")
         engine.run(
             f"MATCH (:Pathway {{url: {lit(pathway)}}})-[e:INCLUDES]->"
             f"(:Course {{url: {lit(course)}}}) "
@@ -451,19 +497,30 @@ def verify(engine: Engine, loaded: dict) -> list[str]:
     Counted from the engine, not from the loader's own tallies — a loader that
     reports what it *intended* to write is the one failure this cannot catch
     by itself.
+
+    **Scoped to this catalogue**, the same way `--reset` is. Counting every
+    `:Course` in the graph works only while one district is loaded; the first
+    second district makes this exit non-zero with a mismatch that is not a
+    fault. The loader's tallies are per-catalogue, so what they are checked
+    against has to be too.
+
+    Edges are scoped by their start node's `source` — where the edge was written
+    from. No edge here spans two districts, and none can: every pattern above
+    matches both ends inside one catalogue.
     """
+    where = f"n.source = {lit(CATALOGUE)}"
     problems = []
     for label, expected in (("Subject", loaded["subjects"]),
                             ("Course", loaded["courses"]),
                             ("Pathway", loaded["pathways"])):
-        got = engine.scalar(f"MATCH (n:{label}) RETURN count(n)")
+        got = engine.scalar(f"MATCH (n:{label}) WHERE {where} RETURN count(n)")
         if got != expected:
             problems.append(f"{label}: loader wrote {expected:,}, engine holds {got:,}")
     for edge, expected in (("REQUIRES", loaded["requires"]),
                            ("IN_SUBJECT", loaded["in_subject"]),
                            ("INCLUDES", loaded["includes"]),
                            ("HAS_REQUIREMENT", loaded["requirements"])):
-        got = engine.scalar(f"MATCH ()-[e:{edge}]->() RETURN count(e)")
+        got = engine.scalar(f"MATCH (n)-[e:{edge}]->() WHERE {where} RETURN count(e)")
         if got != expected:
             problems.append(f"{edge}: loader wrote {expected:,}, engine holds {got:,}")
     return problems
