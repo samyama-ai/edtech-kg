@@ -112,23 +112,25 @@ def test_tier_two_labels_are_marked_as_empty():
         assert f"`{label}`" in modelled, label
 
 
-def test_the_unenforced_merge_rule_is_admitted():
-    """The file requires loaders to MERGE because 1.1.0 does not reject a
-    duplicate CREATE — and etl/loader.py is still the repo template, so nothing
-    enforces it. That gap is stated rather than left implied.
+def test_the_limits_of_the_merge_rule_are_admitted():
+    """1.1.0 does not reject a duplicate CREATE, so "loaders must MERGE" is a
+    rule with no enforcement behind it. One loader is now checked against this
+    file by a test; the engine still checks nothing, and the document has to
+    keep saying which of those two is true.
 
-    Matched on the CLAIM, not on one sentence. The previous version pinned the
-    exact words "Nothing enforces the MERGE rule yet", so moving the paragraph
-    out of the numbered scope list — where it did not belong, being a statement
-    about loaders rather than about scope — broke a test that has no opinion
-    about where the paragraph sits.
+    Matched on the CLAIM, not on one sentence. An earlier version pinned exact
+    words, so moving the paragraph out of the numbered scope list — where it
+    did not belong, being about loaders rather than about scope — broke a test
+    that has no opinion about where the paragraph sits.
     """
-    doc = " ".join(SCHEMA_DOC.read_text().split()).lower()
-    assert "merge rule is not enforced" in doc or "nothing enforces the merge rule" in doc, \
-        "the doc no longer admits that nothing enforces the MERGE rule"
-    assert "duplicate create" in doc, \
+    text = SCHEMA_DOC.read_text()
+    flat = " ".join(text.split()).lower()
+    assert "merge rule is enforced for one loader" in flat, \
+        "the doc no longer says which of the loader and the engine enforces it"
+    assert "does not reject a duplicate create" in flat, \
         "the reason the rule matters — 1.1.0 accepts a duplicate CREATE — is gone"
-
+    assert "etl/loader.py is still the repo template" not in text, \
+        "the doc still describes the state before etl/load_pwcs.py existed"
 
 def test_no_document_calls_960_a_course_count():
     """The tier-1 correction says the course count is 795; a later section still

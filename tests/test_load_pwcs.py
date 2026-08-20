@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 
 from etl import load_pwcs as loader
+from etl import pwcs_source as reader
 
 
 # --------------------------------------------------------------------------
@@ -245,3 +246,94 @@ def test_the_loader_sets_the_key_it_merges_on():
     source = inspect.getsource(loader.upsert)
     assert "{{{key}: {lit(value)}}}" in source, \
         "upsert no longer writes the key into the MERGE pattern"
+
+
+# --------------------------------------------------------------------------
+# building the edges — the arithmetic, without an engine
+# --------------------------------------------------------------------------
+
+BY_PATH = {"/a/one": "https://catalog.pwcs.edu/a/one",
+           "/a/two": "https://catalog.pwcs.edu/a/two"}
+
+
+def course(url: str, *hrefs: str) -> dict:
+    return {"url": url,
+            "prerequisite_links": [{"href": h, "name": "n"} for h in hrefs]}
+
+
+def test_two_links_to_the_same_course_make_one_edge():
+    """An edge MERGE matches on start, type and end alone (#77), so two links
+    naming the same course give two MERGEs, ONE edge, and a counter of two —
+    and `verify()` then exits non-zero on a well-formed catalogue."""
+    got = loader.prerequisite_pairs(
+        [course("https://catalog.pwcs.edu/a/three", "/a/one", "/a/one")], BY_PATH)
+    assert got["pairs"] == [("https://catalog.pwcs.edu/a/three",
+                             "https://catalog.pwcs.edu/a/one")]
+    assert got["duplicated"] == 1
+
+
+def test_a_prerequisite_pointing_at_an_unparsed_page_is_counted():
+    got = loader.prerequisite_pairs(
+        [course("https://catalog.pwcs.edu/a/three", "/node/1435")], BY_PATH)
+    assert got["pairs"] == [] and got["unresolved"] == 1
+
+
+def test_a_prerequisite_resolves_to_the_node_key_not_the_href():
+    """The key a Course node was created with, via `by_path` — not whatever
+    spelling the href happened to use."""
+    got = loader.prerequisite_pairs(
+        [course("https://catalog.pwcs.edu/a/three", "/a/one/")], BY_PATH)
+    assert got["pairs"][0][1] == "https://catalog.pwcs.edu/a/one"
+
+
+def pathway(url: str, *rows) -> dict:
+    return {"url": url, "courses": [{"url": u, "section": s, "credits": c}
+                                    for u, s, c in rows]}
+
+
+def test_a_pathway_course_resolves_through_by_path():
+    """This matched on `absolute(href)` while Course nodes are created from the
+    sitemap URL verbatim, and the two normalise differently — `course_urls()`
+    leaves `<loc>` untouched, `absolute()` strips a trailing slash. A mismatch
+    writes no edge and still increments the counter."""
+    edges = loader.pathway_edges(
+        [pathway("https://catalog.pwcs.edu/p",
+                 ("https://catalog.pwcs.edu/a/one/", "First", "1"))], BY_PATH)
+    assert list(edges["grouped"]) == [("https://catalog.pwcs.edu/p",
+                                       "https://catalog.pwcs.edu/a/one")]
+
+
+def test_a_course_in_two_sections_is_one_edge_with_both_names():
+    edges = loader.pathway_edges(
+        [pathway("https://catalog.pwcs.edu/p",
+                 ("https://catalog.pwcs.edu/a/one", "First", "1"),
+                 ("https://catalog.pwcs.edu/a/one", "Second", "1"))], BY_PATH)
+    assert len(edges["grouped"]) == 1
+    assert edges["collapsed"] == 1
+    assert next(iter(edges["grouped"].values()))["sections"] == ["First", "Second"]
+
+
+def test_differing_credits_across_sections_are_counted_not_lost():
+    """The section names were preserved when rows were folded and the credits
+    were not — the same silent loss #77 is about."""
+    edges = loader.pathway_edges(
+        [pathway("https://catalog.pwcs.edu/p",
+                 ("https://catalog.pwcs.edu/a/one", "First", "1"),
+                 ("https://catalog.pwcs.edu/a/one", "Second", "2"))], BY_PATH)
+    assert edges["conflicting"] == 1
+
+
+def test_a_pathway_row_naming_an_unparsed_page_is_counted():
+    edges = loader.pathway_edges(
+        [pathway("https://catalog.pwcs.edu/p",
+                 ("https://catalog.pwcs.edu/node/1435", "First", "1"))], BY_PATH)
+    assert edges["grouped"] == {} and edges["unlinkable"] == 1
+
+
+def test_a_credit_value_is_normalised_like_a_section_title():
+    """One went through `html.unescape` and whitespace collapsing and the other
+    did not, for no reason anyone chose."""
+    markup = section("First", "/a/one").replace(
+        'field__item">1</span>', 'field__item">  1 &amp; a half\n</span>')
+    got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
+    assert got["courses"][0]["credits"] == "1 & a half"

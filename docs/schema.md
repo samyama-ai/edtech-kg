@@ -174,13 +174,18 @@ where each body grades on its own scale and the scales do not align.
 
 Written down before anyone finds it.
 
-**Before the list: the MERGE rule is not enforced by anything.** The schema
-says a loader must MERGE on the key, because 1.1.0 does not reject a duplicate
-CREATE — measured directly, not assumed. `etl/loader.py` is still the repo
-template, so for any loader but this district's the rule is prose.
-**edtech-kg#7** is the national-spine loader, where it stops being a comment.
+**Before the list: the MERGE rule is enforced for one loader, not by the
+engine.** `etl/load_pwcs.py` MERGEs on the key throughout, and a test compares
+the property it keys each label on against the property this file declares — so
+for that loader the rule is checked rather than hoped for. It is still not a
+guarantee: 1.1.0 does not reject a duplicate CREATE, measured directly rather
+than assumed, so any future loader that forgets is stopped by nothing but that
+test. **edtech-kg#7**, the national-spine loader, is where the rule gets tested
+a second time.
+
 That is a statement about the loaders, not about what this schema claims, which
 is why it sits above the list rather than inside it as an item "0".
+
 
 1. **No student.** Individual records are permanently out of scope
    ([`scope.md`](scope.md) §1). Nothing here can answer "where is this child".

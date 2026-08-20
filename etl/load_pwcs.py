@@ -24,265 +24,96 @@ states a prerequisite and no prerequisite points at one, so the 240 edges are
 unaffected — but the rate they are quoted against is 229 of 795, not 229 of 960.
 Raised as #74; this loader states both figures rather than quietly picking one.
 
-The engine takes no query parameters in 1.1.0, so values are inlined. `lit()` is
-the whole of the defence and is used for every value without exception.
+Reading the catalogue is `etl/pwcs_source.py`; talking to the engine is
+`etl/engine.py`. Split out when this file reached 616 lines — over the size
+review will read, so it went unexamined. What is left here is the writing:
+which statements, in what order, and the read-back that checks they landed.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import html
 import json
-import re
 import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
+from etl.engine import Engine, Unquotable, lit, upsert  # noqa: F401
+from etl.pwcs_source import (absolute, parse_pathway, read, requirement_id,
+                             segments)
 from etl import probe_pwcs as source
 
 DEFAULT_URL = "http://localhost:8200"
 SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "edtech_kg.cypher"
 
-# A pathway page lists its courses in a typed field, exactly as a course page
-# lists its prerequisites — entity references, each carrying a credit value.
-#
-# One course row. `<article about="…" class="… degree-row …">` is markup the
-# CMS emits only for a course inside a programme's course table, which is why
-# the rows are matched directly rather than by bounding the enclosing field.
-# The first version did bound the field, with a lookahead terminator, and found
-# 71 of 218 rows: a pathway publishes SEVERAL course lists, one per named
-# section, and the bound stopped at the first. A partial parse that returns
-# plausible numbers is the failure mode this repo keeps hitting, so the rows are
-# now read wherever the CMS types them.
-COURSE_ROW = re.compile(
-    r'<article about="([^"]+)"[^>]*class="[^"]*degree-row[^"]*"'
-    r'(?:(?!</article>).)*?'
-    r'field--name-field-credits[^>]*>([^<]*)<', re.S)
-
-# Each course list sits under a named section — "Construction Pathway",
-# "Design / Pre-Construction Pathway". That is the district's own grouping and
-# it goes on the edge, so a pathway with two routes through it is not flattened
-# into one undifferentiated bag of courses.
-SECTION_TITLE = re.compile(
-    r'field--name-field-degree-section-title[^>]*>([^<]*)<', re.S)
-
-# A pathway page that renders the field but yields no rows is a parse failure,
-# not a pathway with no courses — the same distinction the probe draws for the
-# prerequisite field. Counting it as empty would understate the graph silently.
-PATHWAY_FIELD_PRESENT = re.compile(r'field--name-field-degree-section-courses')
-
 
 # --------------------------------------------------------------------------
-# Engine
+# Building the edges — pure, so the arithmetic can be tested without an engine
 # --------------------------------------------------------------------------
 
-class Engine:
-    def __init__(self, url: str, graph: str = "default") -> None:
-        self.url = url.rstrip("/")
-        self.graph = graph
-        self.statements = 0
-        self.retries = 0
+def prerequisite_pairs(courses: list[dict], by_path: dict) -> dict:
+    """Course -> course, resolved and deduped.
 
-    def run(self, query: str, attempts: int = 4) -> dict:
-        payload = json.dumps({"query": query, "graph": self.graph}).encode()
-        result = None
-        for attempt in range(attempts):
-            request = urllib.request.Request(
-                f"{self.url}/api/query", data=payload,
-                headers={"Content-Type": "application/json"})
-            try:
-                result = json.loads(urllib.request.urlopen(request, timeout=120).read())
-                break
-            except urllib.error.HTTPError as exc:
-                body = exc.read().decode()[:300]
-                # 4xx will fail identically every time; retrying only delays
-                # the report. Transient 5xx are worth another go.
-                if exc.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
-                    self.retries += 1
-                    time.sleep(2 ** attempt)
-                    continue
-                raise RuntimeError(f"{exc.code} on: {query[:160]}\n{body}") from exc
-            except (urllib.error.URLError, OSError, TimeoutError,
-                    json.JSONDecodeError) as exc:
-                if attempt < attempts - 1:
-                    self.retries += 1
-                    time.sleep(2 ** attempt)
-                    continue
-                raise RuntimeError(f"unreachable on: {query[:160]}\n{exc}") from exc
-        # The engine answers 200 with an `error` key for a parse failure, so a
-        # rejected statement is not an HTTP error and would otherwise pass.
-        if result is None or "error" in result:
-            raise RuntimeError(f"{(result or {}).get('error', 'no response')}\n"
-                               f"  on: {query[:160]}")
-        self.statements += 1
-        return result
+    **Deduped for the same reason INCLUDES is.** An edge MERGE matches on
+    start, type and end alone (#77), so two links on one page naming the same
+    course produce two MERGEs, ONE edge and a counter of two — and `verify()`
+    then exits non-zero on a catalogue that is perfectly well-formed. It does
+    not happen at 240 of 240 today; the shape should not differ between the two
+    edges on the strength of that.
 
-    def scalar(self, query: str):
-        records = self.run(query)["records"]
-        return records[0][0] if records and records[0] else None
-
-
-def upsert(engine: Engine, label: str, key: str, value: str, props: dict) -> None:
-    """MERGE the key, then SET the rest — two statements, deliberately.
-
-    **`MERGE (n:L {k: v}) SET n.p = x` does not parse in 1.1.0.** The parser
-    accepts `ON CREATE SET` and `ON MATCH SET` after a MERGE but not a bare
-    SET, which is a Cypher form every other implementation takes. Raised as #75.
-
-    `ON CREATE SET` alone would be one statement and is the obvious workaround —
-    but it fires only on insert, so re-running after the district renames a
-    course leaves the old name in the graph with nothing to show for it. A
-    separate MATCH … SET always refreshes, which is what a re-runnable loader
-    has to do.
+    Resolution is through `by_path`, never `published`: a page in the sitemap
+    that did not parse is in one and not the other, and indexing the wrong one
+    raised KeyError mid-load.
     """
-    engine.run(f"MERGE (n:{label} {{{key}: {lit(value)}}})")
-    if props:
-        assignments = ", ".join(f"n.{name} = {lit(v)}" for name, v in props.items())
-        engine.run(f"MATCH (n:{label} {{{key}: {lit(value)}}}) SET {assignments}")
+    pairs, unresolved = [], 0
+    for record in courses:
+        for link in record["prerequisite_links"]:
+            path = source.path_of(link["href"])
+            if path not in by_path:
+                # Measured at zero today, never ASSUMED to be zero.
+                unresolved += 1
+                continue
+            pairs.append((record["url"], by_path[path]))
+    return {"pairs": list(dict.fromkeys(pairs)),
+            "duplicated": len(pairs) - len(set(pairs)),
+            "unresolved": unresolved}
 
 
-class Unquotable(Exception):
-    """A value 1.1.0 has no way to express as a string literal."""
+def pathway_edges(pathways: list[dict], by_path: dict) -> dict:
+    """Pathway -> course, one edge per pair, with the sections folded in.
 
+    **Resolved through `by_path`, like every other edge.** This matched on
+    `absolute(href)` while Course NODES are created from the sitemap URL
+    verbatim, and the two normalise differently — `course_urls()` returns
+    `<loc>` untouched while `absolute()` strips a trailing slash. A sitemap
+    entry ending in "/" would give a node keyed with the slash and a MATCH
+    looking for it without: no edge written, counter still incremented.
 
-def lit(value) -> str:
-    """A Cypher literal. 1.1.0 takes no parameters, so this is the defence.
-
-    **1.1.0 supports no escape sequence inside a string literal.** Measured
-    against the engine, all three of these are parse errors:
-
-        'Governor\\'s'      backslash escape
-        'Governor''s'       doubled quote, the SQL form
-        "say \\"hi\\""       backslash escape in a double-quoted string
-
-    A backslash is not an escape character at all; it is stored as itself. So
-    the quote character is the only thing that ends a literal, and the only way
-    to carry one is to wrap the value in the *other* quote. Raised as #76.
-
-    That leaves one value this engine cannot express: a string containing both
-    an apostrophe and a double quote. It raises rather than mangling, because
-    the alternative is a course silently loaded under a different name than the
-    district published — and nothing downstream would show it.
-
-    `regulatory-affairs-kg/etl/cypher.py` reached the same conclusion against
-    the same engine and selects the quote per value too — worth knowing that two
-    independent measurements agree. Its MCP server does not: `quoted()` escapes
-    with backslashes, so every tool call carrying an apostrophe is a statement
-    the engine rejects. Raised there as #24.
+    A course in two named sections of one pathway is a real fact and cannot be
+    two edges, so the section names are joined and `sections` counts how many
+    were folded in. The credit value is kept from the first row and any
+    disagreement is counted — the section names were carefully preserved and
+    the credits were not, which is the same silent loss #77 is about.
     """
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    text = str(value)
-    if "'" not in text:
-        return f"'{text}'"
-    if '"' not in text:
-        return f'"{text}"'
-    raise Unquotable(
-        f"1.1.0 cannot express a string holding both quote characters, and "
-        f"there is no escape sequence to fall back on: {text[:120]!r}")
-
-
-# --------------------------------------------------------------------------
-# Reading the catalogue
-# --------------------------------------------------------------------------
-
-def segments(url: str) -> list[str]:
-    return [s for s in urllib.parse.urlparse(url).path.strip("/").split("/") if s]
-
-
-def absolute(href: str) -> str:
-    """A catalogue-relative href as the absolute URL the key is built on.
-
-    Course is keyed on the ABSOLUTE url, not the path — the path does not carry
-    the district, and `/mathematics/algebra-1` is a path two districts can both
-    publish (schema/edtech_kg.cypher). Resolution stays by path, as the probe
-    does it, because that is what the sitemap comparison needs; only the key is
-    absolute.
-    """
-    return urllib.parse.urljoin(source.SITEMAP, href).split("#")[0].rstrip("/")
-
-
-def parse_pathway(markup: str, url: str, published: set[str]) -> dict:
-    """The courses a CTE pathway is made of, as the district publishes them.
-
-    Typed entity references with a credit value each — the same shape as the
-    prerequisite field, not prose and not navigation. Rows whose target is not
-    in the sitemap are reported, never silently dropped.
-    """
-    # Sections in document order, so each row can be attributed to the section
-    # it appears under. A row before the first section title has none.
-    marks = [(m.start(), " ".join(html.unescape(m.group(1)).split()))
-             for m in SECTION_TITLE.finditer(markup)]
-
-    def section_at(position: int) -> str | None:
-        name = None
-        for start, title in marks:
-            if start < position:
-                name = title
-            else:
-                break
-        return name
-
-    courses, dangling, rows = [], [], 0
-    for match in re.finditer(COURSE_ROW, markup):
-        rows += 1
-        href, credits = match.group(1), match.group(2)
-        path = source.path_of(href)
-        if path in published:
-            courses.append({"url": absolute(href),
-                            "credits": credits.strip() or None,
-                            "section": section_at(match.start())})
-        else:
-            dangling.append(href)
-    return {
-        "url": url,
-        "courses": courses,
-        "dangling": dangling,
-        # Field rendered, nothing extracted — reported, never read as absence.
-        "field_present_no_rows": bool(PATHWAY_FIELD_PRESENT.search(markup)) and not rows,
-    }
-
-
-def read(use_cache: bool = True) -> dict:
-    """Every page in the sitemap, split by what the catalogue says it is."""
-    urls = source.course_urls(use_cache)
-    published = {source.path_of(u) for u in urls} - {None}
-
-    subjects, courses, pathways = [], [], []
-    for url in urls:
-        markup = source.fetch(url, use_cache)
-        record = source.parse_course(markup, url)
-        if record is None:
-            continue
-        depth = len(segments(url))
-        if depth == 1:
-            subjects.append(record)
-        elif depth == 2:
-            courses.append(record)
-        else:
-            record.update(parse_pathway(markup, url, published))
-            pathways.append(record)
-    return {"urls": urls, "published": published, "subjects": subjects,
-            "courses": courses, "pathways": pathways}
-
-
-def requirement_id(course_url: str, text: str) -> str:
-    """sha1("<course URL>|<normalised text>"), per the schema.
-
-    The course URL and not its path: the key of a dependent node has to be at
-    least as specific as the key of the node it depends on, or "Teacher
-    recommendation" collides between two districts publishing the same path.
-    """
-    normalised = " ".join(text.split())
-    return hashlib.sha1(f"{course_url}|{normalised}".encode()).hexdigest()
+    grouped: dict[tuple[str, str], dict] = {}
+    unlinkable = 0
+    for record in pathways:
+        for course in record["courses"]:
+            path = source.path_of(course["url"])
+            if path not in by_path:
+                unlinkable += 1
+                continue
+            entry = grouped.setdefault((record["url"], by_path[path]),
+                                       {"sections": [], "credits": course["credits"],
+                                        "credit_values": set()})
+            if course["section"] and course["section"] not in entry["sections"]:
+                entry["sections"].append(course["section"])
+            entry["credit_values"].add(course["credits"])
+    return {"grouped": grouped, "unlinkable": unlinkable,
+            "collapsed": sum(len(e["sections"]) - 1 for e in grouped.values()
+                             if len(e["sections"]) > 1),
+            "conflicting": sum(1 for e in grouped.values()
+                               if len(e["credit_values"]) > 1)}
 
 
 # --------------------------------------------------------------------------
@@ -361,20 +192,25 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
             f"unattached rather than attached to something invented")
 
     # Course -> Course. The edge this graph exists for.
-    requires, unresolved = 0, 0
-    for record in data["courses"]:
-        for link in record["prerequisite_links"]:
-            path = source.path_of(link["href"])
-            if path not in by_path:
-                # Measured at zero today — 240 of 240 resolve — but never
-                # ASSUMED to be zero, and never a KeyError.
-                unresolved += 1
-                continue
-            engine.run(
-                f"MATCH (a:Course {{url: {lit(record['url'])}}}), "
-                f"(b:Course {{url: {lit(by_path[path])}}}) "
-                f"MERGE (a)-[:REQUIRES]->(b)")
-            requires += 1
+    # Deduped before writing, for the reason INCLUDES is: an edge MERGE is
+    # matched on start, type and end alone (#77), so two links on one page
+    # pointing at the same course produce two MERGEs, ONE edge, and a counter
+    # of two — and `verify()` then exits non-zero on a catalogue that is
+    # perfectly well-formed. It does not happen at 240 of 240 today. The shape
+    # should not differ between the two edges for that reason alone.
+    prerequisites = prerequisite_pairs(data["courses"], by_path)
+    if prerequisites["duplicated"]:
+        say(f"  {prerequisites['duplicated']} prerequisite link(s) name a course "
+            f"already named by the same page; one edge each, counted once")
+    unresolved = prerequisites["unresolved"]
+
+    requires = 0
+    for a, b in prerequisites["pairs"]:
+        engine.run(
+            f"MATCH (a:Course {{url: {lit(a)}}}), "
+            f"(b:Course {{url: {lit(b)}}}) "
+            f"MERGE (a)-[:REQUIRES]->(b)")
+        requires += 1
     say(f"  REQUIRES   {requires:>5,}")
     if unresolved:
         say(f"  {unresolved} prerequisite link(s) point at a page that did not "
@@ -424,27 +260,29 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     # grouped here and the sections joined onto the one edge the engine can
     # hold. The collapse is counted and reported, so the number that vanished
     # is on the page rather than in the difference between two other numbers.
-    grouped: dict[tuple[str, str], dict] = {}
-    for record in data["pathways"]:
-        for course in record["courses"]:
-            entry = grouped.setdefault((record["url"], course["url"]),
-                                       {"sections": [], "credits": course["credits"],
-                                        "credit_values": set()})
-            if course["section"] and course["section"] not in entry["sections"]:
-                entry["sections"].append(course["section"])
-            # The section names are preserved when rows are folded together;
-            # the credit value must not quietly not be. Keeping the first and
-            # discarding the rest would hide a course worth 1 credit in one
-            # section and 2 in another — a real difference, and the same class
-            # of silent loss #77 is about.
-            entry["credit_values"].add(course["credits"])
-    collapsed = sum(len(e["sections"]) - 1 for e in grouped.values()
-                    if len(e["sections"]) > 1)
-    conflicting = [pair for pair, e in grouped.items() if len(e["credit_values"]) > 1]
-    if conflicting:
-        say(f"  {len(conflicting)} course(s) carry different credit values in "
-            f"different sections of one pathway; the first is kept and the "
+    # **Resolved through `by_path`, like REQUIRES and IN_SUBJECT.**
+    #
+    # This matched on `absolute(href)` while Course NODES are created from the
+    # sitemap URL verbatim. The two normalise differently — `course_urls()`
+    # returns `<loc>` untouched and `absolute()` strips a trailing slash — so a
+    # sitemap entry ending in "/" would give a node keyed with the slash and a
+    # MATCH looking for it without. The MATCH finds nothing, no edge is
+    # written, and the counter still increments. `verify()` catches it as a
+    # mismatch, which is the design working, but the edge should be resolved
+    # the same way as every other edge rather than relying on that.
+    edges = pathway_edges(data["pathways"], by_path)
+    grouped, collapsed = edges["grouped"], edges["collapsed"]
+    if edges["unlinkable"]:
+        say(f"  {edges['unlinkable']} pathway row(s) name a page that did not "
+            f"parse; counted, not linked")
+    if edges["conflicting"]:
+        say(f"  {edges['conflicting']} course(s) carry different credit values "
+            f"in different sections of one pathway; the first is kept and the "
             f"difference is reported rather than lost")
+    if collapsed:
+        say(f"  {collapsed} published rows are a course in a second section of "
+            f"the same pathway; the engine holds one edge per pair, so the "
+            f"section names are joined onto it")
 
     includes = 0
     for (pathway, course), entry in grouped.items():
@@ -459,10 +297,6 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
             f"e.sections = {lit(len(entry['sections']))}, "
             f"e.credits = {lit(entry['credits'])}")
         includes += 1
-    if collapsed:
-        say(f"  {collapsed} published rows are a course in a second section of the "
-            f"same pathway; the engine holds one edge per pair, so the section "
-            f"names are joined onto it")
     say(f"  INCLUDES   {includes:>5,}")
 
     return {"subjects": len(data["subjects"]), "courses": len(data["courses"]),
