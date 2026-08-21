@@ -14,9 +14,11 @@ whole file as too large to read. The shared table fixture is in
 from __future__ import annotations
 
 import zipfile
+from pathlib import Path
 
 import pytest
 
+from etl import bls_access as access
 from etl import probe_bls as probe
 from tests.bls_fixtures import page, row, serve
 
@@ -110,8 +112,8 @@ def test_a_table_with_no_occupations_is_refused(monkeypatch):
 def cover(monkeypatch, bls_codes, crosswalk_codes):
     serve(monkeypatch, page(*[row(c) for c in bls_codes]))
     monkeypatch.setattr(probe, "crosswalk_soc", lambda: set(crosswalk_codes))
-    monkeypatch.setattr(probe, "head", lambda url: {"status": 200, "bytes": 1, "is_file": True})
-    monkeypatch.setattr(probe, "attempt",
+    monkeypatch.setattr(access, "head", lambda url: {"status": 200, "bytes": 1, "is_file": True})
+    monkeypatch.setattr(access, "attempt",
                         lambda url, agent=None: {"status": 200 if agent else 403})
     return probe.probe(quiet=True)
 
@@ -181,9 +183,9 @@ def test_no_crosswalk_locally_does_not_claim_zero_coverage(monkeypatch, tmp_path
     """
     monkeypatch.setattr(probe, "CROSSWALK", tmp_path / "not-here.xlsx")
     serve(monkeypatch, page(row("13-2011")))
-    monkeypatch.setattr(probe, "head",
+    monkeypatch.setattr(access, "head",
                         lambda url: {"status": 200, "bytes": 1, "is_file": True})
-    monkeypatch.setattr(probe, "attempt", lambda url, agent=None: {"status": 200})
+    monkeypatch.setattr(access, "attempt", lambda url, agent=None: {"status": 200})
     result = probe.probe(quiet=True)
 
     assert result["crosswalk_soc_codes"] == 0
@@ -230,3 +232,96 @@ def test_a_table_with_no_dated_employment_column_is_a_layout_change(monkeypatch)
     serve(monkeypatch, gutted)
     with pytest.raises(probe.MalformedSource, match="dated Employment"):
         probe.projections()
+
+
+def workbook(path, sheet_name, table):
+    """A real .xlsx the real reader can open — not a stubbed `rows`/`sheets`.
+
+    Stubbing the readers would stub the code under test: the whole question is
+    which CELLS `crosswalk_soc` reads out of a sheet.
+    """
+    def cell(value):
+        return f'<c t="inlineStr"><is><t>{value}</t></is></c>'
+
+    body = "".join("<row>" + "".join(cell(v) for v in row) + "</row>" for row in table)
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("xl/workbook.xml",
+                   '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/'
+                   f'2006/main"><sheets><sheet name="{sheet_name}" r:id="rId1" '
+                   'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/'
+                   'relationships"/></sheets></workbook>')
+        z.writestr("xl/_rels/workbook.xml.rels",
+                   '<Relationships xmlns="http://schemas.openxmlformats.org/package/'
+                   '2006/relationships"><Relationship Id="rId1" '
+                   'Target="worksheets/sheet1.xml"/></Relationships>')
+        z.writestr("xl/sharedStrings.xml",
+                   '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/'
+                   '2006/main"></sst>')
+        z.writestr("xl/worksheets/sheet1.xml",
+                   '<worksheet xmlns="http://schemas.openxmlformats.org/'
+                   'spreadsheetml/2006/main"><sheetData>' + body +
+                   "</sheetData></worksheet>")
+    return path
+
+
+def test_the_reachable_set_reads_the_soc_column_not_every_cell(tmp_path, monkeypatch):
+    """`crosswalk_soc` scanned every cell in every sheet, so any `NN-NNNN`
+    string anywhere in the workbook joined the denominator — a note, a page
+    range, a phone fragment. It reads the SOC column named by each sheet's own
+    header now.
+
+    Measured against the real file the two agree exactly at 867, so this
+    changed the SHAPE and not the number. Driven with a SOC-shaped string
+    sitting OUTSIDE the SOC column, which the real file does not contain —
+    the only reason the defect never fired.
+    """
+    book = workbook(tmp_path / "crosswalk.xlsx", "CIP-SOC", [
+        ["CIP2020Code", "CIP2020Title", "SOC2018Code", "SOC2018Title"],
+        # A cell that IS a SOC code, in a column that is not the SOC column.
+        # `fullmatch` needs the whole cell, so "note: see 55-1234" would not
+        # have exercised anything — the first version of this test used that
+        # and passed with the fix removed.
+        ["55-1234", "Agriculture, General.", "19-1011", "Animal Scientists"],
+        ["01.0001", "Agriculture", "99-9999", "NO MATCH"],
+    ])
+    monkeypatch.setattr(probe, "CROSSWALK", book)
+    got = probe.crosswalk_soc()
+    assert got == {"19-1011"}, got
+    assert "55-1234" not in got, "a SOC-shaped string outside the SOC column was counted"
+    assert "99-9999" not in got, "the NO MATCH sentinel reached the reachable set"
+
+
+def test_a_sheet_with_no_soc_column_contributes_nothing_rather_than_everything():
+    """The File Guide sheet is prose. Falling back to scanning every cell when
+    no SOC column is found would put the prose back in the denominator."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        book = workbook(Path(tmp) / "b.xlsx", "File Guide", [
+            ["File Name", "Description"],
+            ["CIP-SOC", "crosswalks 2020 CIP to 2018 SOC, e.g. 19-1011"],
+        ])
+        original = probe.CROSSWALK
+        probe.CROSSWALK = book
+        try:
+            assert probe.crosswalk_soc() == set()
+        finally:
+            probe.CROSSWALK = original
+
+
+def test_a_renamed_header_is_refused_before_the_rows_are_walked(monkeypatch):
+    """The refusal belongs where the fault is detectable. It was raised after
+    ~800 rows had been read and scored against columns that were not there."""
+    walked = []
+    original = probe.SOC_CODE
+
+    class Counting:
+        def fullmatch(self, value):
+            walked.append(value)
+            return original.fullmatch(value)
+
+    gutted = page(row("13-2011")).replace("Median Annual Wage", "Pay")
+    serve(monkeypatch, gutted)
+    monkeypatch.setattr(probe, "SOC_CODE", Counting())
+    with pytest.raises(probe.MalformedSource, match="Median Annual Wage"):
+        probe.projections()
+    assert not walked, "rows were walked before the header was checked"

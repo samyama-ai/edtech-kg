@@ -53,24 +53,33 @@ def names_from(stdout: str) -> list[str]:
 # only `*.py`, `*.md` and `*.cypher` exempted everything else in silence — a
 # 900-line workflow or a hand-written fixture is exactly as unreadable as a
 # 900-line test, and would have passed this guard without appearing anywhere.
+# `Dockerfile` and `Makefile` carry no extension, so a glob list alone leaves
+# them out of the primary guard. Named explicitly rather than left to the
+# escape test below, which is the backstop and not the check.
 REVIEWABLE_TYPES = ["*.py", "*.md", "*.cypher", "*.yaml", "*.yml", "*.toml",
-                    "*.json", "*.sql", "*.sh", "*.cfg", "*.ini"]
+                    "*.json", "*.sql", "*.sh", "*.cfg", "*.ini",
+                    "Dockerfile", "Makefile"]
+
+
+def git(*args: str) -> str:
+    """One place that shells out to git, so one place decides what a missing
+    git means. Two callers disagreeing about that is how a guard errors on one
+    machine and skips on another."""
+    try:
+        out = subprocess.run(["git", *args], cwd=ROOT,
+                             capture_output=True, text=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        pytest.skip(f"git is unavailable or this is not a checkout: {exc}")
+    return out.stdout
 
 
 def tracked() -> list[str]:
     """Paths git knows about, NUL-separated.
 
     `-z` and a split on "\\0", not `.split()`, for the reason `names_from`
-    gives. Skipped rather than failed outside a git checkout: run from an
-    sdist or a tarball there is no index to read, and `check=True` would raise
-    CalledProcessError where "this guard cannot run here" is the honest answer.
+    gives.
     """
-    try:
-        out = subprocess.run(["git", "ls-files", "-z", *REVIEWABLE_TYPES],
-                             cwd=ROOT, capture_output=True, text=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        pytest.skip(f"not a git checkout, so the tracked file list is unavailable: {exc}")
-    return names_from(out.stdout)
+    return names_from(git("ls-files", "-z", *REVIEWABLE_TYPES))
 
 
 def line_count(name: str) -> int | None:
@@ -91,21 +100,47 @@ def test_no_source_file_is_too_large_to_review():
         f"Split by subject, not by length: {oversized}")
 
 
-# The two that were already over the line when this guard was written. Frozen
-# here so the list above can be compared against it rather than counted.
-GRANTED = frozenset({"etl/probe_registry.py", "tests/test_probe_registry.py"})
+def baseline_exceptions():
+    """`OVERSIZED_ALREADY` as it stands on the merge target, or None.
+
+    **The baseline has to come from outside this file.** A frozen copy kept
+    here alongside the live set is two literals three lines apart, and one
+    commit editing both defeats the ratchet completely — which is what the
+    previous version did while claiming to be a ratchet. `main` is merged
+    history: a branch cannot edit it, so a list that only ever shrinks
+    against it is a list that only ever shrinks.
+
+    None when there is no baseline to read — the commit that first adds this
+    file, or a clone with no `main`. Reported as a skip rather than a pass.
+    """
+    import ast
+    import re
+    for ref in ("origin/main", "main"):
+        out = subprocess.run(["git", "show", f"{ref}:tests/test_file_sizes.py"],
+                             cwd=ROOT, capture_output=True, text=True)
+        if out.returncode != 0:
+            continue
+        found = re.search(r"^OVERSIZED_ALREADY = (\{[^}]*\})", out.stdout, re.M)
+        if found:
+            return set(ast.literal_eval(found.group(1)))
+    return None
 
 
 def test_the_exception_list_only_shrinks():
     """An allowlist that can grow is a limit that does not exist.
 
-    Membership, not length. `len(...) <= 2` is a fixed cap and not a ratchet:
-    split one of these files and the freed slot silently admits a different
-    oversized file, which is exactly the "the exception quietly becomes the
-    rule" outcome the module docstring promises against. Comparing against a
-    frozen set means the list can only ever get shorter.
+    Membership, not length. `len(...) <= 2` is a cap, not a ratchet: split one
+    of these files and the freed slot silently admits a different oversized
+    file, which is exactly the "the exception quietly becomes the rule"
+    outcome the module docstring promises against.
+
+    Compared against the list on `main`, for the reason `baseline_exceptions`
+    gives — a second literal in this file is not a baseline, it is a copy.
     """
-    added = set(OVERSIZED_ALREADY) - GRANTED
+    granted = baseline_exceptions()
+    if granted is None:
+        pytest.skip("no OVERSIZED_ALREADY on main yet — nothing to ratchet against")
+    added = set(OVERSIZED_ALREADY) - granted
     assert not added, (
         f"these were added to the exception list, which may only shrink: "
         f"{sorted(added)}. Split the file instead; see #86")
@@ -141,10 +176,22 @@ def test_a_path_with_a_space_survives_the_split():
 def test_the_limit_covers_documents_as_well_as_code():
     """The limit is the reviewer's reading capacity, not a style rule about
     code, so prose and the schema are inside it. A document that goes unread is
-    the same failure as a test file that does."""
-    listed = tracked()
-    for suffix in (".py", ".md", ".cypher"):
-        assert any(name.endswith(suffix) for name in listed), (suffix, listed[:5])
+    the same failure as a test file that does.
+
+    Asserted as "every tracked file of a reviewable type is inside the guard",
+    not as "a `.cypher` file exists". The latter is an assertion about repo
+    CONTENT, so deleting the last schema file — a legitimate change — would
+    fail a test about the guard's reach.
+    """
+    covered = set(tracked())
+    every = names_from(git("ls-files", "-z"))
+    suffixes = {t.lstrip("*") for t in REVIEWABLE_TYPES if t.startswith("*")}
+    named = {t for t in REVIEWABLE_TYPES if not t.startswith("*")}
+    missed = sorted(name for name in every
+                    if (Path(name).suffix in suffixes or Path(name).name in named)
+                    and name not in covered)
+    assert not missed, f"a reviewable type is not reaching the guard: {missed}"
+    assert covered, "the guard is looking at nothing at all"
 
 
 def test_no_tracked_text_file_escapes_the_limit_by_its_extension():
@@ -155,16 +202,13 @@ def test_no_tracked_text_file_escapes_the_limit_by_its_extension():
     new file type arriving in the repo shows up here instead of being quietly
     outside the limit.
     """
-    everything = subprocess.run(["git", "ls-files", "-z"],
-                                cwd=ROOT, capture_output=True, text=True)
-    if everything.returncode != 0:
-        pytest.skip("not a git checkout")
+    everything = git("ls-files", "-z")
     covered = set(tracked())
     # Binaries and licence text are not review material; anything else is.
     exempt = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".pdf", ".xlsx",
               ".zip", ".gz", ".woff", ".woff2", ".lock"}
     escaping = sorted(
-        name for name in names_from(everything.stdout)
+        name for name in names_from(everything)
         if name not in covered
         and Path(name).suffix.lower() not in exempt
         and Path(name).name not in {"LICENSE", ".gitignore"}
@@ -172,3 +216,32 @@ def test_no_tracked_text_file_escapes_the_limit_by_its_extension():
     assert not escaping, (
         f"these are over {REVIEWABLE_LINES} lines and outside the guard because "
         f"of their extension: {escaping}. Add the type to REVIEWABLE_TYPES.")
+
+
+def test_the_ratchet_reads_a_baseline_and_notices_growth():
+    """The ratchet itself, driven directly — on this branch the baseline test
+    above SKIPS, because `main` does not carry this file yet, and a skipped
+    guard proves nothing about the guard.
+
+    The previous version kept a frozen copy of the list in this same file,
+    three lines from the live one. Two literals in one file is not a ratchet:
+    one commit editing both defeats it entirely, while the docstring goes on
+    claiming the list may only shrink.
+    """
+    import ast
+    import re
+
+    blob = ('REVIEWABLE_LINES = 500\n'
+            'OVERSIZED_ALREADY = {"etl/probe_registry.py", "tests/test_probe_registry.py"}\n'
+            'ROOT = 1\n')
+    found = re.search(r"^OVERSIZED_ALREADY = (\{[^}]*\})", blob, re.M)
+    assert found, "the baseline parser no longer finds the list"
+    granted = set(ast.literal_eval(found.group(1)))
+    assert granted == {"etl/probe_registry.py", "tests/test_probe_registry.py"}
+
+    # Shrinking is allowed; growing is not; SWAPPING is not — which is the
+    # case a length check waves through.
+    assert not ({"etl/probe_registry.py"} - granted), "shrinking must be allowed"
+    assert {"etl/new_giant.py"} - granted, "a new entry must be caught"
+    assert ({"etl/probe_registry.py", "etl/other.py"} - granted) == {"etl/other.py"}, \
+        "a same-size swap must be caught"

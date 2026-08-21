@@ -8,7 +8,7 @@ thing tying them to one file.
 
 from __future__ import annotations
 
-from etl import probe_bls as probe
+from etl import bls_access as access
 
 HEADER = ("<TR><TH>Occupation Title</TH><TH>Occupation Code</TH>"
           "<TH>Employment 2024</TH><TH>Employment 2034</TH>"
@@ -30,4 +30,6 @@ def page(*rows):
 
 
 def serve(monkeypatch, markup):
-    monkeypatch.setattr(probe, "fetch", lambda url: markup)
+    """Stub the ACCESS layer's fetch — `probe_bls` calls through the module,
+    so one patch reaches every caller."""
+    monkeypatch.setattr(access, "fetch", lambda url: markup)

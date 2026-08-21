@@ -14,12 +14,12 @@ Parsing and coverage are in `tests/test_probe_bls.py`.
 
 from __future__ import annotations
 
-import json
 import pathlib
 import re
 
 import pytest
 
+from etl import bls_access as access
 from etl import probe_bls as probe
 from tests.bls_fixtures import HEADER, page, row, serve
 
@@ -34,9 +34,9 @@ DOCUMENT = (pathlib.Path(__file__).resolve().parents[1]
 def test_a_blocked_geography_is_recorded_not_dropped(monkeypatch):
     serve(monkeypatch, page(row("13-2011")))
     monkeypatch.setattr(probe, "crosswalk_soc", lambda: set())
-    monkeypatch.setattr(probe, "attempt",
+    monkeypatch.setattr(access, "attempt",
                         lambda url, agent=None: {"status": 200 if agent else 403})
-    monkeypatch.setattr(probe, "head", lambda url: {
+    monkeypatch.setattr(access, "head", lambda url: {
         "status": 403, "is_file": False, "reason": "Forbidden"})
     result = probe.probe(quiet=True)
     assert result["oews"]["release"] is None
@@ -51,9 +51,9 @@ def test_the_head_request_reads_size_without_downloading(monkeypatch):
                    "content-type": "application/x-zip-compressed"}
         def __enter__(self): return self
         def __exit__(self, *a): return False
-    monkeypatch.setattr(probe.urllib.request, "urlopen",
+    monkeypatch.setattr(access.urllib.request, "urlopen",
                         lambda rq, *a, **k: (seen.append(rq.get_method()), R())[1])
-    got = probe.head("https://x/big.zip")
+    got = access.head("https://x/big.zip")
     assert seen == ["HEAD"], "downloaded the file to find its size"
     assert got["bytes"] == 39224418
     assert got["is_file"] is True
@@ -74,7 +74,7 @@ def serve_releases(monkeypatch, published: set[str]) -> list[str]:
                     "bytes": 1234, "is_file": True}
         return {"status": 200, "content_type": "text/html",
                 "bytes": None, "is_file": False}
-    monkeypatch.setattr(probe, "head", fake_head)
+    monkeypatch.setattr(access, "head", fake_head)
     return asked
 
 
@@ -84,7 +84,7 @@ def test_a_soft_404_is_not_reported_as_a_published_release(monkeypatch):
     reports next year's unpublished release as available — with a blank size
     column that reads as a formatting glitch rather than as absence."""
     serve_releases(monkeypatch, published={"25"})
-    got = probe.oews_latest(2026)
+    got = access.oews_latest(2026)
     assert got["release"] == "May 2025", "the 200 + text/html year was accepted"
     assert "26" in got["years_tried"], "2026 was never tried"
 
@@ -102,9 +102,9 @@ def test_content_type_is_what_decides_not_status(monkeypatch):
         headers = {"content-type": "text/html"}
         def __enter__(self): return self
         def __exit__(self, *a): return False
-    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
+    monkeypatch.setattr(access.urllib.request, "urlopen", lambda *a, **k: Response())
 
-    got = probe.head("https://www.bls.gov/oes/special-requests/oesm26nat.zip")
+    got = access.head("https://www.bls.gov/oes/special-requests/oesm26nat.zip")
     assert got["status"] == 200, "the server did answer 200"
     assert got["is_file"] is False, "200 + text/html is not a published file"
     assert got["bytes"] is None
@@ -117,18 +117,18 @@ def test_a_half_published_release_is_not_reported_as_current(monkeypatch):
         complete = "oesm24" in url or url.endswith("oesm25nat.zip")
         return {"status": 200, "bytes": 1, "is_file": complete,
                 "content_type": "application/x-zip-compressed" if complete else "text/html"}
-    monkeypatch.setattr(probe, "head", fake_head)
-    got = probe.oews_latest(2026)
+    monkeypatch.setattr(access, "head", fake_head)
+    got = access.oews_latest(2026)
     assert got["release"] == "May 2024"
-    assert set(got["geographies"]) == set(probe.GEOGRAPHY_NAMES.values())
+    assert set(got["geographies"]) == set(access.GEOGRAPHY_NAMES.values())
 
 
 def test_the_search_gives_up_rather_than_walking_back_forever(monkeypatch):
     asked = serve_releases(monkeypatch, published=set())
-    got = probe.oews_latest(2026)
+    got = access.oews_latest(2026)
     assert got["release"] is None
-    assert len(got["years_tried"]) == probe.OEWS_LOOKBACK + 1
-    assert len(asked) == len(got["years_tried"]) * len(probe.OEWS_GEOGRAPHIES)
+    assert len(got["years_tried"]) == access.OEWS_LOOKBACK + 1
+    assert len(asked) == len(got["years_tried"]) * len(access.OEWS_GEOGRAPHIES)
 
 
 def strings_in(value, seen=None):
@@ -180,7 +180,7 @@ def test_the_release_year_is_not_written_down_anywhere():
                     for text in strings_in(value)
                     if re.search(r"oesm\d\d", text)})
     assert not baked, f"a release year is hard-coded in {baked} — it will go stale"
-    assert "{yy}" in probe.OEWS_URL, "the release year is not a parameter"
+    assert "{yy}" in access.OEWS_URL, "the release year is not a parameter"
 
 
 def test_a_year_hidden_in_a_container_is_found():
@@ -199,108 +199,6 @@ def test_a_year_hidden_in_a_container_is_found():
     cycle = {"a": ["https://x/oesm25nat.zip"]}
     cycle["self"] = cycle
     assert any(re.search(r"oesm\d\d", s) for s in strings_in(cycle))
-
-
-# --------------------------------------------------------------------------
-# the document says what the probe measured
-# --------------------------------------------------------------------------
-
-def test_the_absent_codes_are_named_on_the_page_not_only_in_json():
-    r"""The page used to say the thirteen were "named in the probe's --json
-    output" — a reference a reader cannot check without a network and a
-    crosswalk file. The codes belong on the page.
-
-    The page's own two statements are compared against each other: the count
-    in the table, and the codes in the block below it. A literal set of
-    thirteen codes in this file would be a third copy of a measurement that
-    changes with every projections release — the exact staleness this file
-    guards against elsewhere, reintroduced by its own test.
-
-    `\b\d{2}-\d{4}\b` matches any NN-NNNN, so the codes are read from the
-    fenced block rather than from anywhere on the page: a phone fragment or a
-    page range elsewhere would otherwise make the count agree by accident.
-    """
-    text = DOCUMENT.read_text()
-    stated = re.search(r"\*\*Absent outright\*\*\s*\|\s*\*\*(\d+)\*\*", text)
-    assert stated, "the page no longer states an absent-outright count"
-
-    block = re.search(r"```\n((?:\s*\d{2}-\d{4}\s*)+)```", text)
-    assert block, (
-        "the page states a count of absent occupations but does not list them; "
-        "a reader cannot see which occupations we cannot answer for")
-    listed = set(re.findall(r"\b\d{2}-\d{4}\b", block.group(1)))
-    assert len(listed) == int(stated.group(1)), (
-        f"the page says {stated.group(1)} occupations are absent outright and "
-        f"lists {len(listed)}. Re-run the probe and update both.")
-
-
-def test_the_probe_prints_the_absent_codes_and_does_not_only_count_them(monkeypatch, capsys):
-    serve(monkeypatch, page(row("13-2011")))
-    monkeypatch.setattr(probe, "crosswalk_soc", lambda: {"13-2011", "21-1011"})
-    monkeypatch.setattr(probe, "head",
-                        lambda url: {"status": 200, "bytes": 1, "is_file": True})
-    monkeypatch.setattr(probe, "attempt", lambda url, agent=None: {"status": 200})
-    probe.probe()
-    printed = capsys.readouterr().out
-    assert "21-1011" in printed, "the absent code was counted but never named"
-
-
-def test_the_agent_table_in_the_document_has_a_row_per_agent():
-    """A matrix that grows in the probe and not on the page is how the claim
-    got ahead of the evidence the last two times."""
-    text = DOCUMENT.read_text()
-    heading = "| User-Agent |"
-    # Split blindly and a renamed heading raises IndexError with nothing in it
-    # to say which table moved.
-    assert heading in text, f"no {heading!r} table in {DOCUMENT.name}"
-    block = text.split(heading)[1].split("\n\n")[0]
-    rows = [line for line in block.splitlines()
-            if line.startswith("|") and not set(line) <= set("|-: ")]
-    assert len(rows) == len(probe.AGENTS), \
-        f"the document shows {len(rows)} agents; the probe sends {len(probe.AGENTS)}"
-
-
-def test_the_document_states_the_release_it_was_generated_against():
-    text = DOCUMENT.read_text()
-    assert re.search(r"\*\*May 20\d\d release\*\*", text), "no OEWS release vintage stated"
-    # Whitespace-collapsed: the document is hard-wrapped, so a phrase test that
-    # matches the raw text is really testing where the line breaks fall.
-    flat = " ".join(text.split()).lower()
-    # The CLAIM, not one phrasing of it. "found by the probe rather than
-    # written down" is one sentence a rewrite would innocently change while
-    # saying exactly the same thing, and a test that fails on that teaches
-    # people to edit the test rather than read it.
-    assert "probe" in flat and any(
-        phrase in flat for phrase in
-        ("rather than written down", "rather than remembered",
-         "found rather than", "not written down", "not hard-coded")), \
-        "the vintage reads as remembered rather than measured"
-    # The reason a status check is not enough has to survive on the page, or
-    # the next person restores the cheaper check.
-    assert "text/html" in flat and "404" in flat, \
-        "the soft-404 behaviour that makes status insufficient is not recorded"
-
-
-def test_an_unreachable_source_exits_two(monkeypatch):
-    monkeypatch.setattr(probe, "projections",
-                        lambda: (_ for _ in ()).throw(RuntimeError("dns")))
-    assert probe.main([]) == 2
-
-
-def test_a_malformed_source_exits_three(monkeypatch):
-    monkeypatch.setattr(probe, "projections",
-                        lambda: (_ for _ in ()).throw(probe.MalformedSource("layout")))
-    assert probe.main([]) == 3
-
-
-def test_json_output_carries_a_timestamp(monkeypatch, capsys):
-    serve(monkeypatch, page(row("13-2011")))
-    monkeypatch.setattr(probe, "crosswalk_soc", lambda: set())
-    monkeypatch.setattr(probe, "head", lambda url: {"status": 200, "bytes": 1, "is_file": True})
-    monkeypatch.setattr(probe, "attempt",
-                        lambda url, agent=None: {"status": 200 if agent else 403})
-    assert probe.main(["--json"]) == 0
-    assert "retrieved_at" in json.loads(capsys.readouterr().out)
 
 
 # --------------------------------------------------------------------------
@@ -323,12 +221,12 @@ def test_the_two_requests_differ_in_the_header_not_the_host(monkeypatch):
         seen.append((request.full_url, request.get_header("User-agent")))
         return R()
 
-    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
-    probe.attempt(probe.IDENTITY_TEST_FALLBACK, probe.USER_AGENT)
-    probe.attempt(probe.IDENTITY_TEST_FALLBACK, None)
+    monkeypatch.setattr(access.urllib.request, "urlopen", urlopen)
+    access.attempt(access.IDENTITY_TEST_FALLBACK, access.USER_AGENT)
+    access.attempt(access.IDENTITY_TEST_FALLBACK, None)
 
     assert seen[0][0] == seen[1][0], "the two requests went to different URLs"
-    assert seen[0][1] == probe.USER_AGENT
+    assert seen[0][1] == access.USER_AGENT
     assert seen[1][1] is None, "the anonymous request still sent a User-Agent"
 
 
@@ -338,13 +236,13 @@ def test_every_agent_variant_is_reported(monkeypatch):
     calling urllib's default `Python-urllib/3.x` anonymous."""
     serve(monkeypatch, page(row("13-2011")))
     monkeypatch.setattr(probe, "crosswalk_soc", lambda: set())
-    monkeypatch.setattr(probe, "head", lambda url: {"status": 200, "bytes": 1, "is_file": True})
-    monkeypatch.setattr(probe, "attempt",
+    monkeypatch.setattr(access, "head", lambda url: {"status": 200, "bytes": 1, "is_file": True})
+    monkeypatch.setattr(access, "attempt",
                         lambda url, agent=None: {"status": 200 if agent and "+http" in agent else 403})
     got = probe.probe(quiet=True)["user_agent_test"]["results"]
-    assert set(got) == set(probe.AGENTS)
+    assert set(got) == set(access.AGENTS)
     served = {label for label, r in got.items() if r["status"] == 200}
-    carries_url = {label for label, agent in probe.AGENTS.items()
+    carries_url = {label for label, agent in access.AGENTS.items()
                    if agent and "+http" in agent}
     assert served == carries_url
 
@@ -358,7 +256,7 @@ def test_the_matrix_can_tell_a_contact_url_from_an_allowlisted_string():
     it. Without all of these, the document's claim outruns its evidence again,
     which is the failure this section has already had twice.
     """
-    with_url = [a for a in probe.AGENTS.values() if a and "+http" in a]
+    with_url = [a for a in access.AGENTS.values() if a and "+http" in a]
     assert len(with_url) >= 2, \
         "only one agent carries a contact URL — cannot distinguish it from an allowlist"
 
@@ -366,9 +264,9 @@ def test_the_matrix_can_tell_a_contact_url_from_an_allowlisted_string():
     assert len(names) >= 3, \
         "every contact-URL agent uses the same product name — the name is not varied"
     assert "" in names, "no bare contact URL with no product name at all"
-    assert any(probe.BROWSER in a for a in with_url), \
+    assert any(access.BROWSER in a for a in with_url), \
         "the refused browser string is never retried with a contact URL appended"
-    assert probe.BROWSER in probe.AGENTS.values(), \
+    assert access.BROWSER in access.AGENTS.values(), \
         "the browser string without a contact URL is the control, and it is gone"
 
 
@@ -378,24 +276,24 @@ def test_every_request_goes_to_the_same_url(monkeypatch):
     builds it itself cannot see it."""
     serve(monkeypatch, page(row("13-2011")))
     monkeypatch.setattr(probe, "crosswalk_soc", lambda: set())
-    monkeypatch.setattr(probe, "head", lambda url: {"status": 200, "bytes": 1, "is_file": True})
+    monkeypatch.setattr(access, "head", lambda url: {"status": 200, "bytes": 1, "is_file": True})
     called = []
-    monkeypatch.setattr(probe, "attempt",
+    monkeypatch.setattr(access, "attempt",
                         lambda url, agent=None: (called.append((url, agent)),
                                                  {"status": 200})[1])
     probe.probe(quiet=True)
     urls = {url for url, _ in called}
     assert len(urls) == 1, f"the requests went to different URLs: {urls}"
-    assert {agent for _, agent in called} == set(probe.AGENTS.values())
+    assert {agent for _, agent in called} == set(access.AGENTS.values())
     assert urls.pop().startswith("https://www.bls.gov"), "not the host the claim is about"
 
 
 def test_the_default_agent_is_not_called_anonymous():
     """`attempt(url, None)` sends `Python-urllib/3.x`, not nothing. Labelling
     that arm "anonymous" is what made the previous version's claim untrue."""
-    assert probe.AGENTS["library default"] is None
-    assert "anonymous" not in " ".join(probe.AGENTS).lower()
-    assert "" in probe.AGENTS.values(), "no empty-string arm — the closest to absent"
+    assert access.AGENTS["library default"] is None
+    assert "anonymous" not in " ".join(access.AGENTS).lower()
+    assert "" in access.AGENTS.values(), "no empty-string arm — the closest to absent"
 
 
 def test_a_wanted_field_matching_no_column_is_a_layout_change(monkeypatch):
@@ -431,38 +329,72 @@ def test_two_columns_matching_one_field_are_counted_once(monkeypatch):
     assert result["field_present"]["Median Annual Wage"] == 1, "counted per column"
 
 
-def test_the_identity_test_page_follows_the_release_rather_than_a_pinned_year():
+def test_the_identity_test_page_is_verified_by_content_not_by_status(monkeypatch):
     """bls.gov answers a request for a missing file with 200 and text/html —
     the behaviour `head()` exists to see through. A URL pinned to one release
-    year therefore becomes a probe of an error page the year that release is
-    retired, and every row of the header matrix still reads "served": the
-    claim goes on being confirmed by a page that is not the page.
+    year becomes a probe of an error page the year that release is retired,
+    and every row of the header matrix still reads "served": the claim goes on
+    being confirmed by a page that is not the page.
+
+    The previous fix checked `status == 200`, which is the exact question this
+    module says you must not ask on this host. It is a CONTENT check now, and
+    this test proves it by serving a 200 that is not the page.
     """
     asked = []
 
-    def head(url):
+    def fetch(url):
         asked.append(url)
-        return {"status": 200, "bytes": 1000, "is_file": False}
+        if "2031" in url:
+            return "<title>Page not found</title>"      # 200, and not the page
+        return "<title>May 2030 National Occupational Employment and Wage Estimates</title>"
 
-    original = probe.head
-    probe.head = head
-    try:
-        got = probe.identity_test_url({"release": "May 2031"})
-    finally:
-        probe.head = original
-    assert got == "https://www.bls.gov/oes/2031/may/oes_nat.htm", got
-    assert asked == [got], asked
+    monkeypatch.setattr(access, "fetch", fetch)
+
+    # A 200 that is not the OEWS page must NOT be accepted.
+    assert access.identity_test_url({"release": "May 2031"}) == access.IDENTITY_TEST_FALLBACK
+    assert asked == ["https://www.bls.gov/oes/2031/may/oes_nat.htm"], asked
+
+    # The real page is.
+    asked.clear()
+    assert access.identity_test_url({"release": "May 2030"}) == \
+        "https://www.bls.gov/oes/2030/may/oes_nat.htm"
 
 
-def test_the_identity_test_falls_back_when_the_derived_page_is_not_served():
+def test_the_identity_test_falls_back_when_the_page_cannot_be_read(monkeypatch):
     """An offline run, or a release whose www page has not appeared, still has
     something to report rather than probing a URL nothing answers."""
-    original = probe.head
-    probe.head = lambda url: {"status": 404, "bytes": 0, "is_file": False}
-    try:
-        assert probe.identity_test_url({"release": "May 2031"}) == \
-            probe.IDENTITY_TEST_FALLBACK
-        assert probe.identity_test_url({}) == probe.IDENTITY_TEST_FALLBACK
-        assert probe.identity_test_url({"release": None}) == probe.IDENTITY_TEST_FALLBACK
-    finally:
-        probe.head = original
+    def unreachable(url):
+        raise RuntimeError("unreachable")
+
+    monkeypatch.setattr(access, "fetch", unreachable)
+    assert access.identity_test_url({"release": "May 2031"}) == access.IDENTITY_TEST_FALLBACK
+    assert access.identity_test_url({}) == access.IDENTITY_TEST_FALLBACK
+    assert access.identity_test_url({"release": None}) == access.IDENTITY_TEST_FALLBACK
+
+
+def test_head_falling_back_to_get_when_the_server_refuses_head(monkeypatch):
+    """A 405 is the server's opinion about a METHOD. Recorded as
+    `is_file: False` it becomes a fact about the DATA — a published release
+    read as unpublished, and `oews_latest` then walks back a year looking for
+    something that was there all along."""
+    seen = []
+
+    class Response:
+        status = 200
+        headers = {"content-type": "application/zip", "content-length": "10"}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"0123456789"
+
+    def urlopen(request, timeout=None):
+        seen.append(request.get_method())
+        if request.get_method() == "HEAD":
+            raise access.urllib.error.HTTPError(
+                request.full_url, 405, "Method Not Allowed", {}, None)
+        return Response()
+
+    monkeypatch.setattr(access.urllib.request, "urlopen", urlopen)
+    got = access.head("https://www.bls.gov/oes/special-requests/oesm24nat.zip")
+    assert seen == ["HEAD", "GET"], seen
+    assert got["is_file"] is True, got
+    assert got["method"] == "GET", got

@@ -40,13 +40,15 @@ import html
 import json
 import re
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+# The MODULE, not its names. `from … import head` binds by value, so a test
+# that replaces `bls_access.head` leaves this module calling the original —
+# and the stub silently does nothing. One binding, one thing to patch.
+from etl import bls_access
+
 PROJECTIONS = "https://data.bls.gov/projections/occupationProj"
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 # Fetched on every run, so a change in access shows up rather than being
 # remembered. www.bls.gov is where OEWS and the education-system documentation
@@ -61,48 +63,6 @@ USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 # read the document it produced, and the file that would have caught it —
 # bumping the year and seeing a 404 — does not exist, because bls.gov answers a
 # missing file with 200 and an HTML page.
-OEWS_GEOGRAPHIES = ("nat", "st", "ma")
-OEWS_URL = "https://www.bls.gov/oes/special-requests/oesm{yy}{geography}.zip"
-GEOGRAPHY_NAMES = {"nat": "national", "st": "state", "ma": "metropolitan"}
-
-# How many releases back to look before giving up. OEWS is annual, so three is
-# already more slack than a published series needs.
-OEWS_LOOKBACK = 3
-
-BROWSER = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-           "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
-CONTACT = "(+https://git.samyama.ai/Samyama.ai/edtech-kg)"
-
-# One www.bls.gov page, fetched with several User-Agents. www, not data,
-# because that is the host the claim is about.
-#
-# bls.gov serves 200 with a "page not found" body for a missing file — this
-# module documents that behaviour a few lines down — so a URL pinned to one
-# release year quietly becomes a probe of an error page the year that release
-# is retired, and every row still reads "served". `identity_test_url` finds a
-# year that is actually published rather than remembering one.
-IDENTITY_TEST_FALLBACK = "https://www.bls.gov/oes/2023/may/oes_nat.htm"
-
-# The claim has been wrong twice, so it is measured as a matrix rather than as
-# a yes/no. `attempt(url, None)` does NOT send an anonymous request — urllib
-# supplies `Python-urllib/3.x` — so "no User-Agent" was never tested either.
-#
-# Five agents showed our string served and four others refused, which is
-# consistent with "a contact URL is the discriminator" but equally consistent
-# with "this exact string is allowlisted" — one served sample cannot separate
-# them. The last three rows are here to do that: they hold the contact URL
-# constant and vary everything around it.
-AGENTS = {
-    "ours — name and contact URL": USER_AGENT,
-    "library default": None,
-    "empty": "",
-    "descriptive, no contact URL": "edtech-kg research",
-    "browser-like, no contact URL": BROWSER,
-    "a different name, with a contact URL": f"kg-source-survey {CONTACT}",
-    "the browser string, contact URL appended": f"{BROWSER} {CONTACT}",
-    "the contact URL alone, no product name": CONTACT,
-}
-
 CROSSWALK = Path("data/CIP2020_SOC2018_Crosswalk.xlsx")
 SOC_CODE = re.compile(r"\b\d{2}-\d{4}\b")
 
@@ -144,112 +104,6 @@ class MalformedSource(Exception):
     """Reachable, but not the table we asked for."""
 
 
-def fetch(url: str) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            return response.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"{exc.code} from {url}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"unreachable: {url} ({exc})") from exc
-
-
-def attempt(url: str, agent: str | None = USER_AGENT) -> dict:
-    """What the server says today, not what it said when this was written.
-
-    `agent` is a parameter because the claim this probe makes is *about* the
-    User-Agent: that BLS refuses an anonymous request and serves an identified
-    one. An earlier version named a field `unidentified_request` and sent the
-    identifying header anyway — it varied the host instead, so the claim in the
-    document was never measured by the probe that the document credits.
-    """
-    # `None` means "send whatever urllib sends by default" — which is
-    # `Python-urllib/3.x`, not nothing. An empty string is the closest this can
-    # get to absent, and the difference is recorded rather than glossed.
-    headers = {} if agent is None else {"User-Agent": agent}
-    request = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return {"status": response.status, "bytes": len(response.read())}
-    except urllib.error.HTTPError as exc:
-        return {"status": exc.code, "reason": str(exc.reason).splitlines()[0]}
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"status": None, "reason": str(exc)}
-
-
-def head(url: str) -> dict:
-    """Is it there, and how big — without downloading it.
-
-    `status` alone does not answer "is it there". `www.bls.gov` serves a
-    request for a file it does not have with **200 and `text/html`**, so a
-    status check reports an unpublished release as available. The content type
-    is carried back with it, and `is_file` is what callers should ask.
-    """
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT},
-                                     method="HEAD")
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            size = response.headers.get("content-length")
-            kind = (response.headers.get("content-type") or "").split(";")[0].strip()
-            return {"status": response.status, "content_type": kind,
-                    "bytes": int(size) if size and size.isdigit() else None,
-                    "is_file": response.status == 200 and "html" not in kind}
-    except urllib.error.HTTPError as exc:
-        return {"status": exc.code, "is_file": False,
-                "reason": str(exc.reason).splitlines()[0]}
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"status": None, "is_file": False, "reason": str(exc)}
-
-
-def oews_release(yy: str) -> dict:
-    """One OEWS release, by geography — or `{}` if it is not published."""
-    got = {GEOGRAPHY_NAMES[g]: head(OEWS_URL.format(yy=yy, geography=g))
-           for g in OEWS_GEOGRAPHIES}
-    return got if all(g["is_file"] for g in got.values()) else {}
-
-
-def identity_test_url(oews: dict) -> str:
-    """A www.bls.gov page that is actually published, for the header matrix.
-
-    bls.gov answers a request for a missing file with **200 and text/html**,
-    which this module documents and `head()` exists to see through. A URL
-    pinned to one release year therefore becomes a probe of an error page the
-    year that release is retired — and every row of the matrix still reads
-    "served", so the claim would go on being confirmed by a page that is not
-    the page.
-
-    Built from the release `oews_latest` just found, and only used if it is
-    served as an HTML page rather than a not-found body. The pinned URL is the
-    fallback, so an offline run still has something to report.
-    """
-    release = (oews or {}).get("release") or ""
-    match = re.search(r"(\d{4})", release)
-    if match:
-        candidate = f"https://www.bls.gov/oes/{match.group(1)}/may/oes_nat.htm"
-        if head(candidate).get("status") == 200:
-            return candidate
-    return IDENTITY_TEST_FALLBACK
-
-
-def oews_latest(this_year: int) -> dict:
-    """The newest published OEWS release, found rather than remembered.
-
-    Counts back from the current year. A release is only accepted when every
-    geography in it is served as a zip — a half-published year would otherwise
-    be reported as current with a geography silently missing.
-    """
-    tried = []
-    for year in range(this_year, this_year - OEWS_LOOKBACK - 1, -1):
-        yy = f"{year % 100:02d}"
-        tried.append(yy)
-        found = oews_release(yy)
-        if found:
-            return {"release": f"May 20{yy}", "years_tried": tried,
-                    "geographies": found}
-    return {"release": None, "years_tried": tried, "geographies": {}}
-
-
 def text_of(markup: str) -> str:
     return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", markup)).split())
 
@@ -267,7 +121,7 @@ def rows_of(markup: str) -> list[list[str]]:
 
 def projections() -> dict:
     """One row per detailed occupation, with what BLS publishes about it."""
-    markup = fetch(PROJECTIONS)
+    markup = bls_access.fetch(PROJECTIONS)
     table = rows_of(markup)
     header = next((r for r in table if any("Occupation Code" in c for c in r)), None)
     if header is None:
@@ -277,6 +131,23 @@ def projections() -> dict:
             f"otherwise be reported as zero occupations."
         )
     code_at = next(i for i, c in enumerate(header) if "Occupation Code" in c)
+
+    # Checked BEFORE the rows are walked, not after. A heading rename usually
+    # empties the parse too, and the comment below already says this error is
+    # the more informative of the two — but it was raised after ~800 rows had
+    # been read and scored against columns that were not there. The refusal
+    # belongs where the fault is detectable.
+    unmatched = [w for w in WANTED if not any(w in name for name in header)]
+    if not employment_columns(header):
+        # By pattern, not by year: a heading pinned to "Employment 2024" makes
+        # the next release a hard failure, reported as BLS having stopped
+        # publishing employment when BLS had only published again.
+        unmatched.append("a dated Employment column")
+    if unmatched:
+        raise MalformedSource(
+            f"no column matches {unmatched} at {PROJECTIONS} — the headings are "
+            f"{header}. Reporting these as zero would read as BLS having stopped "
+            f"publishing them.")
 
     # The dated employment headings are read off the header rather than
     # written down, so next release's 2025-35 is reported as itself.
@@ -308,25 +179,9 @@ def projections() -> dict:
             if any(i < len(row) and row[i] not in ("", "-", "—") for i in columns):
                 present[field] += 1
 
-    # Checked BEFORE the empty-table refusal. A heading rename usually empties
-    # the parse too, and "no occupations parsed" is the less informative of the
-    # two errors — it points at the data when the cause is the layout.
-    #
     # Substring matching works today only because "Employment Change" is not a
     # substring of "Employment Percent Change" — a property of BLS's phrasing,
     # not one this code enforces.
-    unmatched = [w for w in WANTED if not any(w in name for name in header)]
-    if not employment_columns(header):
-        # By pattern, not by year: a heading pinned to "Employment 2024" makes
-        # the next release a hard failure, reported as BLS having stopped
-        # publishing employment when BLS had only published again.
-        unmatched.append("a dated Employment column")
-    if unmatched:
-        raise MalformedSource(
-            f"no column matches {unmatched} at {PROJECTIONS} — the headings are "
-            f"{header}. Reporting these as zero would read as BLS having stopped "
-            f"publishing them.")
-
     if not occupations:
         raise ValueError("no occupations parsed — refusing to report that as coverage")
     return {"source": PROJECTIONS, "occupations": len(occupations),
@@ -349,11 +204,26 @@ def crosswalk_soc() -> set[str]:
     book = zipfile.ZipFile(CROSSWALK)
     found = set()
     for part in sheets(book).values():
-        for row in rows(book, part):
-            for cell in row:
-                code = cell.strip()
-                if SOC_CODE.fullmatch(code) and code not in NOT_AN_OCCUPATION:
-                    found.add(code)
+        table = list(rows(book, part))
+        if not table:
+            continue
+        # The SOC COLUMN, named by the sheet's own header — not every cell.
+        # Scanning every cell means any `NN-NNNN` string anywhere in the
+        # workbook joins the denominator: a note, a page range, a phone
+        # fragment. Measured against the current file the two agree exactly at
+        # 867, so this changes the shape and not the number — which is the
+        # honest way to describe it.
+        header = table[0]
+        soc_at = next((i for i, name in enumerate(header)
+                       if "SOC" in name and "Code" in name), None)
+        if soc_at is None:
+            continue
+        for row in table[1:]:
+            if len(row) <= soc_at:
+                continue
+            code = row[soc_at].strip()
+            if SOC_CODE.fullmatch(code) and code not in NOT_AN_OCCUPATION:
+                found.add(code)
     return found
 
 
@@ -377,8 +247,8 @@ def probe(quiet: bool = False) -> dict:
     # Sorted once. It was re-sorted for the JSON field and then twice more per
     # line of the printed block below.
     absent_sorted = sorted(absent)
-    oews = oews_latest(now.year)
-    identity_url = identity_test_url(oews)
+    oews = bls_access.oews_latest(now.year)
+    identity_url = bls_access.identity_test_url(oews)
 
     result = {
         "retrieved_at": stamp,
@@ -397,8 +267,8 @@ def probe(quiet: bool = False) -> dict:
         # whole measurement.
         "user_agent_test": {
             "url": identity_url,
-            "results": {label: attempt(identity_url, agent)
-                        for label, agent in AGENTS.items()},
+            "results": {label: bls_access.attempt(identity_url, agent)
+                        for label, agent in bls_access.AGENTS.items()},
         },
         "soc_vintage": "SOC 2018 — the crosswalk file is CIP2020_SOC2018",
     }
