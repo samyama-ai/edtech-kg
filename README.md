@@ -1,5 +1,7 @@
 # Education-to-Career Pathways Knowledge Graph
 
+[![CI](https://git.samyama.ai/Samyama.ai/edtech-kg/actions/workflows/ci.yml/badge.svg)](https://git.samyama.ai/Samyama.ai/edtech-kg/actions?workflow=ci.yml)
+
 **1,098 nodes. 1,287 edges. One school district's published course catalogue, as a graph
 you can walk — plus eight measured public sources for the college and career side.**
 
@@ -174,6 +176,7 @@ preference, and the working is on the page.
 ## Structure
 
 ```
+.github/      ci.yml — the suite on every push and PR, with a real engine
 etl/          probes (one per source) + load_pwcs.py
 schema/       edtech_kg.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
@@ -190,10 +193,13 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 431 tests
+pytest                           # 487 tests
 ```
 
-Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
+CI runs the same suite against a real engine, with `SAMYAMA_REQUIRE_ENGINE=1` so an
+unreachable engine fails the build instead of skipping, and `SAMYAMA_CI=1` so an
+unexpected skip fails it too — a skip is indistinguishable from a pass in every
+summary line. Locally, engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
 write and delete:
 
 ```bash
