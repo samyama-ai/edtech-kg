@@ -126,7 +126,70 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
                 names = [node.module]
             third_party.update(n.split(".")[0] for n in names)
 
-    third_party -= set(sys.stdlib_module_names) | {"__future__", "etl", "tests", "demo"}
+    third_party -= set(sys.stdlib_module_names) | {"__future__", "conftest", "etl", "tests", "demo"}
     assert third_party <= {"pytest"}, (
         f"the suite imports {sorted(third_party)}, which CI does not install. "
         f"Either add it to the install step or drop the dependency.")
+
+
+# --------------------------------------------------------------------------
+# the skip guard itself, driven directly
+# --------------------------------------------------------------------------
+#
+# Driven with fabricated reports rather than by running a real xfail. A real
+# one would have to live in the suite permanently to be covered, and a test
+# kept alive only to be observed by another test is the sort of thing that gets
+# deleted as dead a year later, taking this coverage with it.
+
+
+class _Report:
+    """The two fields the hook reads, in the shapes pytest actually produces."""
+
+    def __init__(self, nodeid, longrepr, skipped=True, wasxfail=None):
+        self.nodeid, self.longrepr, self.skipped = nodeid, longrepr, skipped
+        if wasxfail is not None:
+            self.wasxfail = wasxfail
+
+
+@pytest.fixture
+def guard(monkeypatch):
+    """The real hook, with its accumulator emptied for the test."""
+    import conftest
+    monkeypatch.setattr(conftest, "_skipped", [])
+    return conftest
+
+
+def test_an_xfail_is_not_treated_as_a_silent_skip(guard):
+    """`report.skipped` is True for an xfailed test, and its `longrepr` is a
+    plain string rather than the 3-tuple a skip carries. Without the guard it
+    landed here with an empty reason, missed the allowlist, and failed the
+    build with a message naming no reason at all.
+
+    An xfail is a deliberate statement that a test is expected to fail — the
+    opposite of a test quietly not running, which is what this file exists to
+    catch."""
+    guard.pytest_runtest_logreport(
+        _Report("tests/t.py::x", "reason: known broken", wasxfail="known broken"))
+    assert guard._skipped == []
+
+
+def test_a_skip_of_an_unrecognised_shape_still_names_itself(guard):
+    """A reason that comes through as something other than the 3-tuple must not
+    be recorded as an empty string. A blank reason fails the build with nothing
+    for the next person to search for, which is its own dead end."""
+    guard.pytest_runtest_logreport(_Report("tests/t.py::y", "Skipped: odd shape"))
+    assert guard._skipped == [("tests/t.py::y", "Skipped: odd shape")]
+    assert guard._skipped[0][1] != ""
+
+
+def test_a_real_skip_is_recorded_with_its_reason(guard):
+    """The ordinary path, so the two cases above are not the only ones covered
+    and a hook that recorded nothing at all would still fail here."""
+    guard.pytest_runtest_logreport(
+        _Report("tests/t.py::z", ("tests/t.py", 12, "Skipped: no engine")))
+    assert guard._skipped == [("tests/t.py::z", "Skipped: no engine")]
+
+
+def test_a_passing_test_is_not_recorded(guard):
+    guard.pytest_runtest_logreport(_Report("tests/t.py::p", None, skipped=False))
+    assert guard._skipped == []

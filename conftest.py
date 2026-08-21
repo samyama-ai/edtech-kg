@@ -50,11 +50,25 @@ def pytest_runtest_logreport(report):
     than inspecting markers at collection time. A fixture-raised skip has no
     marker to find.
     """
-    if report.skipped:
-        reason = ""
-        if isinstance(report.longrepr, tuple) and len(report.longrepr) == 3:
-            reason = str(report.longrepr[2])
-        _skipped.append((report.nodeid, reason))
+    if not report.skipped:
+        return
+
+    # An xfail is reported as skipped too, and it is a DELIBERATE statement that
+    # a test is expected to fail — the opposite of a test quietly not running.
+    # Its longrepr is a plain string rather than the 3-tuple, so without this it
+    # would land here with an empty reason, miss the allowlist, and fail the
+    # build with a message pointing nowhere.
+    if hasattr(report, "wasxfail"):
+        return
+
+    if isinstance(report.longrepr, tuple) and len(report.longrepr) == 3:
+        reason = str(report.longrepr[2])
+    else:
+        # Never blank. An unrecognised shape still has to name itself, or the
+        # failure message is an empty line and the next person has nothing to
+        # search for.
+        reason = str(report.longrepr)
+    _skipped.append((report.nodeid, reason))
 
 
 def pytest_sessionfinish(session, exitstatus):

@@ -191,13 +191,15 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 487 tests
+pytest                           # 491 tests
 ```
 
-CI runs the same suite against a real engine, with `SAMYAMA_REQUIRE_ENGINE=1` so an
-unreachable engine fails the build instead of skipping, and `SAMYAMA_CI=1` so an
-unexpected skip fails it too — a skip is indistinguishable from a pass in every
-summary line. Locally, engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
+CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an
+unreachable engine fail the build rather than skip, and `SAMYAMA_CI=1` makes an
+unexpected skip fail it too — a skip is indistinguishable from a pass in every
+summary line.
+
+Locally, engine-backed tests skip unless an engine is reachable. Point them at a **fresh** instance — they
 write and delete:
 
 ```bash
