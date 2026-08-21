@@ -12,7 +12,6 @@ stated prerequisite.
 """
 
 import json
-import urllib.error
 
 import pytest
 

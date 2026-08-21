@@ -8,6 +8,8 @@ lying about itself.
 import re
 from pathlib import Path
 
+from tests.spelling import spelled
+
 import pytest
 
 DOC = Path(__file__).resolve().parents[1] / "docs" / "questions.md"
@@ -118,22 +120,6 @@ def test_no_tier_four_question_is_left_without_its_graph_operation():
         # lines, and matching the raw text silently missed those.
         flat = " ".join(question.lower().split())
         assert any(op in flat for op in operations), flat[:90]
-
-
-SPELLED = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-           "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-           "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
-           "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
-           "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40,
-           "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
-
-
-def spelled(word: str) -> int:
-    """"Seventy-four" -> 74. Keeps the tests from carrying a map of the
-    particular numbers the document happens to say today — the previous version
-    raised KeyError the moment a total left its window, turning a self-checking
-    test into an opaque traceback in a document designed to grow."""
-    return sum(SPELLED[part] for part in word.lower().split("-"))
 
 
 def test_the_competency_gap_names_the_questions_it_blocks():
