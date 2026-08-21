@@ -40,6 +40,7 @@ import html
 import json
 import re
 import sys
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +48,11 @@ from pathlib import Path
 # that replaces `bls_access.head` leaves this module calling the original —
 # and the stub silently does nothing. One binding, one thing to patch.
 from etl import bls_access
+# At module level, not inside `crosswalk_soc`. The local form was there to keep
+# the import cost off a run that never reads the crosswalk — but it also made
+# the handle unobservable to a test, and `probe_cipsoc` is imported by this
+# package anyway.
+from etl.probe_cipsoc import rows, sheets
 
 PROJECTIONS = "https://data.bls.gov/projections/occupationProj"
 
@@ -194,9 +200,6 @@ def crosswalk_soc() -> set[str]:
         # Absent is a fact about this MACHINE — the file is gitignored, so a
         # fresh clone has none of it. Distinct from "present and unreadable".
         return set()
-    import zipfile  # noqa: PLC0415
-
-    from etl.probe_cipsoc import rows, sheets  # noqa: PLC0415
 
     found: set[str] = set()
     columns_seen, headers_seen = 0, []

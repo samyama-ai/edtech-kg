@@ -172,11 +172,18 @@ def test_no_crosswalk_locally_does_not_claim_zero_coverage(monkeypatch, tmp_path
 
     assert result["crosswalk_soc_codes"] == 0
     assert result["crosswalk_codes_covered"] == 0
-    # The ratio is the thing a reader would quote, and 0/0 must not render as
-    # a percentage at all — "BLS covers 0%" is a claim; "we have no crosswalk
-    # here" is the fact.
     assert result["crosswalk_codes_missing"] == 0, (
         "with no crosswalk there is nothing measured as missing either")
+
+    # The claim the docstring makes, actually asserted: 0/0 must not be
+    # rendered as a coverage percentage anywhere in the output. "BLS covers
+    # 0%" is a statement about BLS; "there is no crosswalk on this machine" is
+    # the fact, and only one of them is true.
+    assert "answerable_including_broad_parent" in result
+    assert result["answerable_including_broad_parent"] == 0, result
+    for key, value in result.items():
+        assert not (isinstance(value, float) and value != value), (
+            f"{key} is NaN — a 0/0 ratio reached the output")
 
 
 def test_next_releases_employment_headings_are_read_not_refused(monkeypatch):
@@ -351,14 +358,33 @@ def test_two_columns_matching_one_field_are_counted_once(monkeypatch):
     assert result["field_present"]["Median Annual Wage"] == 1, "counted per column"
 
 
-def test_the_workbook_handle_is_closed():
+def test_the_workbook_handle_is_closed(tmp_path, monkeypatch):
     """`zipfile.ZipFile` was opened and left to the garbage collector. This
-    module is imported by a long-lived process as readily as by a script."""
-    import inspect
-    source = inspect.getsource(probe.crosswalk_soc)
-    code = "\n".join(line.split("#")[0] for line in source.splitlines())
-    assert "with zipfile.ZipFile" in code, (
-        "the crosswalk workbook is opened without a context manager")
+    module is imported by a long-lived process as readily as by a script.
+
+    Asserted by watching the handle, not by reading the source for the word
+    `with`: a source scan passes on a `with` in a comment and fails on a
+    correct refactor that closes it another way.
+    """
+    book = workbook(tmp_path / "crosswalk.xlsx", "CIP-SOC", [
+        ["CIP Code", "SOC Code"],
+        ["11.0101", "13-2011"],
+    ])
+    monkeypatch.setattr(probe, "CROSSWALK", book)
+
+    opened = []
+    real = zipfile.ZipFile
+
+    class Watched(real):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            opened.append(self)
+
+    monkeypatch.setattr(probe.zipfile, "ZipFile", Watched)
+    probe.crosswalk_soc()
+    assert opened, "the workbook was never opened"
+    assert all(handle.fp is None for handle in opened), (
+        "the crosswalk workbook is still open after crosswalk_soc() returned")
 
 
 def test_a_year_list_of_any_shape_prints_readably(monkeypatch, capsys):

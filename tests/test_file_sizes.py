@@ -76,6 +76,21 @@ def git(*args: str) -> str:
     return out.stdout
 
 
+def pathspec_sets(types):
+    """A pathspec list read as `(suffixes, basenames)`.
+
+    Its own function so a test can drive it. `"*/Dockerfile".lstrip("*")` gives
+    `"/Dockerfile"` — never a `Path.suffix` and never a `Path.name` — so the
+    `*/` forms added so a NESTED Dockerfile would be covered silently matched
+    nothing, and the coverage check stopped seeing them. Suffixes come from the
+    `*.ext` forms only; everything else is matched by BASENAME, which is what
+    "Dockerfile" and "*/Dockerfile" both mean to git.
+    """
+    suffixes = {t[1:] for t in types if t.startswith("*.")}
+    named = {t.rsplit("/", 1)[-1] for t in types if not t.startswith("*.")}
+    return suffixes, named
+
+
 def tracked() -> list[str]:
     """Paths git knows about, NUL-separated.
 
@@ -156,7 +171,14 @@ def baseline_exceptions():
                              cwd=ROOT, capture_output=True, text=True)
         if out.returncode != 0:
             continue
-        return parse_exceptions(out.stdout)
+        found = parse_exceptions(out.stdout)
+        if found is not None:
+            return found
+        # Resolved but held no list — an older copy of this file, or one that
+        # predates the guard. Falling through to the next ref rather than
+        # returning None: `origin/main` can be arbitrarily stale in an
+        # unfetched checkout, and stopping there would skip the ratchet on the
+        # strength of a ref nobody had updated.
     return None
 
 
@@ -178,6 +200,32 @@ def test_the_exception_list_only_shrinks():
     assert not added, (
         f"these were added to the exception list, which may only shrink: "
         f"{sorted(added)}. Split the file instead; see #86")
+
+
+def test_the_limit_itself_only_gets_stricter():
+    """The exception list is ratcheted and the LIMIT was not.
+
+    `REVIEWABLE_LINES = 900` defeats the whole guard in one line, without
+    touching the allowlist the ratchet watches — a larger hole than any entry
+    could open, and the one nobody was looking at. Compared against `main` for
+    the same reason the list is: a branch cannot edit merged history.
+    """
+    import re
+    for ref in ("origin/main", "main"):
+        out = subprocess.run(["git", "show", f"{ref}:tests/test_file_sizes.py"],
+                             cwd=ROOT, capture_output=True, text=True)
+        if out.returncode != 0:
+            continue
+        found = re.search(r"^REVIEWABLE_LINES = (\d+)", out.stdout, re.M)
+        if not found:
+            continue
+        assert REVIEWABLE_LINES <= int(found.group(1)), (
+            f"the review limit was raised from {found.group(1)} to "
+            f"{REVIEWABLE_LINES}. That exempts every file between the two "
+            f"without adding one to the exception list — the ratchet watches "
+            f"the list, so this is the way around it.")
+        return
+    pytest.skip("no REVIEWABLE_LINES on main yet — nothing to ratchet against")
 
 
 def test_no_exception_is_stale():
@@ -219,8 +267,7 @@ def test_the_limit_covers_documents_as_well_as_code():
     """
     covered = set(tracked())
     every = names_from(git("ls-files", "-z"))
-    suffixes = {t.lstrip("*") for t in REVIEWABLE_TYPES if t.startswith("*")}
-    named = {t for t in REVIEWABLE_TYPES if not t.startswith("*")}
+    suffixes, named = pathspec_sets(REVIEWABLE_TYPES)
     missed = sorted(name for name in every
                     if (Path(name).suffix in suffixes or Path(name).name in named)
                     and name not in covered)
@@ -302,3 +349,19 @@ def test_the_ratchet_baseline_is_not_read_from_this_file():
         "read from main — a second literal in this file is a copy, not a floor")
     assert "frozenset(" not in source and "OVERSIZED_ALREADY = {" not in source, (
         "a literal set has reappeared inside the ratchet test")
+
+
+def test_the_named_pathspecs_are_matched_by_basename():
+    """`"*/Dockerfile".lstrip("*")` gives `"/Dockerfile"` — never a `Path.suffix`
+    and never a `Path.name`, so the `*/` forms added so a nested Dockerfile
+    would be covered silently matched nothing, and the coverage check stopped
+    seeing them at all.
+
+    Driven directly, because the repo has no Dockerfile: the bug is in how the
+    pathspec list is read, not in what the repo happens to contain.
+    """
+    suffixes, named = pathspec_sets(
+        ["*.py", "Dockerfile", "*/Dockerfile", "*/Makefile"])
+    assert suffixes == {".py"}, suffixes
+    assert named == {"Dockerfile", "Makefile"}, named
+    assert "/Dockerfile" not in named, "the leading slash is back"
