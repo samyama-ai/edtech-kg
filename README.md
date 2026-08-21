@@ -74,7 +74,7 @@ pyproject.toml
 ## Using this template
 1. Click **Use this template** (this repo is a Gitea template) and name your repo `<domain>-kg`.
 2. Find-and-replace the `{{...}}` placeholders (KG_NAME, KG_SLUG, NODE_LABELS, EDGE_TYPES, SOURCES, N, M, K, example query).
-3. Rename `schema/template_kg.cypher` -> `schema/<slug>_kg.cypher` and fill in real node/edge definitions.
+3. Write `schema/<slug>_kg.cypher` with real node/edge definitions — this repo's is `schema/edtech_kg.cypher`.
 4. Implement the `etl/` downloaders + loader and the `mcp_server/` tools for your domain.
 5. Add the repo to the **samyama-graph** team.
 
