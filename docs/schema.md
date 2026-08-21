@@ -23,49 +23,39 @@ source holds, not what any graph contains.
 
 | Label | Key | Meaning | Measured in the source |
 |---|---|---|---|
-| `Course` | `url` | One published course page in one district's catalogue | 960 pages — **under correction, see below** |
+| `Course` | `url` | One published course page in one district's catalogue | **795** courses (960 sitemap pages − 127 subject − 38 pathway; #74) |
 | `Programme` | `cip_code` | A field of study, 6-digit CIP | 2,143 in the crosswalk |
 | `Occupation` | `soc_code` | An occupation, SOC code | 868 in the crosswalk |
 | `Institution` | `unitid` | A college or university, IPEDS | 6,256 |
 | `School` | `ncessch` | A school, CCD | 102,268 |
 | `District` | `leaid` | A school district, CCD | 19,714 |
-| `Subject` | `url` | The catalogue's own grouping of courses | 127 pages at depth 1 — see below |
+| `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
 | `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | 138 |
 | `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
 
-**Two rows in that table were making a claim the tier definition does not
-support, and they are worth stating plainly rather than tidying away.**
+**Where the district's three figures come from.** `etl/probe_pwcs.py` reports
+960 — every page in the sitemap — and calls them all courses. The catalogue has
+three levels: 127 subject indexes, 795 courses, 38 CTE pathway pages. So none of
+the three rows above is a number the probe prints as such today; each falls out
+of the depth split, and **edtech-kg#74** is where the probe is corrected to
+report them separately. The table carries the corrected figures because a
+reader skimming it should not take away a number this page goes on to refute.
 
-`Course` said **960**. That is every page in the district's sitemap, and
-`etl/probe_pwcs.py` does count all 960 as courses — but the catalogue has three
-levels, and 127 of those pages are subject indexes while 38 are CTE pathway
-pages. The course count is **795**. Raised as **#74**; the figure here stays as
-the probe currently reports it, with the correction named, rather than being
-changed to a number no probe in this branch produces.
-
-`Subject` had a dash, which is a contradiction on its own page: either a probe
-measures it or it is not tier 1. The figure is 127 — the pages at depth 1 in the
-sitemap — and it is the same measurement as the row above, from the same source,
-under the same issue. Neither is a separate count `probe_pwcs` reports today;
-both fall out of the depth split #74 is about, which is why they carry the same
-caveat rather than a dash that says nothing.
-
-`Completion` said "9,026,310 **available**", which read as a hedge about
-loading. It is not: 9,026,310 is what IPEDS publishes and the probe measured it.
-Whether a bounded slice or all of it is loaded is **#23**, and it is a question
-about the loader, not about the source.
+`Completion` is 9,026,310 because that is what IPEDS publishes. Whether a
+bounded slice or all of it is loaded is **edtech-kg#23** — a question about the
+loader, not about the source.
 
 ## Node labels — tier 2, modelled and empty
 
 | Label | Key | Why it is here, and why it is empty |
 |---|---|---|
-| `Credential` | `ctid` | 133,346 published, but under each publisher's own terms rather than CTDL's CC BY 4.0 (#56) |
+| `Credential` | `ctid` | 133,346 published, but under each publisher's own terms rather than CTDL's CC BY 4.0 (edtech-kg#56) |
 | `Pathway` | `ctid` | CTDL's pathway vocabulary is rich; the Registry publishes **98** against 47,861 courses |
 | `AwardingBody` | `id` | The competency gap, below |
 | `Level` | `id` = `body\|code` | Same |
 | `Competency` | `id` | Same |
-| `EarningsRecord` | `id` | BLS, O\*NET and College Scorecard are *named but not counted* (#37, edtech-kg#21) |
-| `Place` | `id` | "Near me" needs geography to be true first (#44) |
+| `EarningsRecord` | `id` | BLS, O\*NET and College Scorecard are *named but not counted* (edtech-kg#37, edtech-kg#21) |
+| `Place` | `id` | "Near me" needs geography to be true first (edtech-kg#44) |
 
 ## Edge types
 
@@ -165,19 +155,20 @@ where each body grades on its own scale and the scales do not align.
 
 Written down before anyone finds it.
 
-0. **Nothing enforces the MERGE rule yet.** The file says a loader must MERGE on
-   the key, because 1.1.0 does not reject a duplicate CREATE — and
-   `etl/loader.py` is still the repo template. So that rule is currently prose,
-   not a guarantee. #7 is the loader, and it is where the rule stops being a
-   comment.
+**Before the list: the MERGE rule is not enforced by anything.** The schema
+says a loader must MERGE on the key, because 1.1.0 does not reject a duplicate
+CREATE — measured directly, not assumed. `etl/loader.py` is still the repo
+template, so for any loader but this district's the rule is prose.
+**edtech-kg#7** is the national-spine loader, where it stops being a comment.
+That is a statement about the loaders, not about what this schema claims, which
+is why it sits above the list rather than inside it as an item "0".
 
 1. **No student.** Individual records are permanently out of scope
    ([`scope.md`](scope.md) §1). Nothing here can answer "where is this child".
 2. **No national prerequisite graph.** `REQUIRES` is populated for **one
-   district**, whose sitemap holds 960 pages — see the correction above for why
-   that is not the course count. Statewide directories publish none at all, so
+   district**, 795 courses drawn from a 960-page sitemap. Statewide directories publish none at all, so
    this is a property of one publisher's catalogue software, not of US
-   education data. Whether a second district resolves as cleanly is #19.
+   education data. Whether a second district resolves as cleanly is edtech-kg#19.
 3. **No Course → Programme edge.** No public source links a district course to
    a college programme's entry requirements. Q39 is marked blocked for exactly
    this reason.
@@ -199,7 +190,7 @@ against a fixture ladder four courses deep with one branch that leaves its
 subject, so "across a subject boundary" is a property of the fixture rather
 than a hopeful reading of one:
 
-| Question | Form | |
+| Question | Form | Result |
 |---|---|---|
 | Q61 blast radius | `(x)<-[:REQUIRES*1..10]-(closed)` | ✅ reached depth 2 across a subject boundary |
 | Q65 what must I take first | `(t)-[:REQUIRES*1..10]->(need)` | ✅ full ancestor set |
@@ -228,7 +219,7 @@ asserting incorrectly:
 rather than worked around silently. A **pattern used as an expression inside
 `WHERE`** does not parse in 1.1.0:
 
-| Form | |
+| Form | Parses in 1.1.0 |
 |---|---|
 | `WHERE (c)-[:REQUIRES]->()` | ✗ parse error |
 | `WHERE NOT (c)-[:REQUIRES]->()` | ✗ parse error |
@@ -249,7 +240,7 @@ RETURN c.title
 
 That table is **observed, not executed** — it is the one substantive claim on
 this page that no test runs, and it goes stale silently the day
-samyama-graph#21 lands and four of its rows become wrong. **#72** is to run the
+samyama-graph#21 lands and four of its rows become wrong. **edtech-kg#72** is to run the
 six forms against a live engine and assert each verdict.
 
 Loaders, demo queries and anything generating Cypher must use `EXISTS { }`.

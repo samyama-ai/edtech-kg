@@ -266,3 +266,61 @@ def test_the_doc_marks_every_tier_four_row_this_file_executes():
     assert claimed == tested, (
         f"docs/schema.md claims {sorted(claimed)} were run; this file executes "
         f"{sorted(tested)}")
+
+
+def test_applying_the_schema_twice_changes_nothing(ladder):
+    """Re-running the file must be safe, because the loader applies it on every
+    run. Other Cypher engines error on an already-present constraint, which is
+    why the reflex is to ask for `IF NOT EXISTS` — a form 1.1.0 does not parse.
+
+    So the property is asserted rather than assumed. If a future release starts
+    refusing, this fails and `apply_schema` needs a guard.
+    """
+    for pass_number in (1, 2):
+        for statement in statements():
+            result = query(ladder, statement)
+            assert "error" not in result, (
+                f"pass {pass_number} of the schema failed on "
+                f"{statement[:70]} -> {result.get('error')}")
+
+
+def test_a_named_constraint_and_a_drop_are_both_parse_errors(ladder):
+    """Recorded so the finding survives review rather than being re-litigated.
+
+    "Name the constraints so a specific one can be replaced" is sound advice
+    against an engine that accepts names. This one does not: the named form is
+    a parse error, and `DROP CONSTRAINT` is a parse error too — so naming would
+    buy nothing even if it parsed. The day either is accepted, this goes red
+    and the note in schema/edtech_kg.cypher needs removing.
+    """
+    for statement in (
+        "CREATE CONSTRAINT probe_named ON (x:ProbeNamed) ASSERT x.k IS UNIQUE",
+        "CREATE INDEX probe_named_idx ON :ProbeNamed(k)",
+        "DROP CONSTRAINT ON (x:ProbeNamed) ASSERT x.k IS UNIQUE",
+    ):
+        result = query(ladder, statement)
+        assert "error" in result, f"1.1.0 now accepts {statement!r}"
+        assert "unreachable mid-run" not in result["error"], (
+            f"the engine went away rather than refusing: {result['error']}")
+
+    # `SHOW CONSTRAINTS` does parse — what is declared can at least be read.
+    assert "error" not in query(ladder, "SHOW CONSTRAINTS")
+
+
+def test_a_constraint_declares_the_key_and_does_not_enforce_it(ladder):
+    """The claim the whole MERGE rule rests on, measured rather than repeated.
+
+    If 1.1.0 ever starts rejecting the duplicate, this fails — and the schema's
+    "loaders must MERGE" paragraph becomes advice rather than the only thing
+    standing between a re-run and a doubled graph.
+    """
+    assert "error" not in query(
+        ladder, "CREATE CONSTRAINT ON (u:DupProbe) ASSERT u.k IS UNIQUE")
+    first = query(ladder, "CREATE (:DupProbe {k: 'same', src: 'fx'})")
+    second = query(ladder, "CREATE (:DupProbe {k: 'same', src: 'fx'})")
+    assert "error" not in first, first
+    assert "error" not in second, (
+        "1.1.0 now rejects a duplicate against a declared key — the schema says "
+        "it does not, and every 'loaders must MERGE' note rests on that")
+    held = rows(ladder, "MATCH (n:DupProbe) RETURN count(n)")[0][0]
+    assert held == 2, f"expected both duplicates to be stored, got {held}"

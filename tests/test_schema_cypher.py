@@ -324,8 +324,19 @@ def test_the_equivalence_edge_states_its_direction():
 def test_the_unenforced_merge_rule_is_admitted():
     """The file requires loaders to MERGE because 1.1.0 does not reject a
     duplicate CREATE — and etl/loader.py is still the repo template, so nothing
-    enforces it. That gap is stated rather than left implied."""
-    assert "Nothing enforces the MERGE rule yet" in SCHEMA_DOC.read_text()
+    enforces it. That gap is stated rather than left implied.
+
+    Matched on the CLAIM, not on one sentence. The previous version pinned the
+    exact words "Nothing enforces the MERGE rule yet", so moving the paragraph
+    out of the numbered scope list — where it did not belong, being a statement
+    about loaders rather than about scope — broke a test that has no opinion
+    about where the paragraph sits.
+    """
+    doc = " ".join(SCHEMA_DOC.read_text().split()).lower()
+    assert "merge rule is not enforced" in doc or "nothing enforces the merge rule" in doc, \
+        "the doc no longer admits that nothing enforces the MERGE rule"
+    assert "duplicate create" in doc, \
+        "the reason the rule matters — 1.1.0 accepts a duplicate CREATE — is gone"
 
 
 def test_a_url_in_a_string_literal_survives_comment_stripping():
@@ -420,3 +431,35 @@ def test_no_document_calls_960_a_course_count():
         assert "960 courses" not in flat, (
             f"{path.name} still calls 960 a course count; it is the sitemap "
             f"page count, and the course count is 795")
+
+
+def test_every_composite_key_names_its_components():
+    """A key documented as `sha1(...)` with no components recorded is a key
+    nobody can check after a load — a wrong id is indistinguishable from a
+    right one, because there is nothing to recompute it from.
+
+    Every label keyed on an opaque `id` must therefore state the formula in a
+    parseable form: `sha1("<a>|<b>")` or `"<a>|<b>"`. That is what makes a
+    loader's key auditable, and it is asserted rather than left to whoever
+    reads the comments.
+    """
+    text = SCHEMA.read_text()
+    lines = text.splitlines()
+
+    opaque = [label for label in labels()
+              if re.search(rf"ASSERT \w+\.id IS UNIQUE", " ".join(
+                  l for l in lines if f":{label})" in l))]
+    assert opaque, "no id-keyed labels found — did the constraint spelling change?"
+
+    formula = re.compile(r'(?:sha1\(")?<[^>]+>(?:\|<[^>]+>)*')
+    undocumented = []
+    for label in opaque:
+        at = next((i for i, l in enumerate(lines)
+                   if "ASSERT" in l and f":{label})" in l), None)
+        assert at is not None, label
+        preceding = "\n".join(lines[max(0, at - 14):at])
+        if not formula.search(preceding):
+            undocumented.append(label)
+    assert not undocumented, (
+        f"these are keyed on an opaque id and do not state what it is composed "
+        f"of, so a bad key is undetectable after load: {sorted(undocumented)}")

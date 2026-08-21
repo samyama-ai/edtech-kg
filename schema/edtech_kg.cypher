@@ -17,8 +17,25 @@
 // tests/test_schema_engine.py executes every statement here against a live
 // instance; tests/test_schema_cypher.py checks this file against the documents.
 //
+// WHAT 1.1.0 DOES AND DOES NOT ACCEPT HERE — measured against the engine, not
+// assumed, because each of these is a review reflex from other Cypher engines:
+//
+//   * NAMES. `CREATE CONSTRAINT course_url ON …` and `CREATE INDEX year_idx ON
+//     …` are BOTH parse errors. A constraint here cannot be named, so "name
+//     them so a specific one can be replaced later" is not a choice this file
+//     is making — it is the only form the parser takes.
+//   * DROP. `DROP CONSTRAINT …` is a parse error too, so there is no way to
+//     drop or replace one at all. Naming would not have bought anything.
+//     `SHOW CONSTRAINTS` does parse, so what is declared can be inspected.
+//   * RE-RUNNING IS SAFE. Every statement in this file applied twice against
+//     one instance returns no error, so the loader re-applies the schema on
+//     each run without a guard. This is asserted in tests/test_schema_engine.py
+//     rather than left as a property somebody remembers.
+//
 // A constraint is a DECLARATION OF THE KEY, not an insert guard — 1.1.0 does
-// not reject a duplicate CREATE. Loaders must MERGE on the key.
+// not reject a duplicate CREATE, measured directly: two `CREATE (:U {k:'same'})`
+// against a declared-unique `U.k` both succeed. Loaders must MERGE on the key,
+// and nothing but a test enforces that.
 //
 // =============================================================================
 // TIER 1 — uniqueness constraints on populated labels
@@ -212,8 +229,10 @@ CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.ctid IS UNIQUE;
 // This is why Level is keyed on (body, code) and why EQUIVALENT_TO is not a
 // plain edge. Asserting an unpublished equivalence is exactly the error this
 // repo refused with Submission -> MarketedDevice in regulatory-affairs-kg.
-// id = the body's own published identifier where it has one, else a slug of
-// its name. Tier 2 and unpopulated, so this is a shape rather than a measured
+// id = "<publisher scheme>|<body identifier>" — the body's own published
+// identifier where it has one, else "slug|<kebab-cased name>". The scheme is
+// carried because two registers can issue the same identifier, which is the
+// same reason Level and Competency are composite. Tier 2 and unpopulated, so this is a shape rather than a measured
 // decision — the first body loaded settles it, and the reason goes here.
 CREATE CONSTRAINT ON (ab:AwardingBody) ASSERT ab.id IS UNIQUE;
 
@@ -283,9 +302,8 @@ CREATE INDEX ON :EarningsRecord(year);
 // -----------------------------------------------------------------------------
 // Geography — "near me" needs this to be true (#44)
 // -----------------------------------------------------------------------------
-// id = the federal identifier for the geography, prefixed by its kind —
-// "state|VA", "cbsa|47900", "county|51153" — because a bare FIPS code is not
-// unique across kinds. Tier 2 and blocked on #44, which is the question of
+// id = "<kind>|<federal identifier>" — "state|VA", "cbsa|47900",
+// "county|51153" — because a bare FIPS code is not unique across kinds. Tier 2 and blocked on #44, which is the question of
 // what "near me" has to mean before any of this is worth loading.
 CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 
