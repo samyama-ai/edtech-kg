@@ -14,6 +14,7 @@ import argparse
 
 import pytest
 
+from etl import probe_ctdl
 from etl import probe_registry as probe
 from etl import registry_read as read
 from tests.registry_stubs import course, paged
@@ -54,24 +55,51 @@ def test_the_publisher_spread_is_printed_not_only_in_json(monkeypatch, capsys):
         "communities": {}, "ce_registry_by_type": {}, "deleted_resources": 0,
         "provisional_resources": 0, "unattributed": 0,
         "secured_communities": [], "failed_communities": []})
-    probe.probe(sample=50)
-    assert "distinct publishers" in capsys.readouterr().out
+    result = probe.probe(sample=50)
+
+    printed = capsys.readouterr().out
+    counted = result["course_prerequisites"]["distinct_publishers"]
+    # The COUNT, not just the label. Asserting the caption alone passes whether
+    # the number beside it is right, absent, or zero — and the caption is the
+    # half nothing depends on.
+    assert f"{counted:,} distinct publishers" in printed, printed
+
+    # 1, and worth stating why: this stub's course carries no publisher, and
+    # `course_prerequisites` folds a missing one into an "unknown" sentinel
+    # that then counts as a distinct publisher. So the published "13 distinct
+    # publishers" may include "unknown" as one of the 13 — the same species as
+    # the NO MATCH sentinel counted in #70. Pinned here so the behaviour is
+    # recorded rather than assumed; changing it is a probe change, not a
+    # file-splitting one.
+    assert counted == 1, result["course_prerequisites"]
 
 
-def test_both_probes_print_the_same_prerequisite_table(capsys):
+def test_both_probes_print_the_same_prerequisite_table():
     """probe_ctdl kept its own copy and it had already drifted — missing the
-    stated-but-empty and publisher-spread lines. One printer, so it cannot."""
-    import inspect
-    from etl import probe_ctdl
-    assert "print_prerequisites" in inspect.getsource(probe_ctdl)
-    assert "stating a prerequisite" not in inspect.getsource(probe_ctdl), "a second copy"
+    stated-but-empty and publisher-spread lines. One printer, so it cannot.
+
+    Asserted by IDENTITY rather than by searching probe_ctdl's source for a
+    phrase the other printer happens to use. A phrase search is a
+    false-negative trap: reword the table and the negative assertion passes for
+    ever afterwards while a second copy sits there. Two names bound to one
+    function object cannot drift, and the check does not care what either
+    prints."""
+    assert probe_ctdl.print_prerequisites is probe.print_prerequisites
+    assert probe_ctdl.print_registry is probe.print_registry
 
 
 def test_both_probes_share_one_command_line():
     """The two main() functions were byte-identical, which is how probe_ctdl
     kept type=int and no MalformedSource handler for a round after
-    probe_registry gained both."""
-    import inspect
-    from etl import probe_ctdl
-    assert "run_cli(" in inspect.getsource(probe_ctdl.main)
-    assert "add_argument" not in inspect.getsource(probe_ctdl.main)
+    probe_registry gained both.
+
+    One shared `run_cli` object, checked by identity, plus the behaviour that
+    matters: both reject a bad argument the same way, before any request. A
+    second parser would pass a source search for "run_cli(" and still diverge
+    here."""
+    assert probe_ctdl.run_cli is probe.run_cli
+
+    for entry in (probe.main, probe_ctdl.main):
+        with pytest.raises(SystemExit) as exit_code:
+            entry(["--courses", "0"])
+        assert exit_code.value.code == 2, entry
