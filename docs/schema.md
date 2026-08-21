@@ -86,7 +86,7 @@ loader, not about the source.
 |---|---|---|
 | `REQUIRES` | Course → Course | **The prerequisite edge.** 240 measured, all resolving |
 | `HAS_REQUIREMENT` | Course / Pathway → Requirement | A prose condition — not a course reference |
-| `INCLUDES` | Pathway → Course | What a published pathway is made of. 316 edges from 374 published rows — **58 rows repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77), so the section names are joined onto the one edge and `rows` records how many folded in. A further 16 rows name a page the catalogue does not publish. Carries the district's section name and credit value |
+| `INCLUDES` | Pathway → Course | What a published pathway is made of. 316 edges from 374 published rows — **58 rows repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77), so the section names are joined onto the one edge and `rows` records how many folded in. A further 16 rows resolve against no loaded course: measured, all 16 name a Drupal node id the catalogue publishes no page for. The check is "not a loaded course" rather than "not published", so a row naming a page that IS published but is a Subject or a Pathway would land here too — none does today. Carries the district's section name and credit value |
 | `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 6,097 mappings |
 | `OFFERS` | Institution → Programme | What a college teaches |
 | `AT` / `IN` | Completion → Institution / Programme | Who graduated, where, in what |

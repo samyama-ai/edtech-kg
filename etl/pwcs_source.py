@@ -12,11 +12,15 @@ What the sitemap holds, by path depth — the catalogue's own structure:
 
     /band                                       127  Subject
     /band/concert-band                          791  Course
-    /career-and-technical-education-cte/...       38  Pathway
+    /career-and-technical-education-cte/...       38  Pathway (by depth)
+
+Depth is what the URLs say. It is not the final classification: four pages
+publish a pathway's course table at course depth, so the loaded counts are
+127 subjects, 791 courses, 42 pathways. See `classify`.
 
 **The probe reports all 960 as courses. They are not.** No page at depth 1 or 3
 states a prerequisite and no prerequisite points at one, so the 240 edges are
-unaffected — but the rate is 229 of 795, not 229 of 960. Raised as #74.
+unaffected — but the rate is 229 of 791, not 229 of 960. Raised as #74.
 """
 
 from __future__ import annotations
@@ -220,6 +224,13 @@ def classify(url: str, markup: str) -> str | None:
 
     Depth still decides everything else, because a subject index and a course
     are not distinguishable by any field either of them carries.
+
+    **The override is unconditional.** A page rendering that field is a
+    pathway at ANY depth — a depth-1 index or a depth-4 page would be one too,
+    and would appear in `reclassified` rather than in `unclassified`. That is
+    the same evidence argument rather than a special case for depth 2, and it
+    is stated because "depth decides everything else" reads narrower than the
+    code behaves.
     """
     if PATHWAY_FIELD_PRESENT.search(markup):
         return "pathway"
@@ -243,15 +254,19 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
     count and the graph would disagree with nothing to say why. Zero rows do
     that today; it is a property of this catalogue, not of the parser.
 
-    **Depth is not a reliable classifier, and this now measures by how much.**
-    `unparsed` counts sitemap pages that returned no record — it was a bare
-    `continue`, so a CMS change breaking `parse_course` would shrink the graph
-    with nothing said. `misfiled` counts pages classified as something other
-    than a pathway that nonetheless render the pathway course-table field:
-    4 today, holding 172 resolvable rows that are therefore never written as
-    INCLUDES edges. Raised as #87. Reported rather than reclassified here,
-    because reclassifying changes the node and edge totals three documents
-    quote and that is its own change, not a review fix.
+    **Depth is not the classifier — `classify` is, and this reports where the
+    two disagree.** `unparsed` counts sitemap pages that returned no record —
+    it was a bare `continue`, so a CMS change breaking `parse_course` would
+    shrink the graph with nothing said. `reclassified` counts pages whose
+    markup says something other than their depth does: 4 today, all of them
+    pathways published at course depth. Read by depth alone they loaded as
+    courses and their 172 rows never became edges (#87).
+
+    **Two passes, deliberately.** The course set is an OUTPUT of
+    classification, not an input to it. It was derived from URL depth before
+    the pages were read — the same assumption `classify` corrects — so a page
+    reclassified out of the courses would still have been in the set pathway
+    rows resolve against.
     """
     urls = source.course_urls(use_cache) if urls is None else urls
     fetch = fetch or (lambda u: source.fetch(u, use_cache))

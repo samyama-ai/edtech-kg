@@ -16,12 +16,16 @@ What the sitemap holds, by path depth — the catalogue's own structure:
 
     /band                                       127  Subject
     /band/concert-band                          791  Course
-    /career-and-technical-education-cte/...       38  Pathway
+    /career-and-technical-education-cte/...       38  Pathway (by depth)
+
+Depth is what the URLs say, not the final classification — four pages publish a
+pathway's course table at course depth, so the loaded counts are 127 subjects,
+791 courses, 42 pathways. See `pwcs_source.classify`.
 
 **The probe reports all 960 as courses. They are not.** 127 are subject index
 pages and 42 are pathway pages; 791 are courses. No page at depth 1 or 3
 states a prerequisite and no prerequisite points at one, so the 240 edges are
-unaffected — but the rate they are quoted against is 229 of 795, not 229 of 960.
+unaffected — but the rate they are quoted against is 229 of 791, not 229 of 960.
 Raised as #74; this loader states both figures rather than quietly picking one.
 
 Reading the catalogue is `etl/pwcs_source.py`; talking to the engine is

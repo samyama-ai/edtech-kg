@@ -181,6 +181,8 @@ def test_the_classification_hole_says_it_was_fixed_not_that_it_stands():
     assert includes_row, "the INCLUDES row moved"
     assert "316 edges" in includes_row[0], (
         "the INCLUDES row still quotes the pre-#87 edge count")
+
+
 def test_every_documented_edge_exists_in_the_schema():
     documented = documented_edges()
     assert documented <= edges(), f"documented but not in the cypher: {documented - edges()}"
