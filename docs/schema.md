@@ -77,7 +77,7 @@ loader, not about the source.
 |---|---|---|
 | `REQUIRES` | Course → Course | **The prerequisite edge.** 240 measured, all resolving |
 | `HAS_REQUIREMENT` | Course / Pathway → Requirement | A prose condition — not a course reference |
-| `INCLUDES` | Pathway → Course | What a published pathway is made of. 185 edges from 202 rows, carrying the district's section name and credit value |
+| `INCLUDES` | Pathway → Course | What a published pathway is made of. 185 edges from 202 rows — the 17-row difference is one course listed in two named sections of the same pathway, joined onto one edge because 1.1.0 holds one edge per pair (#77). **Not the whole catalogue: 172 further rows are unwritten, see hole 7 (#87).** Carries the district's section name and credit value |
 | `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 6,097 mappings |
 | `OFFERS` | Institution → Programme | What a college teaches |
 | `AT` / `IN` | Completion → Institution / Programme | Who graduated, where, in what |
@@ -202,6 +202,15 @@ is why it sits above the list rather than inside it as an item "0".
 6. **`PREPARES_FOR` is a published claim, not causation.** The crosswalk says a
    programme prepares for an occupation. It does not say graduates get those
    jobs, and nothing here supports that reading.
+7. **`INCLUDES` is short by 172 published rows.** Pages are classified by URL
+   depth, and four pages publish a pathway course table at *course* depth —
+   two specialty programmes, International Baccalaureate and Virtual Prince
+   William. They load as `Course`, so their course tables are never read and
+   the rows never become edges. The loader measures and prints this on every
+   run rather than leaving it to the difference between two other numbers, and
+   #87 carries the four pages with their row counts. Reported rather than
+   fixed here because reclassifying them moves the node and edge totals this
+   file, the README and the demo all quote.
 
 ## Verified against the engine
 

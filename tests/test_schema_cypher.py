@@ -406,3 +406,24 @@ def test_a_label_sits_under_the_tier_banner_it_belongs_to():
     for label in ("Credential", "Level", "Competency", "EarningsRecord"):
         assert label in declared_in_tier_two, (
             f"{label} is unpopulated but is not declared under TIER 2")
+
+
+def test_the_documented_holes_include_the_one_the_loader_reports():
+    """`docs/schema.md` opens its holes list with "written down before anyone
+    finds it". #87 — 172 published rows that never become INCLUDES edges — was
+    found, filed and printed by the loader while the page still read as if
+    `INCLUDES` were complete.
+
+    A page that states its own limits is only worth reading if the statement
+    keeps up with what is known, so the guard is that a hole the CODE reports
+    is a hole the DOCUMENT names.
+    """
+    doc = SCHEMA_DOC.read_text()
+    holes = section(doc, "## What this schema does not claim", "## Verified against")
+    assert "#87" in holes, (
+        "the loader prints the #87 coverage gap on every run and the holes "
+        "list does not mention it")
+    includes_row = [l for l in doc.splitlines() if l.startswith("| `INCLUDES`")]
+    assert includes_row, "the INCLUDES row moved"
+    assert "#87" in includes_row[0], (
+        "the INCLUDES row quotes a count without saying it is short")

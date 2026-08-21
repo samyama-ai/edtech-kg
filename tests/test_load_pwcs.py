@@ -21,6 +21,27 @@ from etl.engine import Unquotable
 
 SCHEMA = Path(__file__).resolve().parents[1] / "schema" / "edtech_kg.cypher"
 
+
+class Recorder:
+    """Every statement the loader would send, in order.
+
+    One definition. It was re-declared inside four tests, three of them
+    identical and one that raised on any call — so "what does the loader send"
+    was answered by four slightly different objects.
+    """
+
+    def __init__(self, refuse: bool = False) -> None:
+        self.sent: list[str] = []
+        self.refuse = refuse
+        self.statements = 0
+
+    def run(self, query: str):
+        if self.refuse:
+            raise AssertionError(f"should not have run: {query}")
+        self.sent.append(query)
+        self.statements += 1
+        return {"columns": [], "records": []}
+
 # --------------------------------------------------------------------------
 # the loader and the schema must agree on the key
 # --------------------------------------------------------------------------
@@ -34,9 +55,26 @@ DECLARATION = re.compile(
     r"(?:ON|FOR) \(\w+:(\w+)\) (?:ASSERT|REQUIRE) \w+\.(\w+) IS UNIQUE")
 
 
+def pairs_to_map(pairs, what: str) -> dict[str, str]:
+    """`dict(pairs)` keeps the LAST value for a repeated key and says nothing.
+
+    A label declared twice with different keys, or upserted twice on different
+    properties, is exactly the collision these checks exist to catch — and
+    building a dict silently resolves it in favour of whichever came last.
+    """
+    seen: dict[str, str] = {}
+    clashes = []
+    for label, key in pairs:
+        if label in seen and seen[label] != key:
+            clashes.append(f"{label}: {seen[label]!r} and {key!r}")
+        seen[label] = key
+    assert not clashes, f"{what} names one label with two different keys: {clashes}"
+    return seen
+
+
 def declared_keys() -> dict[str, str]:
     code = "\n".join(line.split("//")[0] for line in SCHEMA.read_text().splitlines())
-    declared = dict(DECLARATION.findall(" ".join(code.split())))
+    declared = pairs_to_map(DECLARATION.findall(" ".join(code.split())), "the schema")
     assert declared, (
         "no constraints parsed out of the schema — a renamed file or a changed "
         "constraint spelling would otherwise make every check below vacuous")
@@ -66,7 +104,7 @@ def loader_keys() -> dict[str, str]:
     assert len(matched) == call_sites, (
         f"{call_sites} upsert call sites in the loader, {len(matched)} matched "
         f"by this pattern — the unmatched ones are unchecked")
-    return dict(matched)
+    return pairs_to_map(matched, "the loader")
 
 
 def test_every_label_the_loader_writes_is_keyed_as_the_schema_declares():
@@ -95,15 +133,11 @@ def test_the_loader_sets_the_key_it_merges_on():
     previous version pinned an exact f-string and broke on any reformat, while
     proving nothing about what upsert emits.
     """
-    sent = []
-
-    class Recorder:
-        def run(self, query):
-            sent.append(query)
-
-    loader.upsert(Recorder(), "Course", "url", "https://x/y", {"name": "A"})
-    assert sent[0] == "MERGE (n:Course {url: 'https://x/y'})", sent[0]
-    assert sent[1] == ("MATCH (n:Course {url: 'https://x/y'}) SET n.name = 'A'"), sent[1]
+    engine = Recorder()
+    loader.upsert(engine, "Course", "url", "https://x/y", {"name": "A"})
+    assert engine.sent[0] == "MERGE (n:Course {url: 'https://x/y'})", engine.sent[0]
+    assert engine.sent[1] == (
+        "MATCH (n:Course {url: 'https://x/y'}) SET n.name = 'A'"), engine.sent[1]
 
 
 def test_upsert_refuses_a_label_or_property_that_is_not_an_identifier():
@@ -111,23 +145,28 @@ def test_upsert_refuses_a_label_or_property_that_is_not_an_identifier():
     Cypher has no other way to write them — so nothing guarded them at all.
     Every name here is a source literal today; the next loader may build one
     from a column heading."""
-    class Recorder:
-        def run(self, query):
-            raise AssertionError(f"should not have run: {query}")
-
     for label, key, props in (("Cour se", "url", {}),
                               ("Course", "n.url", {}),
                               ("Course", "url", {"na me": "x"})):
         with pytest.raises(Unquotable):
-            loader.upsert(Recorder(), label, key, "v", props)
+            loader.upsert(Recorder(refuse=True), label, key, "v", props)
 
 
 # --------------------------------------------------------------------------
 # building the edges — the arithmetic, without an engine
 # --------------------------------------------------------------------------
 
+# Every published page, and the courses among them. A prerequisite resolves
+# against the SECOND — the whole point of the split.
 BY_PATH = {"/a/one": "https://catalog.pwcs.edu/a/one",
-           "/a/two": "https://catalog.pwcs.edu/a/two"}
+           "/a/two": "https://catalog.pwcs.edu/a/two",
+           "/a": "https://catalog.pwcs.edu/a"}
+COURSE_BY_PATH = {"/a/one": "https://catalog.pwcs.edu/a/one",
+                  "/a/two": "https://catalog.pwcs.edu/a/two"}
+
+
+def prerequisites(*records):
+    return loader.prerequisite_pairs(list(records), BY_PATH, COURSE_BY_PATH)
 
 
 def course(url: str, *hrefs: str) -> dict:
@@ -139,25 +178,41 @@ def test_two_links_to_the_same_course_make_one_edge():
     """An edge MERGE matches on start, type and end alone (#77), so two links
     naming the same course give two MERGEs, ONE edge, and a counter of two —
     and `verify()` then exits non-zero on a well-formed catalogue."""
-    got = loader.prerequisite_pairs(
-        [course("https://catalog.pwcs.edu/a/three", "/a/one", "/a/one")], BY_PATH)
+    got = prerequisites(course("https://catalog.pwcs.edu/a/three", "/a/one", "/a/one"))
     assert got["pairs"] == [("https://catalog.pwcs.edu/a/three",
                              "https://catalog.pwcs.edu/a/one")]
     assert got["duplicated"] == 1
 
 
 def test_a_prerequisite_pointing_at_an_unparsed_page_is_counted():
-    got = loader.prerequisite_pairs(
-        [course("https://catalog.pwcs.edu/a/three", "/node/1435")], BY_PATH)
+    got = prerequisites(course("https://catalog.pwcs.edu/a/three", "/node/1435"))
     assert got["pairs"] == [] and got["unresolved"] == 1
 
 
 def test_a_prerequisite_resolves_to_the_node_key_not_the_href():
     """The key a Course node was created with, via `by_path` — not whatever
     spelling the href happened to use."""
-    got = loader.prerequisite_pairs(
-        [course("https://catalog.pwcs.edu/a/three", "/a/one/")], BY_PATH)
+    got = prerequisites(course("https://catalog.pwcs.edu/a/three", "/a/one/"))
     assert got["pairs"][0][1] == "https://catalog.pwcs.edu/a/one"
+
+
+def test_a_prerequisite_naming_a_subject_page_writes_no_edge_and_counts_none():
+    """The one real defect in this branch. `by_path` holds subject and pathway
+    pages too, so a prerequisite pointing at one resolved as if it were a
+    course — and the statement written is `MATCH (a:Course …), (b:Course …)`
+    where `b` is a `:Subject`. The MATCH finds nothing, no edge is written,
+    and the counter still increments; `verify()` then reports a mismatch with
+    nothing to say why.
+
+    This is the guard `pwcs_source.read` already applies to pathway rows,
+    missing on the edge the graph exists for. No link does this today — that
+    is a property of this catalogue, measured, not a property of the code.
+    """
+    got = prerequisites(course("https://catalog.pwcs.edu/a/three", "/a"))
+    assert got["pairs"] == [], "a subject page was resolved as a course"
+    assert got["off_level"] == ["https://catalog.pwcs.edu/a"], got
+    # And not conflated with a page that did not parse — different facts.
+    assert got["unresolved"] == 0, got
 
 
 def pathway(url: str, *rows) -> dict:
@@ -213,15 +268,11 @@ def test_apply_schema_does_not_truncate_a_statement_carrying_a_url(tmp_path):
     schema.write_text("// a comment mentioning https://example.org\n"
                       "CREATE CONSTRAINT ON (c:C) ASSERT c.url IS UNIQUE;  // key\n"
                       "MERGE (n:C {url: 'https://example.org/x'});\n")
-    sent = []
-
-    class Recorder:
-        def run(self, query):
-            sent.append(query)
-
-    loader.apply_schema(Recorder(), quiet=True, schema=schema)
-    assert sent == ["CREATE CONSTRAINT ON (c:C) ASSERT c.url IS UNIQUE",
-                    "MERGE (n:C {url: 'https://example.org/x'})"], sent
+    engine = Recorder()
+    loader.apply_schema(engine, quiet=True, schema=schema)
+    assert engine.sent == [
+        "CREATE CONSTRAINT ON (c:C) ASSERT c.url IS UNIQUE",
+        "MERGE (n:C {url: 'https://example.org/x'})"], engine.sent
 
 
 def test_a_semicolon_inside_a_literal_does_not_split_the_statement():
@@ -247,17 +298,100 @@ def test_a_requirement_is_labelled_from_the_list_it_came_from():
     The pathway here sits at COURSE depth on purpose: under the old rule it
     was labelled `Course`, and no HAS_REQUIREMENT edge could ever match.
     """
-    sent = []
-
-    class Recorder:
-        def run(self, query):
-            sent.append(query)
-
+    engine = Recorder()
     data = {"published": set(), "subjects": [], "courses": [],
             "pathways": [{"url": "https://catalog.pwcs.edu/specialty/it",
                           "title": "IT", "requirements_text": "Application required",
                           "courses": [], "dangling": []}]}
-    loader.load(Recorder(), data, quiet=True)
-    matched = [q for q in sent if "HAS_REQUIREMENT" in q]
-    assert matched, sent
+    loader.load(engine, data, quiet=True)
+    matched = [q for q in engine.sent if "HAS_REQUIREMENT" in q]
+    assert matched, engine.sent
     assert "MATCH (n:Pathway" in matched[0], matched[0]
+
+
+def test_a_comment_is_stripped_but_a_url_in_a_literal_is_not():
+    """Splitting on `//` unconditionally truncates a statement carrying a URL
+    at the scheme. No schema statement does today — the URLs are in comments —
+    which is the only reason the naive split never did damage."""
+    assert loader.strip_comment("CREATE INDEX ON :C(year);  // annual") \
+        == "CREATE INDEX ON :C(year);  "
+    assert loader.strip_comment("MERGE (n {url: 'https://x/y'})") \
+        == "MERGE (n {url: 'https://x/y'})"
+    assert loader.strip_comment('MERGE (n {u: "a//b"}) // t') == 'MERGE (n {u: "a//b"}) '
+    assert loader.strip_comment("// whole line") == ""
+
+
+def test_the_first_credit_value_is_kept_and_the_disagreement_is_counted():
+    """A course in two sections of one pathway may carry different credits.
+    The engine holds one edge, so one value survives — the FIRST, and the
+    disagreement is reported rather than lost. Untested until now: the count
+    was asserted and the surviving value was not, so keeping the last would
+    have passed."""
+    edges = loader.pathway_edges(
+        [pathway("https://catalog.pwcs.edu/p",
+                 ("https://catalog.pwcs.edu/a/one", "First", "1"),
+                 ("https://catalog.pwcs.edu/a/one", "Second", "2"))], BY_PATH)
+    entry = next(iter(edges["grouped"].values()))
+    assert entry["credits"] == "1", "the first published credit value must survive"
+    assert edges["conflicting"] == 1
+
+
+def test_the_includes_write_joins_the_sections_and_counts_them():
+    """Two statements per edge, because a bare SET after MERGE does not parse
+    in 1.1.0 (#75). Nothing asserted what the SECOND statement carries, so the
+    section join and the `sections` count — the whole reason rows are grouped
+    rather than written one per row — were unchecked."""
+    engine = Recorder()
+    data = {"published": set(), "subjects": [],
+            "courses": [{"url": "https://catalog.pwcs.edu/a/one", "title": "One",
+                         "prerequisite_links": []}],
+            "pathways": [
+        {"url": "https://catalog.pwcs.edu/p", "title": "P", "dangling": [],
+         "courses": [{"url": "https://catalog.pwcs.edu/a/one", "section": "First",
+                      "credits": "1"},
+                     {"url": "https://catalog.pwcs.edu/a/one", "section": "Second",
+                      "credits": "1"}]}]}
+    loader.load(engine, data, quiet=True)
+    includes = [q for q in engine.sent if "INCLUDES" in q]
+    assert len(includes) == 2, includes
+    assert includes[0].startswith("MATCH (p:Pathway"), includes[0]
+    assert "e.section = 'First | Second'" in includes[1], includes[1]
+    assert "e.sections = 2" in includes[1], includes[1]
+
+
+def test_verify_compares_the_engine_against_the_loader_and_names_the_gap():
+    """`verify()` is what makes every figure in the README a measurement rather
+    than a tally the loader kept about itself — and it had no test at all."""
+    class Counts:
+        def __init__(self, answers):
+            self.answers = answers
+        def scalar(self, query):
+            for fragment, value in self.answers.items():
+                if fragment in query:
+                    return value
+            raise AssertionError(f"unexpected query: {query}")
+
+    loaded = {"subjects": 1, "courses": 2, "pathways": 3, "in_subject": 4,
+              "requires": 5, "includes": 6, "requirements": 7}
+    agreeing = {":Subject": 1, ":Course": 2, ":Pathway": 3, "IN_SUBJECT": 4,
+                "REQUIRES": 5, "INCLUDES": 6, "HAS_REQUIREMENT": 7}
+    assert loader.verify(Counts(agreeing), loaded) == []
+
+    short = dict(agreeing, REQUIRES=4)
+    problems = loader.verify(Counts(short), loaded)
+    assert len(problems) == 1, problems
+    assert "REQUIRES" in problems[0] and "wrote 5" in problems[0], problems[0]
+
+
+def test_a_label_named_twice_with_two_keys_is_a_clash_not_a_last_wins():
+    """`dict(pairs)` keeps the LAST value for a repeated key and says nothing.
+    A label declared twice with different keys — or upserted on two different
+    properties — is exactly the collision `test_every_label_the_loader_writes
+    _is_keyed_as_the_schema_declares` exists to catch, and building a dict
+    resolved it silently in favour of whichever came last."""
+    assert pairs_to_map([("Course", "url"), ("Subject", "url")], "x") == {
+        "Course": "url", "Subject": "url"}
+    # The same pair twice is not a clash — it is one fact stated twice.
+    assert pairs_to_map([("Course", "url"), ("Course", "url")], "x") == {"Course": "url"}
+    with pytest.raises(AssertionError, match="two different keys"):
+        pairs_to_map([("Course", "url"), ("Course", "ctid")], "the schema")

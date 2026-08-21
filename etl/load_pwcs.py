@@ -49,8 +49,26 @@ SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "edtech_kg.cypher"
 # Building the edges — pure, so the arithmetic can be tested without an engine
 # --------------------------------------------------------------------------
 
-def prerequisite_pairs(courses: list[dict], by_path: dict) -> dict:
+def prerequisite_pairs(courses: list[dict], by_path: dict,
+                       course_by_path: dict) -> dict:
     """Course -> course, resolved and deduped.
+
+    **Resolved against the COURSE index, not every published page.** This is
+    the guard `pwcs_source.read` already applies to pathway rows, and it was
+    missing on the edge this graph exists for. `by_path` holds subject and
+    pathway pages too, so a prerequisite link pointing at one of those
+    resolved as if it were a course — and the statement written for it is
+    `MATCH (a:Course {…}), (b:Course {…})` where `b` is a `:Subject`. The MATCH
+    finds nothing, no edge is written, and the counter still increments.
+    `verify()` then reports a mismatch with nothing on the page to say why:
+    the count and the graph disagreeing silently, which is the exact failure
+    this module argues against everywhere else.
+
+    Three outcomes, counted separately because they are three different facts:
+    resolved, points at a page that did not parse (`unresolved`), and points
+    at a published page that is not a course (`off_level`). Both are zero
+    against this catalogue today — a property of this publisher, measured, not
+    assumed.
 
     **Deduped for the same reason INCLUDES is.** An edge MERGE matches on
     start, type and end alone (#77), so two links on one page naming the same
@@ -58,23 +76,24 @@ def prerequisite_pairs(courses: list[dict], by_path: dict) -> dict:
     then exits non-zero on a catalogue that is perfectly well-formed. It does
     not happen at 240 of 240 today; the shape should not differ between the two
     edges on the strength of that.
-
-    Resolution is through `by_path`, never `published`: a page in the sitemap
-    that did not parse is in one and not the other, and indexing the wrong one
-    raised KeyError mid-load.
     """
-    pairs, unresolved = [], 0
+    pairs, unresolved, off_level = [], 0, []
     for record in courses:
         for link in record["prerequisite_links"]:
             path = source.path_of(link["href"])
-            if path not in by_path:
+            if path in course_by_path:
+                pairs.append((record["url"], course_by_path[path]))
+            elif path in by_path:
+                # Published, parsed, and not a course. Named rather than
+                # counted: one of these is a catalogue fact worth reading.
+                off_level.append(by_path[path])
+            else:
                 # Measured at zero today, never ASSUMED to be zero.
                 unresolved += 1
-                continue
-            pairs.append((record["url"], by_path[path]))
     return {"pairs": list(dict.fromkeys(pairs)),
             "duplicated": len(pairs) - len(set(pairs)),
-            "unresolved": unresolved}
+            "unresolved": unresolved,
+            "off_level": off_level}
 
 
 def pathway_edges(pathways: list[dict], by_path: dict) -> dict:
@@ -202,11 +221,16 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
 
     # Course -> Course. The edge this graph exists for. Deduped and resolved
     # in `prerequisite_pairs`, which states why.
-    prerequisites = prerequisite_pairs(data["courses"], by_path)
+    course_by_path = {source.path_of(r["url"]): r["url"] for r in data["courses"]}
+    prerequisites = prerequisite_pairs(data["courses"], by_path, course_by_path)
     if prerequisites["duplicated"]:
         say(f"  {prerequisites['duplicated']} prerequisite link(s) name a course "
             f"already named by the same page; one edge each, counted once")
     unresolved = prerequisites["unresolved"]
+    if prerequisites["off_level"]:
+        say(f"  {len(prerequisites['off_level'])} prerequisite link(s) point at a "
+            f"published page that is not a course; no edge written, and not "
+            f"counted as one: {sorted(prerequisites['off_level'])[:3]}")
 
     requires = 0
     for a, b in prerequisites["pairs"]:

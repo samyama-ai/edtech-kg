@@ -12,9 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from etl import load_pwcs as loader
 from etl import pwcs_source as reader
-from etl.engine import Unquotable
 
 CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
 
@@ -183,34 +181,6 @@ def test_no_prerequisite_crosses_out_of_the_course_level(catalogue):
     assert depths <= {2}, f"a prerequisite points outside the course level: {depths}"
 
 
-# --------------------------------------------------------------------------
-# reading the catalogue
-# --------------------------------------------------------------------------
-
-def test_a_comment_is_stripped_but_a_url_in_a_literal_is_not():
-    """Splitting on `//` unconditionally truncates a statement carrying a URL
-    at the scheme. No schema statement does today — the URLs are in comments —
-    which is the only reason the naive split never did damage."""
-    assert loader.strip_comment("CREATE INDEX ON :C(year);  // annual") \
-        == "CREATE INDEX ON :C(year);  "
-    assert loader.strip_comment("MERGE (n {url: 'https://x/y'})") \
-        == "MERGE (n {url: 'https://x/y'})"
-    assert loader.strip_comment('MERGE (n {u: "a//b"}) // t') == 'MERGE (n {u: "a//b"}) '
-    assert loader.strip_comment("// whole line") == ""
-
-
-# --------------------------------------------------------------------------
-# what the catalogue actually holds — read from the cache, not asserted
-# --------------------------------------------------------------------------
-
-@needs_cache
-def test_no_page_is_left_unclassified(catalogue):
-    """The classifier was `if 1 … elif 2 … else pathway`, so a depth-0 or
-    depth-4 page would have been read as a pathway and parsed for a course
-    table it does not have. Counted now, not guessed at."""
-    assert catalogue["unclassified"] == []
-
-
 def test_the_normalisation_rule_names_every_url_keyed_label():
     """Course, Subject and Pathway are all keyed on the address of a published
     page, and the rule that says how that address is spelled has to cover all
@@ -340,7 +310,22 @@ def test_a_page_publishing_a_course_table_at_the_wrong_depth_is_reported():
 
 
 @needs_cache
-def test_the_misfiled_count_is_the_one_the_loader_reports(catalogue):
-    """The figure quoted in #87 and printed by the loader, read from the
-    catalogue rather than typed."""
-    assert len(catalogue["misfiled"]) == 4, catalogue["misfiled"]
+def test_a_misfiled_page_is_reported_rather_than_absorbed(catalogue):
+    """#87: a page publishing a pathway course table at course depth is loaded
+    as a course, so its rows are never written.
+
+    The INVARIANT, not the census. `== 4` is the exact shape the comment above
+    argues against — it fails the day the district publishes a fifth such page,
+    which is not a defect, and a test that cries about it teaches people to
+    ignore it. What must hold is that every misfiled page is a real page that
+    was classified as something other than a pathway, and that the count the
+    loader prints is the length of the list it prints.
+    """
+    misfiled = catalogue["misfiled"]
+    assert misfiled, "the four known misfiled pages are no longer detected — see #87"
+    published = set(catalogue["urls"])
+    for url in misfiled:
+        assert url in published, url
+        assert reader.level(url) != "pathway", (url, reader.level(url))
+    assert not set(misfiled) & {r["url"] for r in catalogue["pathways"]}, \
+        "a page cannot be both correctly classified and misfiled"
