@@ -349,3 +349,31 @@ def test_two_columns_matching_one_field_are_counted_once(monkeypatch):
     result = probe.projections()
     assert result["occupations"] == 1
     assert result["field_present"]["Median Annual Wage"] == 1, "counted per column"
+
+
+def test_the_workbook_handle_is_closed():
+    """`zipfile.ZipFile` was opened and left to the garbage collector. This
+    module is imported by a long-lived process as readily as by a script."""
+    import inspect
+    source = inspect.getsource(probe.crosswalk_soc)
+    code = "\n".join(line.split("#")[0] for line in source.splitlines())
+    assert "with zipfile.ZipFile" in code, (
+        "the crosswalk workbook is opened without a context manager")
+
+
+def test_a_year_list_of_any_shape_prints_readably(monkeypatch, capsys):
+    """`'20' + yy` assumed every entry is a two-digit string. Four-digit years
+    or ints — either a plausible change in `bls_access` — printed "202024" or
+    crashed on join, in the branch that runs when nothing was found."""
+    serve(monkeypatch, page(row("13-2011")))
+    monkeypatch.setattr(access, "oews_latest",
+                        lambda year: {"release": None,
+                                      "years_tried": [2026, "25"],
+                                      "geographies": {}})
+    monkeypatch.setattr(access, "identity_test_url", lambda oews: "http://x")
+    monkeypatch.setattr(access, "attempt", lambda url, agent=None: {"status": 200})
+    monkeypatch.setattr(probe, "crosswalk_soc", lambda: set())
+    probe.probe()
+    printed = capsys.readouterr().out
+    assert "2026" in printed and "2025" in printed, printed
+    assert "202026" not in printed, printed

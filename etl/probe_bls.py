@@ -54,15 +54,10 @@ PROJECTIONS = "https://data.bls.gov/projections/occupationProj"
 # remembered. www.bls.gov is where OEWS and the education-system documentation
 # live; data.bls.gov is where the projections table is served from.
 #
-# OEWS, by geography. Sizes are read from the headers rather than downloaded —
-# the metro file is 40 MB and the question is which geographies exist, not what
-# is in every row of them.
-#
-# The release year is searched for rather than written down. The previous
-# version hard-coded `oesm23*`, which was two releases stale by the time anyone
-# read the document it produced, and the file that would have caught it —
-# bumping the year and seeing a 404 — does not exist, because bls.gov answers a
-# missing file with 200 and an HTML page.
+# The OEWS constants this paragraph used to introduce — the per-geography URLs,
+# the release-year search and the reasons for both — moved to
+# `etl/bls_access.py` when the access layer was split out. The rationale went
+# with them; what follows is the crosswalk, which is a different subject.
 CROSSWALK = Path("data/CIP2020_SOC2018_Crosswalk.xlsx")
 SOC_CODE = re.compile(r"\b\d{2}-\d{4}\b")
 
@@ -203,33 +198,34 @@ def crosswalk_soc() -> set[str]:
 
     from etl.probe_cipsoc import rows, sheets  # noqa: PLC0415
 
-    book = zipfile.ZipFile(CROSSWALK)
     found: set[str] = set()
     columns_seen, headers_seen = 0, []
-    for part in sheets(book).values():
-        table = list(rows(book, part))
-        if not table:
-            continue
-        # The SOC COLUMN, named by the sheet's own header — not every cell.
-        # Scanning every cell means any `NN-NNNN` string anywhere in the
-        # workbook joins the denominator: a note, a page range, a phone
-        # fragment. Measured against the current file the two agree exactly at
-        # 867, so this changes the shape and not the number — which is the
-        # honest way to describe it.
-        header = table[0]
-        soc_at = next((i for i, name in enumerate(header)
-                       if "SOC" in name and "Code" in name), None)
-        if soc_at is None:
-            headers_seen.append(header[:4])
-            continue
-        columns_seen += 1
-        for row in table[1:]:
-            if len(row) <= soc_at:
+    # `with`: the handle was left to the garbage collector, and this module is
+    # imported by a long-lived MCP-style process as readily as by a script.
+    with zipfile.ZipFile(CROSSWALK) as book:
+        for part in sheets(book).values():
+            table = list(rows(book, part))
+            if not table:
                 continue
-            code = row[soc_at].strip()
-            if SOC_CODE.fullmatch(code) and code not in NOT_AN_OCCUPATION:
-                found.add(code)
-
+            # The SOC COLUMN, named by the sheet's own header — not every cell.
+            # Scanning every cell means any `NN-NNNN` string anywhere in the
+            # workbook joins the denominator: a note, a page range, a phone
+            # fragment. Measured against the current file the two agree exactly at
+            # 867, so this changes the shape and not the number — which is the
+            # honest way to describe it.
+            header = table[0]
+            soc_at = next((i for i, name in enumerate(header)
+                           if "SOC" in name and "Code" in name), None)
+            if soc_at is None:
+                headers_seen.append(header[:4])
+                continue
+            columns_seen += 1
+            for row in table[1:]:
+                if len(row) <= soc_at:
+                    continue
+                code = row[soc_at].strip()
+                if SOC_CODE.fullmatch(code) and code not in NOT_AN_OCCUPATION:
+                    found.add(code)
     # The one structural parse in this file that used to degrade quietly. If
     # the workbook is present and NO sheet yields a SOC column — a renamed
     # header, a re-shaped release — every sheet was skipped and this returned
@@ -327,7 +323,9 @@ def probe(quiet: bool = False) -> dict:
         for label, got in result["user_agent_test"]["results"].items():
             print(f"    {label:42} {got.get('status') or 'no response'}")
 
-        oews = result["oews"]
+        # Read from `result`, not rebound over the local of the same name that
+        # produced it. Two bindings for one value in one function is how they
+        # come to differ.
         release = oews["release"] or "none published"
         print(f"\n  OEWS, by geography — wages only, no projections "
               f"({release}, found not assumed)\n")
@@ -336,7 +334,13 @@ def probe(quiet: bool = False) -> dict:
             print(f"    {name:16} {got.get('status') or 'no response':>4}   "
                   f"{f'{size / 1_000_000:.1f} MB' if size else ''}")
         if not oews["geographies"]:
-            print(f"    no complete release in 20{', 20'.join(oews['years_tried'])}")
+            # `'20' + yy` assumed every entry is a two-digit STRING. Four-digit
+            # years or ints — either a plausible change in `bls_access` — would
+            # print "202024" or crash on join. The years are normalised here
+            # instead of trusting their shape.
+            tried = ", ".join(f"20{y}" if len(str(y)) == 2 else str(y)
+                              for y in oews["years_tried"])
+            print(f"    no complete release in {tried or 'any year tried'}")
         print(f"\n  measured {stamp}")
         print("  reproduce with: python -m etl.probe_bls\n")
 
