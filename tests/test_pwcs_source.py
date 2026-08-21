@@ -150,7 +150,7 @@ def test_a_row_pointing_outside_the_sitemap_is_reported_not_dropped():
     # the rows on the page — which the district may do at any time — fails a
     # test that is not about ordering.
     assert {c["url"] for c in got["courses"]} == {"https://catalog.pwcs.edu/a/one"}
-    assert set(got["dangling"]) == {"/node/1435"}
+    assert set(got["dangling"]) == {"https://catalog.pwcs.edu/node/1435"}
 
 
 def test_a_rendered_field_with_no_rows_is_a_parse_failure_not_an_empty_pathway():
@@ -299,7 +299,7 @@ def test_a_pathway_row_pointing_at_a_subject_page_does_not_count_as_resolved():
     pathway = got["pathways"][0]
     assert [c["url"] for c in pathway["courses"]] == \
         ["https://catalog.pwcs.edu/band/concert"]
-    assert pathway["dangling"] == ["/band"], pathway["dangling"]
+    assert pathway["dangling"] == ["https://catalog.pwcs.edu/band"], pathway["dangling"]
 
 
 def test_an_absolute_url_drops_the_query_and_keeps_the_root_slash():
@@ -406,3 +406,31 @@ def test_a_row_under_no_section_is_counted_even_when_it_dangles():
     got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
     assert got["courses"] == []
     assert got["rows_without_a_section"] == 2, got
+
+
+def test_a_row_with_no_credits_is_counted_rather_than_dropped():
+    """`COURSE_ROW` required a credits field, so a `degree-row` article without
+    one matched nothing at all — not in `rows`, not in `courses`, not in
+    `dangling`. A published course simply disappeared.
+
+    The real catalogue has exactly one such row, which is why the loss was
+    small enough to go unnoticed and large enough to be wrong.
+    """
+    no_credits = ('<article about="/a/one" class="node row degree-row">'
+                  '<div class="col-10"><a href="/a/one">A course</a></div>'
+                  '</article>')
+    got = reader.parse_pathway(section("First") + no_credits,
+                               "https://catalog.pwcs.edu/p", PUBLISHED)
+    assert [c["url"] for c in got["courses"]] == ["https://catalog.pwcs.edu/a/one"]
+    assert got["courses"][0]["credits"] is None
+    assert got["rows_without_credits"] == 1, got
+
+
+def test_dangling_and_resolved_rows_use_the_same_spelling():
+    """`dangling` held raw hrefs while `courses` held absolute URLs, so the two
+    lists could not be compared and a caller reading both got two spellings of
+    one catalogue."""
+    markup = section("First", "/a/one", "/node/1435")
+    got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
+    everything = [c["url"] for c in got["courses"]] + got["dangling"]
+    assert all(u.startswith("https://") for u in everything), everything

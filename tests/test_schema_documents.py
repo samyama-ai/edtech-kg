@@ -12,13 +12,6 @@ limit. Split by SUBJECT, the standard set when that file was first split: this
 one reads the documents, and `test_schema_cypher.py` reads only the cypher. The
 shared readers are in `tests/schema_source.py`; the tests that need a running
 engine are in `tests/test_schema_engine.py`.
-
-
-Split from `tests/test_schema_cypher.py` at 546 lines, over the limit review
-will read. Split by SUBJECT, the standard set when that file was first split:
-this one reads the documents, and `test_schema_cypher.py` reads only the cypher.
-The shared readers are in `tests/schema_source.py`; the tests that need a
-running engine are in `tests/test_schema_engine.py`.
 """
 
 import re
@@ -181,7 +174,8 @@ def test_the_documented_holes_include_the_one_the_loader_reports():
     assert "#87" in holes, (
         "the loader prints the #87 coverage gap on every run and the holes "
         "list does not mention it")
-    includes_row = [l for l in doc.splitlines() if l.startswith("| `INCLUDES`")]
+    includes_row = [line for line in doc.splitlines()
+                    if line.startswith("| `INCLUDES`")]
     assert includes_row, "the INCLUDES row moved"
     assert "#87" in includes_row[0], (
         "the INCLUDES row quotes a count without saying it is short")

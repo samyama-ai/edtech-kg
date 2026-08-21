@@ -202,7 +202,7 @@ is why it sits above the list rather than inside it as an item "0".
 6. **`PREPARES_FOR` is a published claim, not causation.** The crosswalk says a
    programme prepares for an occupation. It does not say graduates get those
    jobs, and nothing here supports that reading.
-7. **`INCLUDES` is short by 172 published rows.** Pages are classified by URL
+7. **`INCLUDES` is short by 172 edges, from 182 published rows.** Pages are classified by URL
    depth, and four pages publish a pathway course table at *course* depth, so
    they load as `Course` and their course tables are never read:
 
@@ -212,6 +212,11 @@ is why it sits above the list rather than inside it as an item "0".
    | `/specialty-programs/information-technology-center-for-applied-sciences…` | 24 | 22 |
    | `/specialty-programs/international-baccalaureate` | 21 | 19 |
    | `/virtual-prince-william/virtual-prince-william-information` | 26 | 26 |
+
+   182 rows published, 172 of them naming a course that is loaded — the other
+   ten name pages that are not. Both figures are given because the earlier
+   wording said "172 published rows" against a table whose Rows column sums to
+   182, and a reader adding it up finds the two disagree.
 
    Four named, because "four pages" followed by two examples leaves a reader
    counting. The loader measures and prints this on every

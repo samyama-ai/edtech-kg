@@ -40,10 +40,15 @@ from etl import probe_pwcs as source
 # section, and the bound stopped at the first. A partial parse that returns
 # plausible numbers is the failure mode this repo keeps hitting, so the rows are
 # now read wherever the CMS types them.
+# The ROW, and the credits looked for INSIDE it — not one pattern requiring
+# both. Requiring the credits field meant a `degree-row` article without one
+# matched nothing at all: not counted in `rows`, not in `courses`, not in
+# `dangling`. A published course simply disappeared, and the pathway's own
+# total was the only place it could have shown.
 COURSE_ROW = re.compile(
-    r'<article about="([^"]+)"[^>]*class="[^"]*degree-row[^"]*"'
-    r'(?:(?!</article>).)*?'
-    r'field--name-field-credits[^>]*>([^<]*)<', re.S)
+    r'<article about="([^"]+)"[^>]*class="[^"]*degree-row[^"]*".*?</article>',
+    re.S)
+ROW_CREDITS = re.compile(r'field--name-field-credits[^>]*>([^<]*)<', re.S)
 
 # Each course list sits under a named section — "Construction Pathway",
 # "Design / Pre-Construction Pathway". That is the district's own grouping and
@@ -126,13 +131,24 @@ def parse_pathway(markup: str, url: str, published: set[str]) -> dict:
         rows x sections x 2 — pointless on a list that is already in document
         order.
         """
-        index = bisect.bisect_left(starts, position)
+        # `bisect_right`, not `bisect_left`: a row whose offset EQUALS a title
+        # offset belongs to that title, and `bisect_left` gave it the previous
+        # one — or None. The two offsets cannot collide in today's markup, since
+        # the title element precedes the row it heads, so this is a latent
+        # off-by-one rather than an observed fault.
+        index = bisect.bisect_right(starts, position)
         return marks[index - 1][1] if index else None
 
-    courses, dangling, rows, unsectioned = [], [], 0, 0
+    courses, dangling, rows, unsectioned, uncredited = [], [], 0, 0, 0
     for match in re.finditer(COURSE_ROW, markup):
         rows += 1
-        href, credits = match.group(1), match.group(2)
+        href = match.group(1)
+        found = ROW_CREDITS.search(match.group(0))
+        if found is None:
+            # Counted, not dropped. The district publishes the course either
+            # way; only the credit value is missing.
+            uncredited += 1
+        credits = found.group(1) if found else None
         path = source.path_of(href)
         # Counted for EVERY row, resolving or not. It was computed inside the
         # resolving branch, so a template change that broke section titles on a
@@ -146,10 +162,15 @@ def parse_pathway(markup: str, url: str, published: set[str]) -> dict:
                             # and whitespace-collapsed. One went through
                             # html.unescape and the other did not, for no
                             # reason anyone chose.
-                            "credits": " ".join(html.unescape(credits).split()) or None,
+                            "credits": (" ".join(html.unescape(credits).split())
+                                        or None) if credits is not None else None,
                             "section": section_at(match.start())})
         else:
-            dangling.append(href)
+            # The SAME representation as `courses`. `dangling` held the raw
+            # href while `courses` held the absolute URL, so the two lists
+            # could not be compared, and a caller reading both got two
+            # spellings of one catalogue.
+            dangling.append(absolute(href))
     return {
         "url": url,
         "courses": courses,
@@ -159,6 +180,8 @@ def parse_pathway(markup: str, url: str, published: set[str]) -> dict:
         # Rows that sit under no section title. A CMS template change to
         # SECTION_TITLE has no other tell; this is it.
         "rows_without_a_section": unsectioned,
+        # Rows the district published with no credit value. Zero today.
+        "rows_without_credits": uncredited,
     }
 
 

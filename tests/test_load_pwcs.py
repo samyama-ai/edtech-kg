@@ -451,3 +451,25 @@ def test_verify_reads_back_the_requirement_nodes_too():
     problems = loader.verify(Counts(short), loaded)
     assert len(problems) == 1, problems
     assert "Requirement" in problems[0] and "wrote 7" in problems[0], problems[0]
+
+
+def test_a_course_under_a_non_subject_parent_writes_no_edge_and_counts_none():
+    """The third place in this loader with the off-level shape, after REQUIRES
+    and INCLUDES. The parent path was looked up in `by_path` — every published
+    page — and then matched as `:Subject`. A course whose parent is a pathway
+    page resolved, the MATCH found nothing, no edge was written, and the
+    counter still incremented.
+
+    The index each edge resolves against now matches the label it writes.
+    """
+    engine = Recorder()
+    data = {"published": set(),
+            "subjects": [],
+            "courses": [{"url": "https://catalog.pwcs.edu/cte/algebra-1",
+                         "title": "Algebra 1", "prerequisite_links": []}],
+            # The parent page exists and is a PATHWAY, not a subject.
+            "pathways": [{"url": "https://catalog.pwcs.edu/cte", "title": "CTE",
+                          "courses": [], "dangling": []}]}
+    loaded = loader.load(engine, data, quiet=True)
+    assert loaded["in_subject"] == 0, "a pathway page was resolved as a subject"
+    assert not [q for q in engine.sent if "IN_SUBJECT" in q], engine.sent

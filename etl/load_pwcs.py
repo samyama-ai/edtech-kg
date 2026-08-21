@@ -114,10 +114,18 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
                {"name": record["title"], "kind": kind,
                 "district": DISTRICT, "source": CATALOGUE})
 
-    # Course -> Subject, from the catalogue's own URL hierarchy. The parent path
-    # is the subject page; a course whose parent is not published is left
+    # Course -> Subject, from the catalogue's own URL hierarchy. The parent
+    # path is the subject page; a course whose parent is not published is left
     # unattached rather than attached to something invented.
-    in_subject, orphaned = 0, 0
+    #
+    # **Resolved against the SUBJECT index.** This looked the parent up in
+    # `by_path` — every published page — and then wrote `MATCH (s:Subject …)`.
+    # A course whose parent path is a pathway page resolved, the MATCH found
+    # nothing, no edge was written and the counter still incremented. The third
+    # place in this loader with that shape, after REQUIRES and INCLUDES; the
+    # index each edge resolves against now matches the label it writes.
+    subject_by_path = {source.path_of(r["url"]): r["url"] for r in data["subjects"]}
+    in_subject, orphaned, off_level_parents = 0, 0, []
     for record in data["courses"]:
         parts = segments(record["url"])
         if not parts:
@@ -128,17 +136,25 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
             orphaned += 1
             continue
         parent = "/" + parts[0]
-        if parent not in by_path:
-            orphaned += 1
+        if parent not in subject_by_path:
+            if parent in by_path:
+                off_level_parents.append(by_path[parent])
+            else:
+                orphaned += 1
             continue
         engine.run(
             f"MATCH (c:Course {{url: {lit(record['url'])}}}), "
-            f"(s:Subject {{url: {lit(by_path[parent])}}}) MERGE (c)-[:IN_SUBJECT]->(s)")
+            f"(s:Subject {{url: {lit(subject_by_path[parent])}}}) "
+            f"MERGE (c)-[:IN_SUBJECT]->(s)")
         in_subject += 1
     say(f"  IN_SUBJECT {in_subject:>5,}")
     if orphaned:
         say(f"  {orphaned} course(s) have no published subject page; left "
             f"unattached rather than attached to something invented")
+    if off_level_parents:
+        say(f"  {len(off_level_parents)} course(s) sit under a published page "
+            f"that is not a subject; no edge written, and not counted as one: "
+            f"{sorted(off_level_parents)[:3]}")
 
     # Course -> Course. The edge this graph exists for. Deduped and resolved
     # in `prerequisite_pairs`, which states why.
