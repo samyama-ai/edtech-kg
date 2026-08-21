@@ -20,9 +20,18 @@ CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
 # requests to a school district from a test run. `data/` is gitignored, so a
 # fresh clone has none of it, and these would hammer the source rather than
 # fail. Skipped instead — with the command that makes them runnable.
+# A PARTIAL cache is worse than none: `read()` walks the sitemap, finds most
+# pages locally and fetches the rest — from a school district, from a test run.
+# "the directory is not empty" was the whole check, so a half-populated
+# `data/pwcs` ran and went to the network for the remainder.
+CACHED_PAGES = len(list(CACHE.glob("*"))) if CACHE.exists() else 0
+EXPECTED_PAGES = 900
+
 needs_cache = pytest.mark.skipif(
-    not CACHE.exists() or not any(CACHE.iterdir()),
-    reason="no cached catalogue in data/pwcs — run `python -m etl.probe_pwcs` first")
+    CACHED_PAGES < EXPECTED_PAGES,
+    reason=(f"cached catalogue is incomplete ({CACHED_PAGES} of ~960 pages) — "
+            f"run `python -m etl.probe_pwcs` first; a partial cache would fetch "
+            f"the remainder from the district"))
 
 # --------------------------------------------------------------------------
 # keys
@@ -120,8 +129,12 @@ def test_a_row_pointing_outside_the_sitemap_is_reported_not_dropped():
     Counting them as absent would understate what the district publishes."""
     markup = section("First", "/a/one", "/node/1435")
     got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
-    assert len(got["courses"]) == 1
-    assert got["dangling"] == ["/node/1435"]
+    # By CONTENT, not by position. `got["courses"][0]` and an ordered
+    # `dangling ==` make document order part of the contract, so re-ordering
+    # the rows on the page — which the district may do at any time — fails a
+    # test that is not about ordering.
+    assert {c["url"] for c in got["courses"]} == {"https://catalog.pwcs.edu/a/one"}
+    assert set(got["dangling"]) == {"/node/1435"}
 
 
 def test_a_rendered_field_with_no_rows_is_a_parse_failure_not_an_empty_pathway():
@@ -171,14 +184,26 @@ def test_the_three_levels_account_for_every_sitemap_page(catalogue):
 
 @needs_cache
 def test_no_prerequisite_crosses_out_of_the_course_level(catalogue):
-    """The claim #74 rests on: reclassifying 165 pages does not touch the 240
-    edges, because no page outside the 795 is at either end of one."""
+    """The claim edtech-kg#74 rests on: reclassifying 165 pages does not touch
+    the 240 edges, because no page outside the 795 is at either end of one.
+
+    **Both assertions below hold when nothing was parsed.** An empty
+    `prerequisite_links` on every record satisfies the loop, and an empty
+    `depths` satisfies `<= {2}` — so a CMS change that stopped the prerequisite
+    field parsing would have turned this into a confident statement about
+    zero links. The count is asserted first, so the claim rests on something
+    measured rather than on an absence.
+    """
     data = catalogue
+    links = [link for r in data["courses"] for link in r["prerequisite_links"]]
+    assert len(links) >= 240, (
+        f"only {len(links)} prerequisite link(s) parsed; the catalogue publishes "
+        f"240, so this test would otherwise pass on having read nothing")
+
     for record in data["subjects"] + data["pathways"]:
         assert not record["prerequisite_links"], record["url"]
-    depths = {len(reader.segments(link["href"]))
-              for r in data["courses"] for link in r["prerequisite_links"]}
-    assert depths <= {2}, f"a prerequisite points outside the course level: {depths}"
+    depths = {len(reader.segments(link["href"])) for link in links}
+    assert depths == {2}, f"a prerequisite points outside the course level: {depths}"
 
 
 def test_the_normalisation_rule_names_every_url_keyed_label():

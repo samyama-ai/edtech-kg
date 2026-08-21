@@ -166,6 +166,16 @@ def section(text: str, after: str, before: str | None = None) -> str:
     """
     parts = text.split(after)
     assert len(parts) > 1, f"no heading {after!r} in this document any more"
+    # A repeated heading is REFUSED, not guessed at. A banner's text can appear
+    # in prose above the banner itself — "everything under TIER 2 — modelled is
+    # unpopulated" mentions the heading — and slicing on the first hit then
+    # truncates the section to the prose preceding it, silently shrinking what
+    # every caller checks. Picking the last hit instead only moves the guess;
+    # two occurrences is a document the reader cannot resolve, and saying so is
+    # the honest answer.
+    assert len(parts) == 2, (
+        f"{after!r} appears {len(parts) - 1} times; the slice is ambiguous, so "
+        f"a caller would be checking an arbitrary part of the document")
     tail = parts[1]
     if before is None:
         return tail

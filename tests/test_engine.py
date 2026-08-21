@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 import etl.engine as module
-from etl import load_pwcs as loader
-from etl.engine import Engine, Unquotable
+from etl.engine import Engine, Unquotable, lit
+from etl.pwcs_source import read
 
 CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
 
@@ -26,9 +26,14 @@ CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
 # requests to a school district from a test run. `data/` is gitignored, so a
 # fresh clone has none of it, and these would hammer the source rather than
 # fail. Skipped instead — with the command that makes them runnable.
+# A PARTIAL cache is worse than none: `read()` finds most pages locally and
+# fetches the rest from the district. Counted, not merely "not empty".
+CACHED_PAGES = len(list(CACHE.glob("*"))) if CACHE.exists() else 0
+
 needs_cache = pytest.mark.skipif(
-    not CACHE.exists() or not any(CACHE.iterdir()),
-    reason="no cached catalogue in data/pwcs — run `python -m etl.probe_pwcs` first")
+    CACHED_PAGES < 900,
+    reason=(f"cached catalogue is incomplete ({CACHED_PAGES} of ~960 pages) — "
+            f"run `python -m etl.probe_pwcs` first"))
 
 
 @pytest.fixture
@@ -37,10 +42,15 @@ def replies(monkeypatch):
 
     `monkeypatch`, not a hand-rolled try/finally around the stdlib global.
     Four tests each saved and restored `urllib.request.urlopen` themselves —
-    boilerplate that mutates urllib for the whole interpreter, so a test
-    failing between the swap and the finally leaves every later test talking to
-    a stub. Patching `etl.engine`'s own reference confines it to this module,
-    and pytest undoes it even when the test raises.
+    boilerplate where a test failing between the swap and the finally leaves
+    every later test talking to a stub.
+
+    **The patch is process-wide, and monkeypatch is what makes it safe.**
+    `module.urllib.request` is the same module object every importer sees, so
+    naming it through `etl.engine` confines nothing — an earlier version of
+    this docstring claimed it did. What confines the damage is the teardown:
+    pytest restores the attribute even when the test raises, which the four
+    try/finally blocks did only when they were reached.
     """
     def install(payload: bytes):
         sent = {}
@@ -82,7 +92,7 @@ def replies(monkeypatch):
     (1.5, "1.5"),
 ])
 def test_a_value_is_wrapped_in_the_quote_it_does_not_contain(value, expected):
-    assert loader.lit(value) == expected
+    assert lit(value) == expected
 
 
 def test_a_bool_is_not_rendered_as_a_number():
@@ -92,9 +102,9 @@ def test_a_bool_is_not_rendered_as_a_number():
     Deliberately not a row in the table above — the table asserts renderings,
     this asserts a branch ORDER, and a row saying `True -> "true"` states the
     outcome without saying what it is guarding."""
-    assert loader.lit(True) == "true"
-    assert loader.lit(False) == "false"
-    assert loader.lit(1) == "1", "an int must still render as a number"
+    assert lit(True) == "true"
+    assert lit(False) == "false"
+    assert lit(1) == "1", "an int must still render as a number"
 
 
 def test_a_value_holding_both_quotes_is_refused_not_mangled():
@@ -106,14 +116,14 @@ def test_a_value_holding_both_quotes_is_refused_not_mangled():
     the district published is the failure nothing downstream would show.
     """
     with pytest.raises(Unquotable):
-        loader.lit("""Governor's "School\"""")
+        lit("""Governor's "School\"""")
 
 
 def test_a_quote_cannot_terminate_the_literal_early():
     """The property being defended: whatever wrapper is chosen, the value does
     not contain it, so nothing can close the string early."""
     for value in ("O'Brien", 'the "best" course', "plain"):
-        rendered = loader.lit(value)
+        rendered = lit(value)
         assert rendered[0] == rendered[-1], rendered
         assert rendered[0] not in value, rendered
 
@@ -124,7 +134,7 @@ def test_a_non_finite_float_is_refused_rather_than_sent():
     rather than about the value; refused here, the offending value is named."""
     for value in (math.nan, math.inf, -math.inf):
         with pytest.raises(Unquotable):
-            loader.lit(value)
+            lit(value)
 
 
 @needs_cache
@@ -136,12 +146,12 @@ def test_no_value_in_this_catalogue_is_unquotable():
     empty lists, or records whose fields are all None, ran zero `lit()` calls
     and passed — reporting a measurement nobody had made.
     """
-    data = loader.read()
+    data = read()
     checked = 0
     for record in data["subjects"] + data["courses"] + data["pathways"]:
         for value in (record["url"], record["title"], record.get("requirements_text")):
             if value:
-                loader.lit(value)
+                lit(value)
                 checked += 1
     assert checked > 1_000, (
         f"only {checked} values were quotable-checked; the catalogue holds "
@@ -235,3 +245,45 @@ def test_an_unquotable_property_stops_before_the_node_is_written(replies):
                       {"title": """it's a "problem\""""})
     assert engine.statements == 0, "the MERGE was sent before the value was checked"
     assert not sent, "nothing should have reached the engine"
+
+
+def test_a_transient_failure_is_retried_and_a_permanent_one_is_not(monkeypatch):
+    """`attempts` was asserted only through its rejection of 0 — nothing proved
+    a transient failure is actually retried, which is the whole reason the
+    parameter exists. A 503 is worth another go; a 400 will fail identically
+    every time and retrying only delays the report."""
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self): return b'{"columns": [], "records": []}'
+
+    calls = []
+
+    def flaky(request, timeout=None):
+        calls.append(1)
+        if len(calls) < 3:
+            raise module.urllib.error.HTTPError(
+                request.full_url, 503, "Service Unavailable", {}, None)
+        return Response()
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", flaky)
+    engine = Engine("http://x")
+    assert engine.run("MATCH (n) RETURN n") == {"columns": [], "records": []}
+    assert len(calls) == 3, f"expected two retries then a success, got {len(calls)}"
+    assert engine.retries == 2, engine.retries
+
+    permanent = []
+
+    def refused(request, timeout=None):
+        permanent.append(1)
+        raise module.urllib.error.HTTPError(
+            request.full_url, 400, "Bad Request", {}, None)
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", refused)
+    with pytest.raises(RuntimeError, match="400"):
+        Engine("http://x").run("MATCH (n) RETURN n")
+    assert len(permanent) == 1, (
+        f"a 400 fails identically every time; retrying it {len(permanent)}x "
+        f"only delays the report")

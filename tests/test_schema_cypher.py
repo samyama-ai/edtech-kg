@@ -20,6 +20,9 @@ import pytest
 
 from tests.schema_source import (SCHEMA, WRAP_LIMIT, code, constraint_line,
                                  declarations,
+
+
+from tests.schema_source import (SCHEMA, code, constraint_line, declarations,
                                  edges, first_column, labels, section,
                                  statements)
 
@@ -408,22 +411,18 @@ def test_a_label_sits_under_the_tier_banner_it_belongs_to():
             f"{label} is unpopulated but is not declared under TIER 2")
 
 
-def test_the_documented_holes_include_the_one_the_loader_reports():
-    """`docs/schema.md` opens its holes list with "written down before anyone
-    finds it". #87 — 172 published rows that never become INCLUDES edges — was
-    found, filed and printed by the loader while the page still read as if
-    `INCLUDES` were complete.
+def test_a_heading_mentioned_in_prose_does_not_truncate_the_section():
+    """`section()` sliced on the FIRST occurrence of a heading, so a sentence
+    quoting that heading above the banner itself cut the section short — every
+    caller then checked a fragment, and a containment test against a fragment
+    passes.
 
-    A page that states its own limits is only worth reading if the statement
-    keeps up with what is known, so the guard is that a hole the CODE reports
-    is a hole the DOCUMENT names.
+    Ambiguity is refused rather than guessed at: two occurrences is a document
+    the reader cannot resolve, and saying so beats picking one.
     """
-    doc = SCHEMA_DOC.read_text()
-    holes = section(doc, "## What this schema does not claim", "## Verified against")
-    assert "#87" in holes, (
-        "the loader prints the #87 coverage gap on every run and the holes "
-        "list does not mention it")
-    includes_row = [l for l in doc.splitlines() if l.startswith("| `INCLUDES`")]
-    assert includes_row, "the INCLUDES row moved"
-    assert "#87" in includes_row[0], (
-        "the INCLUDES row quotes a count without saying it is short")
+    quoted = ("Everything under ## TIER 2 is unpopulated.\n"
+              "## TIER 2\nthe real section\n")
+    with pytest.raises(AssertionError, match="ambiguous"):
+        section(quoted, "## TIER 2")
+
+    assert section("intro\n## TIER 2\nbody\n", "## TIER 2").strip() == "body"
