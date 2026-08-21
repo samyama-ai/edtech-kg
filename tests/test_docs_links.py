@@ -38,16 +38,8 @@ def references(document: Path):
         yield match.group(1).strip(), "backtick"
 
 
-# README.md is still the unmodified repo template and links {{KG_SLUG}}
-# placeholders. Marked rather than excluded, so it stays visible in the report
-# and disappears the moment #67 lands.
-KNOWN_TEMPLATE = {"README.md"}
-
-
 @pytest.mark.parametrize("document", DOCS, ids=lambda d: str(d.relative_to(ROOT)))
 def test_every_file_a_document_cites_exists(document):
-    if str(document.relative_to(ROOT)) in KNOWN_TEMPLATE:
-        pytest.xfail("still the repo template — #67")
     missing = []
     for reference, kind in references(document):
         # A link is relative to the citing document; a backticked path is
@@ -111,7 +103,15 @@ def test_the_readme_headline_totals_match_its_own_tables():
     nodes, edges = (int(g.replace(",", "")) for g in headline.groups())
 
     def total(section: str) -> int:
-        block = readme.split(f"| {section} | Count | |")[1].split("\n\n")[0]
+        # `split(header)[1]` raises IndexError if a table header is reworded —
+        # a traceback naming a list index, where the rest of this file (and
+        # `spelling.Unspellable`) is careful to produce a sentence.
+        header = f"| {section} | Count | |"
+        parts = readme.split(header)
+        assert len(parts) > 1, (
+            f"the README no longer has a table headed {header!r}; if it was "
+            f"reworded, this guard needs the new wording")
+        block = parts[1].split("\n\n")[0]
         counts = re.findall(r"^\|\s*`\w+`\s*\|\s*([\d,]+)\s*\|", block, re.M)
         assert counts, f"no {section.lower()} rows found"
         return sum(int(c.replace(",", "")) for c in counts)
@@ -120,3 +120,49 @@ def test_the_readme_headline_totals_match_its_own_tables():
         f"the README says {nodes:,} nodes; its label table adds to {total('Label'):,}")
     assert total("Edge") == edges, (
         f"the README says {edges:,} edges; its edge table adds to {total('Edge'):,}")
+
+
+def test_the_front_page_is_inside_the_check():
+    """README.md was excluded by an xfail reading "still the repo template —
+    #67". #67 is the pull request that rewrote it, so the comment became false
+    in the same commit that should have deleted the exclusion — and because
+    `pytest.xfail()` raises imperatively, the body never ran and it reported
+    xfail rather than xpass. Nothing flagged the staleness.
+
+    The result was that the file whose entire subject is "a citation that
+    resolves on the author's machine can be dangling in the branch the reviewer
+    reads" no longer checked the front page: the one document where that error
+    is worst, and the one most people read first.
+    """
+    assert ROOT / "README.md" in DOCS, "the front page is not in the checked set"
+
+
+def test_the_test_count_the_readme_quotes_is_the_one_pytest_collects():
+    """The README said 379 and the PR description said 276 — one of them read
+    from a run and the other from memory, with no way to tell which.
+
+    Collected, not run: `--collect-only` counts the suite without needing an
+    engine, so this stays honest on a machine that has none. It is allowed to
+    lag by a few while a branch is in flight; a gap wider than that means the
+    number was typed rather than measured.
+    """
+    import subprocess
+    import sys
+    readme = (ROOT / "README.md").read_text(errors="replace")
+    stated = re.search(r"pytest\s+#\s*([\d,]+) tests", readme)
+    assert stated, "the README no longer quotes a test count"
+    claimed = int(stated.group(1).replace(",", ""))
+
+    # `sys.executable`, not "python3": the default python3 on this machine is
+    # 3.14 with none of these dependencies installed, so a hardcoded name made
+    # the comparison skip rather than run — a guard that is always green.
+    out = subprocess.run([sys.executable, "-m", "pytest", "-q", "--collect-only",
+                          "-p", "no:cacheprovider"],
+                         cwd=ROOT, capture_output=True, text=True)
+    found = re.search(r"(\d+) tests? collected", out.stdout)
+    if not found:
+        pytest.skip("could not collect the suite here to compare against")
+    collected = int(found.group(1))
+    assert abs(collected - claimed) <= 5, (
+        f"the README says {claimed} tests; pytest collects {collected}. "
+        f"Re-run and quote the number rather than remembering it.")

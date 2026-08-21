@@ -165,8 +165,8 @@ preference, and the working is on the page.
   the figure is for graduates who took federal aid, not all graduates. That caveat has
   to travel with any answer built on it.
 - **Pay and outlook are not here at all.** BLS covers them for 96% of the occupations a
-  programme can reach, but that probe is still in review (#37) and this README describes
-  only what is on `main`.
+  programme can reach, but that probe is still in review (#37) and this README
+  describes only what is merged, not what is open in a branch.
 - **No student data of any kind** — by design, not by omission.
 
 ---
@@ -190,7 +190,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 379 tests
+pytest                           # 431 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
