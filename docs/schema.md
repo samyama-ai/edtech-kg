@@ -23,7 +23,7 @@ source holds, not what any graph contains.
 
 | Label | Key | Meaning | Measured in the source |
 |---|---|---|---|
-| `Course` | `url` | One published course page in one district's catalogue | **795** courses (960 sitemap pages − 127 subject − 38 pathway; #74) |
+| `Course` | `url` | One published course page in one district's catalogue | **791** courses (960 sitemap pages − 127 subject − 42 pathway; #74) |
 | `Programme` | `cip_code` | A field of study, 6-digit CIP | 2,143 in the crosswalk |
 | `Occupation` | `soc_code` | An occupation, SOC code | 868 in the crosswalk |
 | `Institution` | `unitid` | A college or university, IPEDS | 6,256 |
@@ -31,7 +31,7 @@ source holds, not what any graph contains.
 | `District` | `leaid` | A school district, CCD | 19,714 |
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
 | `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key. All 138 sit on course pages; `HAS_REQUIREMENT` accepts a pathway too, and none states one |
-| `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | 38 |
+| `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | **42** — 16 CTE career pathways and 26 specialty programs |
 | `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
 
 **`Pathway` moved here from tier 2**, and its key changed from `ctid` to `url`.
@@ -48,12 +48,21 @@ to take on one publisher's evidence.
 
 **Where the district's figures come from.** `etl/probe_pwcs.py` reports 960 —
 every page in the sitemap — and calls them all courses. The catalogue has three
-levels: 127 subject indexes, 795 courses, 38 CTE pathway pages, and all three
-are declared above, so the split closes as 127 + 795 + 38 = 960 with nothing
-left over. So none of the
-district rows above is a number the probe prints as such today; each falls out
-of the depth split, and **edtech-kg#74** is where the probe is corrected to
-report them separately. The table carries the corrected figures because a
+kinds: 127 subject indexes, 791 courses, 42 pathway pages, and all three are
+declared above, so the split closes as 127 + 791 + 42 = 960 with nothing left
+over.
+
+**The kinds are not read off the URL alone.** Depth is the catalogue's own
+structure and it holds for 956 of the 960 pages. Four publish a pathway's
+course table at COURSE depth, and classifying those by depth cost 172 published
+rows — the loader read them as courses and never opened their tables
+(edtech-kg#87). A page rendering that field is a pathway whatever its URL says;
+the district's markup is the better evidence, and it is the evidence the rows
+come from. Depth still decides everything else, because a subject index and a
+course carry no field that tells them apart.
+
+None of the district rows above is a number the probe prints as such today, and
+**edtech-kg#74** is where the probe is corrected to report them separately. The table carries the corrected figures because a
 reader skimming it should not take away a number this page goes on to refute.
 
 `Completion` is 9,026,310 because that is what IPEDS publishes. Whether a
@@ -77,7 +86,7 @@ loader, not about the source.
 |---|---|---|
 | `REQUIRES` | Course → Course | **The prerequisite edge.** 240 measured, all resolving |
 | `HAS_REQUIREMENT` | Course / Pathway → Requirement | A prose condition — not a course reference |
-| `INCLUDES` | Pathway → Course | What a published pathway is made of. 185 edges from 202 rows — **17 rows repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77) so the section names are joined onto the one edge. **Not the whole catalogue: 172 further rows are unwritten, see hole 7 (#87).** Carries the district's section name and credit value |
+| `INCLUDES` | Pathway → Course | What a published pathway is made of. 316 edges from 374 published rows — **58 rows repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77), so the section names are joined onto the one edge and `rows` records how many folded in. A further 16 rows name a page the catalogue does not publish. Carries the district's section name and credit value |
 | `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 6,097 mappings |
 | `OFFERS` | Institution → Programme | What a college teaches |
 | `AT` / `IN` | Completion → Institution / Programme | Who graduated, where, in what |
@@ -190,7 +199,7 @@ is why it sits above the list rather than inside it as an item "0".
 1. **No student.** Individual records are permanently out of scope
    ([`scope.md`](scope.md) §1). Nothing here can answer "where is this child".
 2. **No national prerequisite graph.** `REQUIRES` is populated for **one
-   district**, 795 courses drawn from a 960-page sitemap. Statewide directories publish none at all, so
+   district**, 791 courses drawn from a 960-page sitemap. Statewide directories publish none at all, so
    this is a property of one publisher's catalogue software, not of US
    education data. Whether a second district resolves as cleanly is edtech-kg#19.
 3. **No Course → Programme edge.** No public source links a district course to
@@ -202,28 +211,19 @@ is why it sits above the list rather than inside it as an item "0".
 6. **`PREPARES_FOR` is a published claim, not causation.** The crosswalk says a
    programme prepares for an occupation. It does not say graduates get those
    jobs, and nothing here supports that reading.
-7. **`INCLUDES` is short by 172 edges, from 182 published rows.** Pages are classified by URL
-   depth, and four pages publish a pathway course table at *course* depth, so
-   they load as `Course` and their course tables are never read:
+7. **A page is classified by what it publishes, not only by its URL.** Four
+   pages render a pathway's course table at course depth — two specialty
+   programmes, International Baccalaureate and Virtual Prince William. Read by
+   depth alone they loaded as `Course`, their tables were never opened, and
+   172 published rows never became edges. Nothing failed: the loader and the
+   engine agreed about a set that was already short, which is why it took a
+   reviewer asking what the classifier assumed.
 
-   | Page | Rows | Resolving |
-   |---|---:|---:|
-   | `/specialty-programs/center-for-biotechnology-and-engineering` | 111 | 105 |
-   | `/specialty-programs/information-technology-center-for-applied-sciences…` | 24 | 22 |
-   | `/specialty-programs/international-baccalaureate` | 21 | 19 |
-   | `/virtual-prince-william/virtual-prince-william-information` | 26 | 26 |
-
-   182 rows published, 172 of them naming a course that is loaded — the other
-   ten name pages that are not. Both figures are given because the earlier
-   wording said "172 published rows" against a table whose Rows column sums to
-   182, and a reader adding it up finds the two disagree.
-
-   Four named, because "four pages" followed by two examples leaves a reader
-   counting. The loader measures and prints this on every
-   run rather than leaving it to the difference between two other numbers, and
-   #87 carries the four pages with their row counts. Reported rather than
-   fixed here because reclassifying them moves the node and edge totals this
-   file, the README and the demo all quote.
+   Fixed in edtech-kg#87. The markup now wins over the depth, and the loader
+   prints every page where the two disagree — so the next one is visible
+   rather than absorbed. It moved `INCLUDES` from 185 edges to 316 and left
+   the node total unchanged at 1,098, because the four pages did not appear or
+   disappear; they changed label.
 
 ## Verified against the engine
 

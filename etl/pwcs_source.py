@@ -11,7 +11,7 @@ lands on a published page or provably does not.
 What the sitemap holds, by path depth — the catalogue's own structure:
 
     /band                                       127  Subject
-    /band/concert-band                          795  Course
+    /band/concert-band                          791  Course
     /career-and-technical-education-cte/...       38  Pathway
 
 **The probe reports all 960 as courses. They are not.** No page at depth 1 or 3
@@ -189,14 +189,41 @@ LEVELS = {1: "subject", 2: "course", 3: "pathway"}
 
 
 def level(url: str) -> str | None:
-    """What the catalogue says a page is, from its depth. `None` for anything
-    else — the root, or something nested deeper than a pathway.
+    """What the catalogue's URL DEPTH says a page is. `None` for anything else
+    — the root, or something nested deeper than a pathway.
 
     A function so it can be checked directly. It was an `if/elif/else` inside
     `read()`, and the `else` swept every unexpected depth into "pathway",
     where it would be parsed for a course table it does not have.
+
+    **Depth alone is not the classifier — see `classify`.** Four pages publish
+    a pathway's course table at course depth, and calling them courses cost
+    172 published edges (#87).
     """
     return LEVELS.get(len(segments(url)))
+
+
+def classify(url: str, markup: str) -> str | None:
+    """What a page IS, from what it publishes and then from its depth.
+
+    Depth is the catalogue's own structure and it holds for 956 of 960 pages.
+    It does not hold for four, which publish the pathway course-table field at
+    COURSE depth — two specialty programmes, International Baccalaureate and
+    Virtual Prince William. Classified by depth they loaded as `Course`, their
+    course tables were never read, and 172 published rows never became edges
+    (#87). Nothing failed: the loader and the engine agreed about a set that
+    was already short.
+
+    So the field wins over the depth. A page that renders a course table IS a
+    pathway whatever its URL says — the district's own markup is the better
+    evidence, and it is the evidence the rows come from.
+
+    Depth still decides everything else, because a subject index and a course
+    are not distinguishable by any field either of them carries.
+    """
+    if PATHWAY_FIELD_PRESENT.search(markup):
+        return "pathway"
+    return level(url)
 
 
 def read(use_cache: bool = True, urls: list[str] | None = None,
@@ -207,7 +234,7 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
     counted, not guessed at.** The classifier was `if 1 … elif 2 … else
     pathway`, so a depth-0 page — the catalogue root — or a depth-4 page would
     have been read as a pathway and parsed for a course table it does not have.
-    Neither exists today (measured: the sitemap is 127 / 795 / 38 exactly),
+    Neither exists today (measured: 127 subjects, 791 courses, 42 pathways),
     which is the only reason a bare `else` looked harmless.
 
     A pathway's course rows resolve against the COURSE paths, not against every
@@ -229,10 +256,15 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
     urls = source.course_urls(use_cache) if urls is None else urls
     fetch = fetch or (lambda u: source.fetch(u, use_cache))
     published = {source.path_of(u) for u in urls} - {None}
-    course_paths = {source.path_of(u) for u in urls if level(u) == "course"} - {None}
 
+    # TWO passes, because the course set is now an OUTPUT of classification
+    # rather than an input to it. It used to be derived from URL depth before
+    # the loop, which is the same assumption `classify` exists to correct — so
+    # deriving it that way would have left pathway rows resolving against a
+    # course set that includes four pages no longer classified as courses.
     buckets = {"subject": [], "course": [], "pathway": []}
-    unclassified, unparsed, misfiled = [], [], []
+    unclassified, unparsed, reclassified = [], [], []
+    pathway_markup = {}
     for url in urls:
         markup = fetch(url)
         record = source.parse_course(markup, url)
@@ -242,24 +274,32 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
             # CMS renames its heading class.
             unparsed.append(url)
             continue
-        kind = level(url)
-        if kind != "pathway" and PATHWAY_FIELD_PRESENT.search(markup):
-            misfiled.append(url)
+        kind = classify(url, markup)
+        if kind != level(url):
+            # What the depth would have said, and what the markup says
+            # instead. Reported so the disagreement stays visible rather than
+            # being silently resolved — it is how #87 was found.
+            reclassified.append(url)
         if kind is None:
             unclassified.append(url)
             continue
         if kind == "pathway":
-            # Resolved against the COURSE paths, not every published page: a
-            # row pointing at a subject or pathway page would otherwise count
-            # as resolved and then write no edge.
-            record.update(parse_pathway(markup, url, course_paths))
+            pathway_markup[url] = markup
         buckets[kind].append(record)
+
+    course_paths = {source.path_of(r["url"]) for r in buckets["course"]} - {None}
+    for record in buckets["pathway"]:
+        # Resolved against the COURSE paths, not every published page: a row
+        # pointing at a subject or pathway page would otherwise count as
+        # resolved and then write no edge.
+        record.update(parse_pathway(pathway_markup[record["url"]],
+                                    record["url"], course_paths))
     subjects, courses, pathways = (buckets["subject"], buckets["course"],
                                    buckets["pathway"])
     return {"urls": urls, "published": published, "course_paths": course_paths,
             "subjects": subjects, "courses": courses, "pathways": pathways,
             "unclassified": unclassified, "unparsed": unparsed,
-            "misfiled": misfiled}
+            "reclassified": reclassified}
 
 
 def requirement_id(course_url: str, text: str) -> str:

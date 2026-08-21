@@ -329,13 +329,16 @@ def test_a_page_that_does_not_parse_is_counted_not_dropped():
     assert got["courses"] == []
 
 
-def test_a_page_publishing_a_course_table_at_the_wrong_depth_is_reported():
-    """Pages are classified by URL depth, and four in this catalogue publish a
-    pathway course table at COURSE depth — so their rows are never read and
-    172 published INCLUDES edges are never written. Raised as #87.
+def test_a_page_publishing_a_course_table_is_a_pathway_whatever_its_depth():
+    """The #87 fix. Depth is the catalogue's own structure and holds for 956 of
+    960 pages; four publish a pathway's course table at COURSE depth. Read by
+    depth alone they loaded as `Course`, their tables were never opened, and
+    172 published rows never became edges.
 
-    Measured and reported rather than reclassified: reclassifying moves the
-    node and edge totals three documents quote, which is its own change."""
+    Nothing failed while that was true — the loader and the engine agreed
+    about a set that was already short — which is why the markup has to win
+    over the address.
+    """
     urls = ["https://catalog.pwcs.edu/specialty-programs",
             "https://catalog.pwcs.edu/specialty-programs/it-centre"]
 
@@ -345,32 +348,43 @@ def test_a_page_publishing_a_course_table_at_the_wrong_depth_is_reported():
         return titled("Specialty programs")
 
     got = reader.read(urls=urls, fetch=fetch)
-    assert got["misfiled"] == ["https://catalog.pwcs.edu/specialty-programs/it-centre"]
-    # And it is still loaded as a course, which is the point of reporting it.
-    assert len(got["courses"]) == 1 and got["pathways"] == []
+    assert [r["url"] for r in got["pathways"]] == \
+        ["https://catalog.pwcs.edu/specialty-programs/it-centre"], got["pathways"]
+    assert got["courses"] == [], "the page was still read as a course"
+    # And the disagreement is reported rather than silently resolved.
+    assert got["reclassified"] == \
+        ["https://catalog.pwcs.edu/specialty-programs/it-centre"], got
+
+
+def test_a_page_at_course_depth_with_no_course_table_is_still_a_course():
+    """The markup only wins where there IS markup to win with. A page that
+    publishes no course table is classified by depth exactly as before, or
+    every course in the catalogue would become a pathway."""
+    urls = ["https://catalog.pwcs.edu/band",
+            "https://catalog.pwcs.edu/band/concert"]
+    got = reader.read(urls=urls, fetch=lambda u: titled("A page"))
+    assert [r["url"] for r in got["courses"]] == \
+        ["https://catalog.pwcs.edu/band/concert"], got["courses"]
+    assert got["pathways"] == [] and got["reclassified"] == [], got
 
 
 @needs_cache
-def test_a_misfiled_page_is_reported_rather_than_absorbed(catalogue):
-    """#87: a page publishing a pathway course table at course depth is loaded
-    as a course, so its rows are never written.
+def test_the_four_reclassified_pages_are_the_ones_measured(catalogue):
+    """The figure #87 quotes, read from the catalogue rather than typed.
 
-    The INVARIANT, not the census. `== 4` is the exact shape the comment above
-    argues against — it fails the day the district publishes a fifth such page,
-    which is not a defect, and a test that cries about it teaches people to
-    ignore it. What must hold is that every misfiled page is a real page that
-    was classified as something other than a pathway, and that the count the
-    loader prints is the length of the list it prints.
+    The invariant, not the census: every reclassified page is a real published
+    page that URL depth would NOT have called a pathway, and it is now in the
+    pathway list. A fifth appearing is a fact about the catalogue, not a
+    defect, and this says so rather than failing on it.
     """
-    misfiled = catalogue["misfiled"]
-    assert misfiled, "the four known misfiled pages are no longer detected — see #87"
+    reclassified = catalogue["reclassified"]
+    assert reclassified, "the reclassification is no longer happening — see #87"
     published = set(catalogue["urls"])
-    for url in misfiled:
+    pathway_urls = {r["url"] for r in catalogue["pathways"]}
+    for url in reclassified:
         assert url in published, url
         assert reader.level(url) != "pathway", (url, reader.level(url))
-    assert not set(misfiled) & {r["url"] for r in catalogue["pathways"]}, \
-        "a page cannot be both correctly classified and misfiled"
-
+        assert url in pathway_urls, f"{url} was reclassified and not loaded as one"
 
 def test_an_href_that_is_already_absolute_is_left_alone():
     """Real markup carries absolute and protocol-relative hrefs as well as
@@ -434,3 +448,42 @@ def test_dangling_and_resolved_rows_use_the_same_spelling():
     got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
     everything = [c["url"] for c in got["courses"]] + got["dangling"]
     assert all(u.startswith("https://") for u in everything), everything
+
+
+def test_a_pathway_row_naming_a_reclassified_page_does_not_resolve_as_a_course():
+    """The course set is an OUTPUT of classification, not an input to it.
+
+    It used to be derived from URL depth before the pages were read — the same
+    assumption `classify` exists to correct. Left that way, a page reclassified
+    OUT of the courses would still be in the set a pathway row resolves
+    against: the row would count as resolved, the loader would write
+    `MATCH (c:Course {url: …})` for a node that is now a `:Pathway`, the MATCH
+    would find nothing, and the counter would still increment.
+
+    No row in this catalogue names one of the four, which is the only reason
+    the single-pass version agreed. This drives the case the data does not
+    have.
+    """
+    urls = ["https://catalog.pwcs.edu/cte/career-pathways/it",   # a real pathway
+            "https://catalog.pwcs.edu/specialty/it-centre",      # reclassified
+            "https://catalog.pwcs.edu/a/one"]                    # a plain course
+
+    def fetch(url):
+        if url.endswith("career-pathways/it"):
+            # Its rows name the reclassified page AND a real course.
+            return titled("IT pathway") + section(
+                "Only", "/specialty/it-centre", "/a/one")
+        if url.endswith("it-centre"):
+            return titled("IT Centre") + section("Inner", "/a/one")
+        return titled("A course")
+
+    got = reader.read(urls=urls, fetch=fetch)
+    assert got["reclassified"] == ["https://catalog.pwcs.edu/specialty/it-centre"], got
+
+    pathway = next(r for r in got["pathways"] if r["url"].endswith("career-pathways/it"))
+    resolved = {c["url"] for c in pathway["courses"]}
+    assert resolved == {"https://catalog.pwcs.edu/a/one"}, (
+        "a page that is now a Pathway still resolved as a course")
+    assert "https://catalog.pwcs.edu/specialty/it-centre" in pathway["dangling"], (
+        "the row naming a reclassified page should be reported, not counted "
+        "as a resolved course")

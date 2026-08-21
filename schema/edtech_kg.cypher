@@ -211,7 +211,7 @@ CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.url IS UNIQUE;
 // What a published pathway is made of.
 //   (:Pathway)-[:INCLUDES {section, sections, rows, credits}]->(:Course)
 //
-// 185 edges over 38 pathways, from 202 published rows. The district publishes
+// 316 edges over 42 pathways, from 374 published rows. The district publishes
 // this in a typed field — entity references with a credit value each, grouped
 // under named sections like "Web & Digital Communications Pathway" — so it is
 // read, not inferred from a page's prose.
@@ -220,7 +220,7 @@ CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.url IS UNIQUE;
 // course appears in more than one. That is a workaround, not a design: an edge
 // MERGE in 1.1.0 ignores the property map and matches on start, type and end
 // alone, so two edges between one pathway and one course cannot be told apart
-// and the second is dropped silently (#77). 17 of the 202 rows are that case.
+// and the second is dropped silently (#77). 58 of the 374 rows are that case.
 // `rows` counts how many published rows folded into the edge, so the collapse
 // is visible in the graph rather than only in the loader's output. `sections`
 // is how many NAMED sections it covers, which is what `section` joins — the
@@ -409,7 +409,7 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 //    (docs/scope.md §1). Nothing here can answer "where is this child".
 //
 // 2. NO national prerequisite graph. REQUIRES is populated for ONE district,
-//    795 courses, drawn from a 960-page sitemap — 960 is the page count, not
+//    791 courses, drawn from a 960-page sitemap — 960 is the page count, not
 //    the course count, and docs/schema.md carries the correction (#74).
 //    #40 measured that statewide directories publish none at all,
 //    so this is a property of one publisher's catalogue software, not of US

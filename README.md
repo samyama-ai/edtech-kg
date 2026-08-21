@@ -1,6 +1,6 @@
 # Education-to-Career Pathways Knowledge Graph
 
-**1,098 nodes. 1,287 edges. One school district's published course catalogue, as a graph
+**1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
 you can walk — plus eight measured public sources for the college and career side.**
 
 > Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
@@ -8,7 +8,7 @@ you can walk — plus eight measured public sources for the college and career s
 
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
 
-> **One district is loaded and measured — 1,098 nodes, 1,287 edges, in 8.7 seconds.**
+> **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 7.9 seconds.**
 > The national spine (CIP-SOC, IPEDS, BLS, College Scorecard) is measured but not yet
 > loaded. Counts, licences and known limitations are in [`docs/`](docs/).
 
@@ -86,16 +86,16 @@ data, nothing that is not already on the internet.
 
 | Label | Count | |
 |---|---:|---|
-| `Course` | 795 | one published course page |
+| `Course` | 791 | one published course page |
 | `Requirement` | 138 | a stated condition that is **not** a course reference |
 | `Subject` | 127 | the catalogue's own grouping |
-| `Pathway` | 38 | 16 CTE career pathways, 22 specialty programs |
+| `Pathway` | 42 | 16 CTE career pathways, 26 specialty programs |
 
 | Edge | Count | |
 |---|---:|---|
-| `IN_SUBJECT` | 724 | course → its subject |
+| `IN_SUBJECT` | 723 | course → its subject |
 | `REQUIRES` | 240 | **the prerequisite edge — 240 of 240 resolve** |
-| `INCLUDES` | 185 | pathway → course, carrying the credit value published |
+| `INCLUDES` | 316 | pathway → course, carrying the credit value published |
 | `HAS_REQUIREMENT` | 138 | course → a condition naming no course |
 
 **The prerequisites resolve because the district publishes them as links, not prose.** That
@@ -151,7 +151,7 @@ preference, and the working is on the page.
 - **One district.** Prince William County publishes on Clean Catalog, a Drupal product, and
   its prerequisites came out as typed links. Whether a second district resolves as cleanly
   is **#19** — open, and untested.
-- **431 of 795 courses stand outside every chain and every pathway.** Over half. Most
+- **395 of 791 courses stand outside every chain and every pathway.** Half. Most
   courses genuinely have no ladder, and that number is on screen in the demo rather than
   behind it.
 - **138 conditions are not course references** — an audition, a teacher recommendation.
@@ -190,7 +190,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 431 tests
+pytest                           # 482 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they

@@ -15,11 +15,11 @@ did not (#53: 0 of 150 prerequisite strings resolve).
 What the sitemap holds, by path depth — the catalogue's own structure:
 
     /band                                       127  Subject
-    /band/concert-band                          795  Course
+    /band/concert-band                          791  Course
     /career-and-technical-education-cte/...       38  Pathway
 
 **The probe reports all 960 as courses. They are not.** 127 are subject index
-pages and 38 are CTE pathway pages; 795 are courses. No page at depth 1 or 3
+pages and 42 are pathway pages; 791 are courses. No page at depth 1 or 3
 states a prerequisite and no prerequisite points at one, so the 240 edges are
 unaffected — but the rate they are quoted against is 229 of 795, not 229 of 960.
 Raised as #74; this loader states both figures rather than quietly picking one.
@@ -90,16 +90,14 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
         say(f"  {len(unparsed)} sitemap page(s) did not parse and cannot be "
             f"linked to: {sorted(unparsed)[:3]}")
 
-    # Stated before anyone finds it. Four pages publish a course table and are
-    # not classified as pathways, because this catalogue is classified by URL
-    # depth and those four sit at depth 2. Their rows are never read, so the
-    # INCLUDES count below is short by what they hold. Raised as #87; reported
-    # here rather than fixed, because reclassifying moves the node and edge
-    # totals that three documents quote.
-    if data.get("misfiled"):
-        say(f"  {len(data['misfiled'])} page(s) publish a pathway course table "
-            f"but are loaded as courses, so their rows are NOT written as "
-            f"INCLUDES edges — see #87: {sorted(data['misfiled'])[:2]}")
+    # A page whose markup disagrees with its URL depth. The markup wins — a
+    # page rendering a course table IS a pathway — and the disagreement is
+    # printed rather than silently resolved, because it is how #87 was found
+    # and it is how the next one will be.
+    if data.get("reclassified"):
+        say(f"  {len(data['reclassified'])} page(s) publish a pathway course "
+            f"table at course depth and are loaded as pathways, not courses "
+            f"(#87): {sorted(data['reclassified'])[:2]}")
 
     say(f"  subjects   {len(data['subjects']):>5,}")
     for record in data["subjects"]:

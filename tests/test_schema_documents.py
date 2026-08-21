@@ -159,28 +159,28 @@ def test_no_document_calls_960_a_course_count():
             f"page count, and the course count is 795")
 
 
-def test_the_documented_holes_include_the_one_the_loader_reports():
+def test_the_classification_hole_says_it_was_fixed_not_that_it_stands():
     """`docs/schema.md` opens its holes list with "written down before anyone
-    finds it". #87 — 172 published rows that never become INCLUDES edges — was
-    found, filed and printed by the loader while the page still read as if
-    `INCLUDES` were complete.
+    finds it". Hole 7 recorded that four pages loaded as courses and 172 rows
+    never became edges — true until edtech-kg#87, and misleading after it.
 
     A page that states its own limits is only worth reading if the statement
-    keeps up with what is known, so the guard is that a hole the CODE reports
-    is a hole the DOCUMENT names.
+    keeps up with what is known, in both directions: a hole that closes has to
+    stop reading as open.
     """
     doc = SCHEMA_DOC.read_text()
     holes = section(doc, "## What this schema does not claim", "## Verified against")
-    assert "#87" in holes, (
-        "the loader prints the #87 coverage gap on every run and the holes "
-        "list does not mention it")
+    assert "#87" in holes, "the classification hole is no longer mentioned at all"
+    assert "Fixed in edtech-kg#87" in holes, (
+        "hole 7 still reads as an open gap; #87 closed it")
+    assert "is short by 172" not in holes, (
+        "the doc still says INCLUDES is short by 172 edges")
+
     includes_row = [line for line in doc.splitlines()
                     if line.startswith("| `INCLUDES`")]
     assert includes_row, "the INCLUDES row moved"
-    assert "#87" in includes_row[0], (
-        "the INCLUDES row quotes a count without saying it is short")
-
-
+    assert "316 edges" in includes_row[0], (
+        "the INCLUDES row still quotes the pre-#87 edge count")
 def test_every_documented_edge_exists_in_the_schema():
     documented = documented_edges()
     assert documented <= edges(), f"documented but not in the cypher: {documented - edges()}"

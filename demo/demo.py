@@ -119,7 +119,9 @@ QUESTIONS: list[dict] = [
 
     dict(tier=1, question="How big is this district's catalogue?",
          aside="The sitemap has 960 pages and most, but not all, are courses. "
-               "The three levels are the district's own, not ours.",
+               "The three kinds are the district's own, not ours — and four "
+               "pages are pathways despite sitting at course depth, which is "
+               "read off their markup rather than their address.",
          queries=[(["courses"], "MATCH (c:Course) RETURN count(c)"),
                   (["subjects"], "MATCH (s:Subject) RETURN count(s)"),
                   (["CTE pathways"], "MATCH (p:Pathway) RETURN count(p)")]),
@@ -189,9 +191,9 @@ QUESTIONS: list[dict] = [
                    "AND EXISTS { MATCH ()-[:REQUIRES]->(c) } RETURN count(c)")]),
 
     dict(tier=3, question="Which courses sit outside every chain and every pathway?",
-         aside="Over half of them. Not a criticism of the district: most "
-               "courses genuinely stand alone. It is the honest denominator "
-               "for everything that follows.",
+         aside="Half of them. Not a criticism of the district: most courses "
+               "genuinely stand alone. It is the honest denominator for "
+               "everything that follows.",
          queries=[(["courses standing alone"],
                    "MATCH (c:Course) WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->() } "
                    "AND NOT EXISTS { MATCH ()-[:REQUIRES]->(c) } "
