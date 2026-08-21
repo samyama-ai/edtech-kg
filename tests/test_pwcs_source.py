@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from etl import probe_pwcs as source
 from etl import pwcs_source as reader
 
 CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
@@ -22,20 +23,35 @@ CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
 # fail. Skipped instead — with the command that makes them runnable.
 # A PARTIAL cache is worse than none: `read()` walks the sitemap, finds most
 # pages locally and fetches the rest — from a school district, from a test run.
-# "the directory is not empty" was the whole check, so a half-populated
-# `data/pwcs` ran and went to the network for the remainder.
-CACHED_PAGES = len(list(CACHE.glob("*"))) if CACHE.exists() else 0
-EXPECTED_PAGES = 900
+#
+# Compared against the SITEMAP, not against a threshold. "900 of ~960" was a
+# number that contradicted the argument beside it: sixty missing pages is sixty
+# live fetches, which is exactly what the guard says it prevents. And
+# `glob("*")` counted any entry — a subdirectory, a half-written download — so
+# it was a weak proxy for the thing it claimed to measure.
+
+
+def cache_is_complete() -> bool:
+    """Every page the sitemap lists is on disk. Exact, and cheap: the sitemap
+    itself is cached, so this reads no network."""
+    if not CACHE.exists():
+        return False
+    try:
+        urls = source.course_urls(True)
+    except Exception:                      # noqa: BLE001 — no cached sitemap
+        return False
+    return bool(urls) and all(source.cached_path(u).exists() for u in urls)
+
 
 needs_cache = pytest.mark.skipif(
-    CACHED_PAGES < EXPECTED_PAGES,
-    reason=(f"cached catalogue is incomplete ({CACHED_PAGES} of ~960 pages) — "
-            f"run `python -m etl.probe_pwcs` first; a partial cache would fetch "
-            f"the remainder from the district"))
+    not cache_is_complete(),
+    reason=("the cached catalogue is incomplete — run `python -m etl.probe_pwcs` "
+            "first; a partial cache would fetch the remainder from the district"))
 
 # --------------------------------------------------------------------------
 # keys
 # --------------------------------------------------------------------------
+
 
 def test_a_requirement_id_is_stable():
     same = (reader.requirement_id("https://a/x", "Teacher recommendation"),
@@ -354,3 +370,39 @@ def test_a_misfiled_page_is_reported_rather_than_absorbed(catalogue):
         assert reader.level(url) != "pathway", (url, reader.level(url))
     assert not set(misfiled) & {r["url"] for r in catalogue["pathways"]}, \
         "a page cannot be both correctly classified and misfiled"
+
+
+def test_an_href_that_is_already_absolute_is_left_alone():
+    """Real markup carries absolute and protocol-relative hrefs as well as
+    root-relative ones. Neither appears in this catalogue today, which is why
+    nothing exercised them."""
+    assert reader.absolute("https://catalog.pwcs.edu/art/1") == \
+        "https://catalog.pwcs.edu/art/1"
+    # Protocol-relative: the scheme comes from the base, the host does not.
+    assert reader.absolute("//other.example/z") == "https://other.example/z"
+
+
+def test_a_document_relative_href_resolves_against_the_site_root(monkeypatch):
+    """`urljoin` with the SITEMAP as base resolves "algebra-1" against the
+    sitemap's DIRECTORY, which is not where catalogue pages live.
+
+    The real sitemap sits at the root, so both spellings agree today and no
+    fixture using it can tell them apart. The sitemap is moved into a
+    subdirectory here — which is where a district that reorganises its site
+    would put it — so the difference is visible.
+    """
+    monkeypatch.setattr(source, "SITEMAP",
+                        "https://catalog.pwcs.edu/feeds/sitemap.xml")
+    assert reader.absolute("algebra-1") == "https://catalog.pwcs.edu/algebra-1", \
+        "a document-relative href resolved against the sitemap's directory"
+    assert reader.absolute("/art/1") == "https://catalog.pwcs.edu/art/1"
+
+
+def test_a_row_under_no_section_is_counted_even_when_it_dangles():
+    """`rows_without_a_section` was computed inside the resolving branch, so a
+    template change that broke section titles on a page whose rows mostly
+    dangle showed a small number and read as fine."""
+    markup = row("/node/1435") + row("/node/1436")
+    got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
+    assert got["courses"] == []
+    assert got["rows_without_a_section"] == 2, got

@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from etl import load_pwcs as loader
+from etl import pwcs_edges as edges_mod
 from etl.engine import Unquotable
 
 SCHEMA = Path(__file__).resolve().parents[1] / "schema" / "edtech_kg.cypher"
@@ -33,13 +34,17 @@ class Recorder:
     def __init__(self, refuse: bool = False) -> None:
         self.sent: list[str] = []
         self.refuse = refuse
-        self.statements = 0
+
+    @property
+    def statements(self) -> int:
+        """Derived, not counted twice. A separate counter and `len(self.sent)`
+        are two records of one fact, and the pair can disagree."""
+        return len(self.sent)
 
     def run(self, query: str):
         if self.refuse:
             raise AssertionError(f"should not have run: {query}")
         self.sent.append(query)
-        self.statements += 1
         return {"columns": [], "records": []}
 
 # --------------------------------------------------------------------------
@@ -99,8 +104,15 @@ def loader_keys() -> dict[str, str]:
     less than it claims.
     """
     source = inspect.getsource(loader)
-    matched = re.findall(r'upsert\(\s*[^,]+,\s*"(\w+)",\s*"(\w+)"', source, re.S)
-    call_sites = len(re.findall(r"\bupsert\(", source))
+    # `[^,]+` for the engine argument breaks on any call whose first argument
+    # itself contains a comma. Non-greedy up to the first quoted argument
+    # instead, which is what the pattern is actually looking for.
+    matched = re.findall(r'upsert\(.*?"(\w+)",\s*"(\w+)"', source, re.S)
+    # Comments and docstrings stripped, and `def upsert(` excluded: this
+    # counted the DEFINITION and any prose mention as call sites, so the
+    # equality below could fail on a mention or mask real drift.
+    code = "\n".join(line.split("#")[0] for line in source.splitlines())
+    call_sites = len(re.findall(r"(?<!def )\bupsert\(", code))
     assert len(matched) == call_sites, (
         f"{call_sites} upsert call sites in the loader, {len(matched)} matched "
         f"by this pattern — the unmatched ones are unchecked")
@@ -166,7 +178,7 @@ COURSE_BY_PATH = {"/a/one": "https://catalog.pwcs.edu/a/one",
 
 
 def prerequisites(*records):
-    return loader.prerequisite_pairs(list(records), BY_PATH, COURSE_BY_PATH)
+    return edges_mod.prerequisite_pairs(list(records), BY_PATH, COURSE_BY_PATH)
 
 
 def course(url: str, *hrefs: str) -> dict:
@@ -225,18 +237,16 @@ def test_a_pathway_course_resolves_through_by_path():
     sitemap URL verbatim, and the two normalise differently — `course_urls()`
     leaves `<loc>` untouched, `absolute()` strips a trailing slash. A mismatch
     writes no edge and still increments the counter."""
-    edges = loader.pathway_edges(
-        [pathway("https://catalog.pwcs.edu/p",
-                 ("https://catalog.pwcs.edu/a/one/", "First", "1"))], BY_PATH)
+    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
+                 ("https://catalog.pwcs.edu/a/one/", "First", "1"))], BY_PATH, COURSE_BY_PATH)
     assert list(edges["grouped"]) == [("https://catalog.pwcs.edu/p",
                                        "https://catalog.pwcs.edu/a/one")]
 
 
 def test_a_course_in_two_sections_is_one_edge_with_both_names():
-    edges = loader.pathway_edges(
-        [pathway("https://catalog.pwcs.edu/p",
+    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
                  ("https://catalog.pwcs.edu/a/one", "First", "1"),
-                 ("https://catalog.pwcs.edu/a/one", "Second", "1"))], BY_PATH)
+                 ("https://catalog.pwcs.edu/a/one", "Second", "1"))], BY_PATH, COURSE_BY_PATH)
     assert len(edges["grouped"]) == 1
     assert edges["collapsed"] == 1
     assert next(iter(edges["grouped"].values()))["sections"] == ["First", "Second"]
@@ -245,17 +255,15 @@ def test_a_course_in_two_sections_is_one_edge_with_both_names():
 def test_differing_credits_across_sections_are_counted_not_lost():
     """The section names were preserved when rows were folded and the credits
     were not — the same silent loss #77 is about."""
-    edges = loader.pathway_edges(
-        [pathway("https://catalog.pwcs.edu/p",
+    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
                  ("https://catalog.pwcs.edu/a/one", "First", "1"),
-                 ("https://catalog.pwcs.edu/a/one", "Second", "2"))], BY_PATH)
+                 ("https://catalog.pwcs.edu/a/one", "Second", "2"))], BY_PATH, COURSE_BY_PATH)
     assert edges["conflicting"] == 1
 
 
 def test_a_pathway_row_naming_an_unparsed_page_is_counted():
-    edges = loader.pathway_edges(
-        [pathway("https://catalog.pwcs.edu/p",
-                 ("https://catalog.pwcs.edu/node/1435", "First", "1"))], BY_PATH)
+    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
+                 ("https://catalog.pwcs.edu/node/1435", "First", "1"))], BY_PATH, COURSE_BY_PATH)
     assert edges["grouped"] == {} and edges["unlinkable"] == 1
 
 
@@ -327,10 +335,9 @@ def test_the_first_credit_value_is_kept_and_the_disagreement_is_counted():
     disagreement is reported rather than lost. Untested until now: the count
     was asserted and the surviving value was not, so keeping the last would
     have passed."""
-    edges = loader.pathway_edges(
-        [pathway("https://catalog.pwcs.edu/p",
+    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
                  ("https://catalog.pwcs.edu/a/one", "First", "1"),
-                 ("https://catalog.pwcs.edu/a/one", "Second", "2"))], BY_PATH)
+                 ("https://catalog.pwcs.edu/a/one", "Second", "2"))], BY_PATH, COURSE_BY_PATH)
     entry = next(iter(edges["grouped"].values()))
     assert entry["credits"] == "1", "the first published credit value must survive"
     assert edges["conflicting"] == 1
@@ -363,18 +370,29 @@ def test_verify_compares_the_engine_against_the_loader_and_names_the_gap():
     """`verify()` is what makes every figure in the README a measurement rather
     than a tally the loader kept about itself — and it had no test at all."""
     class Counts:
+        """Answers a count query by the ONE fragment it contains.
+
+        Matching by substring in insertion order meant a query mentioning two
+        labels would silently take whichever was declared first. Ambiguity is
+        refused instead, so a future query that names two is a failure here
+        rather than a wrong number in `verify()`.
+        """
+
         def __init__(self, answers):
             self.answers = answers
+
         def scalar(self, query):
-            for fragment, value in self.answers.items():
-                if fragment in query:
-                    return value
-            raise AssertionError(f"unexpected query: {query}")
+            hits = [v for fragment, v in self.answers.items() if fragment in query]
+            assert len(hits) == 1, (
+                f"{len(hits)} fragments match this query, so the answer would "
+                f"be arbitrary: {query}")
+            return hits[0]
 
     loaded = {"subjects": 1, "courses": 2, "pathways": 3, "in_subject": 4,
               "requires": 5, "includes": 6, "requirements": 7}
-    agreeing = {":Subject": 1, ":Course": 2, ":Pathway": 3, "IN_SUBJECT": 4,
-                "REQUIRES": 5, "INCLUDES": 6, "HAS_REQUIREMENT": 7}
+    agreeing = {":Subject": 1, ":Course": 2, ":Pathway": 3, ":Requirement": 7,
+                "IN_SUBJECT": 4, "REQUIRES": 5, "INCLUDES": 6,
+                "HAS_REQUIREMENT": 7}
     assert loader.verify(Counts(agreeing), loaded) == []
 
     short = dict(agreeing, REQUIRES=4)
@@ -395,3 +413,41 @@ def test_a_label_named_twice_with_two_keys_is_a_clash_not_a_last_wins():
     assert pairs_to_map([("Course", "url"), ("Course", "url")], "x") == {"Course": "url"}
     with pytest.raises(AssertionError, match="two different keys"):
         pairs_to_map([("Course", "url"), ("Course", "ctid")], "the schema")
+
+
+def test_a_pathway_row_naming_a_subject_page_writes_no_edge_and_counts_none():
+    """The same off-level defect `prerequisite_pairs` was fixed for, on the
+    other edge. `by_path` holds subject and pathway pages, so a row naming one
+    resolved — and the statement written is `MATCH (c:Course …)`, which finds
+    nothing. No edge, and the counter still incremented."""
+    edges = edges_mod.pathway_edges(
+        [pathway("https://catalog.pwcs.edu/p",
+                 ("https://catalog.pwcs.edu/a", "First", "1"))],
+        BY_PATH, COURSE_BY_PATH)
+    assert edges["grouped"] == {}, "a subject page was resolved as a course"
+    assert edges["off_level"] == ["https://catalog.pwcs.edu/a"], edges
+    assert edges["unlinkable"] == 0, edges
+
+
+def test_verify_reads_back_the_requirement_nodes_too():
+    """`Requirement` was written and never read back. It is the one label whose
+    key is DERIVED rather than taken from the source, so a collision in
+    `requirement_id` would silently merge two conditions into one node — the
+    case most in need of a read-back, and the one that had none."""
+    class Counts:
+        def __init__(self, answers):
+            self.answers = answers
+
+        def scalar(self, query):
+            hits = [v for fragment, v in self.answers.items() if fragment in query]
+            assert len(hits) == 1, f"ambiguous: {query}"
+            return hits[0]
+
+    loaded = {"subjects": 1, "courses": 2, "pathways": 3, "in_subject": 4,
+              "requires": 5, "includes": 6, "requirements": 7}
+    short = {":Subject": 1, ":Course": 2, ":Pathway": 3, ":Requirement": 6,
+             "IN_SUBJECT": 4, "REQUIRES": 5, "INCLUDES": 6,
+             "HAS_REQUIREMENT": 7}
+    problems = loader.verify(Counts(short), loaded)
+    assert len(problems) == 1, problems
+    assert "Requirement" in problems[0] and "wrote 7" in problems[0], problems[0]

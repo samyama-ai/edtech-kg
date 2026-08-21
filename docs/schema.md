@@ -30,7 +30,7 @@ source holds, not what any graph contains.
 | `School` | `ncessch` | A school, CCD | 102,268 |
 | `District` | `leaid` | A school district, CCD | 19,714 |
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
-| `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**, across the pages that state any. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key |
+| `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key. All 138 sit on course pages; `HAS_REQUIREMENT` accepts a pathway too, and none states one |
 | `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | 38 |
 | `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
 
@@ -77,7 +77,7 @@ loader, not about the source.
 |---|---|---|
 | `REQUIRES` | Course → Course | **The prerequisite edge.** 240 measured, all resolving |
 | `HAS_REQUIREMENT` | Course / Pathway → Requirement | A prose condition — not a course reference |
-| `INCLUDES` | Pathway → Course | What a published pathway is made of. 185 edges from 202 rows — the 17-row difference is one course listed in two named sections of the same pathway, joined onto one edge because 1.1.0 holds one edge per pair (#77). **Not the whole catalogue: 172 further rows are unwritten, see hole 7 (#87).** Carries the district's section name and credit value |
+| `INCLUDES` | Pathway → Course | What a published pathway is made of. 185 edges from 202 rows — **17 rows repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77) so the section names are joined onto the one edge. **Not the whole catalogue: 172 further rows are unwritten, see hole 7 (#87).** Carries the district's section name and credit value |
 | `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 6,097 mappings |
 | `OFFERS` | Institution → Programme | What a college teaches |
 | `AT` / `IN` | Completion → Institution / Programme | Who graduated, where, in what |
@@ -203,10 +203,18 @@ is why it sits above the list rather than inside it as an item "0".
    programme prepares for an occupation. It does not say graduates get those
    jobs, and nothing here supports that reading.
 7. **`INCLUDES` is short by 172 published rows.** Pages are classified by URL
-   depth, and four pages publish a pathway course table at *course* depth —
-   two specialty programmes, International Baccalaureate and Virtual Prince
-   William. They load as `Course`, so their course tables are never read and
-   the rows never become edges. The loader measures and prints this on every
+   depth, and four pages publish a pathway course table at *course* depth, so
+   they load as `Course` and their course tables are never read:
+
+   | Page | Rows | Resolving |
+   |---|---:|---:|
+   | `/specialty-programs/center-for-biotechnology-and-engineering` | 111 | 105 |
+   | `/specialty-programs/information-technology-center-for-applied-sciences…` | 24 | 22 |
+   | `/specialty-programs/international-baccalaureate` | 21 | 19 |
+   | `/virtual-prince-william/virtual-prince-william-information` | 26 | 26 |
+
+   Four named, because "four pages" followed by two examples leaves a reader
+   counting. The loader measures and prints this on every
    run rather than leaving it to the difference between two other numbers, and
    #87 carries the four pages with their row counts. Reported rather than
    fixed here because reclassifying them moves the node and edge totals this

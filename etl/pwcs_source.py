@@ -21,6 +21,7 @@ unaffected — but the rate is 229 of 795, not 229 of 960. Raised as #74.
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import html
 import re
@@ -90,7 +91,15 @@ def absolute(href: str) -> str:
     and the edge is silently not written. The slash is only stripped when
     something is left underneath it.
     """
-    parsed = urllib.parse.urlparse(urllib.parse.urljoin(source.SITEMAP, href))
+    # Joined against the site ROOT, not the sitemap's own URL. `urljoin` with
+    # `SITEMAP` as the base resolves a document-relative href — "algebra-1",
+    # no leading slash — against the sitemap's DIRECTORY, which is not where
+    # catalogue pages live. Every href in this catalogue is root-relative
+    # today, which is the only reason it never showed.
+    root = urllib.parse.urlunparse(
+        urllib.parse.urlparse(source.SITEMAP)._replace(
+            path="/", params="", query="", fragment=""))
+    parsed = urllib.parse.urlparse(urllib.parse.urljoin(root, href))
     path = parsed.path.rstrip("/") or "/"
     return urllib.parse.urlunparse(
         (parsed.scheme, parsed.netloc, path, "", "", ""))
@@ -107,24 +116,31 @@ def parse_pathway(markup: str, url: str, published: set[str]) -> dict:
     # it appears under. A row before the first section title has none.
     marks = [(m.start(), " ".join(html.unescape(m.group(1)).split()))
              for m in SECTION_TITLE.finditer(markup)]
+    starts = [start for start, _ in marks]
 
     def section_at(position: int) -> str | None:
-        name = None
-        for start, title in marks:
-            if start < position:
-                name = title
-            else:
-                break
-        return name
+        """Which section title precedes this position.
+
+        `bisect`, not a re-scan. This walked the whole `marks` list per row and
+        was called twice per row, so a pathway with many sections cost
+        rows x sections x 2 — pointless on a list that is already in document
+        order.
+        """
+        index = bisect.bisect_left(starts, position)
+        return marks[index - 1][1] if index else None
 
     courses, dangling, rows, unsectioned = [], [], 0, 0
     for match in re.finditer(COURSE_ROW, markup):
         rows += 1
         href, credits = match.group(1), match.group(2)
         path = source.path_of(href)
+        # Counted for EVERY row, resolving or not. It was computed inside the
+        # resolving branch, so a template change that broke section titles on a
+        # page whose rows mostly dangle would have shown a small number and
+        # read as fine.
+        if section_at(match.start()) is None:
+            unsectioned += 1
         if path in published:
-            if section_at(match.start()) is None:
-                unsectioned += 1
             courses.append({"url": absolute(href),
                             # Same treatment as the section title: unescaped
                             # and whitespace-collapsed. One went through

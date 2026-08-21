@@ -19,12 +19,8 @@ import re
 import pytest
 
 from tests.schema_source import (SCHEMA, WRAP_LIMIT, code, constraint_line,
-                                 declarations,
-
-
-from tests.schema_source import (SCHEMA, code, constraint_line, declarations,
-                                 edges, first_column, labels, section,
-                                 statements)
+                                 declarations, edges, first_column, labels,
+                                 section, statements)
 
 
 def test_every_label_is_constrained_once():

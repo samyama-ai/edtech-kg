@@ -37,100 +37,13 @@ import json
 import time
 from pathlib import Path
 
-from etl.engine import Engine, lit, upsert
+from etl.engine import Engine, Unquotable, lit, upsert
+from etl.pwcs_edges import pathway_edges, prerequisite_pairs
 from etl.pwcs_source import read, requirement_id, segments
 from etl import probe_pwcs as source
 
 DEFAULT_URL = "http://localhost:8200"
 SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "edtech_kg.cypher"
-
-
-# --------------------------------------------------------------------------
-# Building the edges — pure, so the arithmetic can be tested without an engine
-# --------------------------------------------------------------------------
-
-def prerequisite_pairs(courses: list[dict], by_path: dict,
-                       course_by_path: dict) -> dict:
-    """Course -> course, resolved and deduped.
-
-    **Resolved against the COURSE index, not every published page.** This is
-    the guard `pwcs_source.read` already applies to pathway rows, and it was
-    missing on the edge this graph exists for. `by_path` holds subject and
-    pathway pages too, so a prerequisite link pointing at one of those
-    resolved as if it were a course — and the statement written for it is
-    `MATCH (a:Course {…}), (b:Course {…})` where `b` is a `:Subject`. The MATCH
-    finds nothing, no edge is written, and the counter still increments.
-    `verify()` then reports a mismatch with nothing on the page to say why:
-    the count and the graph disagreeing silently, which is the exact failure
-    this module argues against everywhere else.
-
-    Three outcomes, counted separately because they are three different facts:
-    resolved, points at a page that did not parse (`unresolved`), and points
-    at a published page that is not a course (`off_level`). Both are zero
-    against this catalogue today — a property of this publisher, measured, not
-    assumed.
-
-    **Deduped for the same reason INCLUDES is.** An edge MERGE matches on
-    start, type and end alone (#77), so two links on one page naming the same
-    course produce two MERGEs, ONE edge and a counter of two — and `verify()`
-    then exits non-zero on a catalogue that is perfectly well-formed. It does
-    not happen at 240 of 240 today; the shape should not differ between the two
-    edges on the strength of that.
-    """
-    pairs, unresolved, off_level = [], 0, []
-    for record in courses:
-        for link in record["prerequisite_links"]:
-            path = source.path_of(link["href"])
-            if path in course_by_path:
-                pairs.append((record["url"], course_by_path[path]))
-            elif path in by_path:
-                # Published, parsed, and not a course. Named rather than
-                # counted: one of these is a catalogue fact worth reading.
-                off_level.append(by_path[path])
-            else:
-                # Measured at zero today, never ASSUMED to be zero.
-                unresolved += 1
-    return {"pairs": list(dict.fromkeys(pairs)),
-            "duplicated": len(pairs) - len(set(pairs)),
-            "unresolved": unresolved,
-            "off_level": off_level}
-
-
-def pathway_edges(pathways: list[dict], by_path: dict) -> dict:
-    """Pathway -> course, one edge per pair, with the sections folded in.
-
-    **Resolved through `by_path`, like every other edge.** This matched on
-    `absolute(href)` while Course NODES are created from the sitemap URL
-    verbatim, and the two normalise differently — `course_urls()` returns
-    `<loc>` untouched while `absolute()` strips a trailing slash. A sitemap
-    entry ending in "/" would give a node keyed with the slash and a MATCH
-    looking for it without: no edge written, counter still incremented.
-
-    A course in two named sections of one pathway is a real fact and cannot be
-    two edges, so the section names are joined and `sections` counts how many
-    were folded in. The credit value is kept from the first row and any
-    disagreement is counted — the section names were carefully preserved and
-    the credits were not, which is the same silent loss #77 is about.
-    """
-    grouped: dict[tuple[str, str], dict] = {}
-    unlinkable = 0
-    for record in pathways:
-        for course in record["courses"]:
-            path = source.path_of(course["url"])
-            if path not in by_path:
-                unlinkable += 1
-                continue
-            entry = grouped.setdefault((record["url"], by_path[path]),
-                                       {"sections": [], "credits": course["credits"],
-                                        "credit_values": set()})
-            if course["section"] and course["section"] not in entry["sections"]:
-                entry["sections"].append(course["section"])
-            entry["credit_values"].add(course["credits"])
-    return {"grouped": grouped, "unlinkable": unlinkable,
-            "collapsed": sum(len(e["sections"]) - 1 for e in grouped.values()
-                             if len(e["sections"]) > 1),
-            "conflicting": sum(1 for e in grouped.values()
-                               if len(e["credit_values"]) > 1)}
 
 
 # --------------------------------------------------------------------------
@@ -206,7 +119,15 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     # unattached rather than attached to something invented.
     in_subject, orphaned = 0, 0
     for record in data["courses"]:
-        parent = "/" + segments(record["url"])[0]
+        parts = segments(record["url"])
+        if not parts:
+            # The catalogue root has no segments, so `[0]` was an IndexError
+            # mid-load rather than a page reported as unattachable. No course
+            # sits at depth 0 today; `pwcs_source.level` returns None for it
+            # and it never reaches this list — which is why this never fired.
+            orphaned += 1
+            continue
+        parent = "/" + parts[0]
         if parent not in by_path:
             orphaned += 1
             continue
@@ -265,11 +186,23 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     # look for a label the node does not carry, write no edge, and still count
     # one.
     requirements = 0
+    unquotable = []
     for label, records in (("Course", data["courses"]),
                            ("Pathway", data["pathways"])):
         for record in records:
             text = record.get("requirements_text")
             if not text:
+                continue
+            # A value carrying BOTH quote characters cannot be expressed in
+            # 1.1.0 and `lit()` refuses it — correctly. Raising here aborted
+            # the load after thousands of writes, so one unrepresentable
+            # condition cost the whole run. Counted and skipped instead: losing
+            # one row loudly beats losing the run at row 12,000. Measured at
+            # zero for this catalogue, which `tests/test_engine.py` asserts.
+            try:
+                lit(text)
+            except Unquotable:
+                unquotable.append(record["url"])
                 continue
             node_id = requirement_id(record["url"], text)
             upsert(engine, "Requirement", "id", node_id,
@@ -280,6 +213,10 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
                 f"MERGE (n)-[:HAS_REQUIREMENT]->(r)")
             requirements += 1
     say(f"  HAS_REQ    {requirements:>5,}")
+    if unquotable:
+        say(f"  {len(unquotable)} requirement(s) hold both quote characters and "
+            f"cannot be written as a 1.1.0 literal; skipped and named rather "
+            f"than aborting the load: {sorted(unquotable)[:3]}")
 
     # Pathway -> Course, with the section and the credit value the district
     # publishes.
@@ -297,8 +234,12 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     # grouped in `pathway_edges` and the sections joined onto the one edge the
     # engine can hold; the collapse is counted and reported, so the number that
     # vanished is on the page rather than in the difference between two others.
-    edges = pathway_edges(data["pathways"], by_path)
+    edges = pathway_edges(data["pathways"], by_path, course_by_path)
     grouped, collapsed = edges["grouped"], edges["collapsed"]
+    if edges["off_level"]:
+        say(f"  {len(edges['off_level'])} pathway row(s) name a published page "
+            f"that is not a course; no edge written, and not counted as one: "
+            f"{sorted(edges['off_level'])[:3]}")
     if edges["unlinkable"]:
         say(f"  {edges['unlinkable']} pathway row(s) name a page that did not "
             f"parse; counted, not linked")
@@ -433,7 +374,13 @@ def verify(engine: Engine, loaded: dict) -> list[str]:
     problems = []
     for label, expected in (("Subject", loaded["subjects"]),
                             ("Course", loaded["courses"]),
-                            ("Pathway", loaded["pathways"])):
+                            ("Pathway", loaded["pathways"]),
+                            # Requirement was written and never read back. It
+                            # is the one label whose key is derived rather than
+                            # taken from the source, so a collision in
+                            # `requirement_id` would silently merge two
+                            # conditions into one node — and nothing checked.
+                            ("Requirement", loaded["requirements"])):
         got = engine.scalar(f"MATCH (n:{label}) WHERE {where} RETURN count(n)")
         if got != expected:
             problems.append(f"{label}: loader wrote {expected:,}, engine holds {got:,}")

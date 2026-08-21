@@ -114,11 +114,6 @@ def test_tier_two_labels_are_marked_as_empty():
     graph. The doc must say which are which."""
     doc = SCHEMA_DOC.read_text()
     assert "modelled and empty" in doc
-    modelled = section(doc, "modelled and empty", "## Edge types")
-    for label in ("Credential", "Pathway", "Level", "Competency", "EarningsRecord"):
-        assert f"`{label}`" in modelled, label
-
-
     tier_two = section(doc, "modelled and empty", "## Edge types")
     for label in ("Credential", "Level", "Competency", "EarningsRecord"):
         assert f"`{label}`" in tier_two, label
@@ -152,6 +147,7 @@ def test_the_limits_of_the_merge_rule_are_admitted():
         "the reason the rule matters — 1.1.0 accepts a duplicate CREATE — is gone"
     assert "etl/loader.py is still the repo template" not in text, \
         "the doc still describes the state before etl/load_pwcs.py existed"
+
 
 def test_no_document_calls_960_a_course_count():
     """The tier-1 correction says the course count is 795; a later section still
@@ -189,6 +185,8 @@ def test_the_documented_holes_include_the_one_the_loader_reports():
     assert includes_row, "the INCLUDES row moved"
     assert "#87" in includes_row[0], (
         "the INCLUDES row quotes a count without saying it is short")
+
+
 def test_every_documented_edge_exists_in_the_schema():
     documented = documented_edges()
     assert documented <= edges(), f"documented but not in the cypher: {documented - edges()}"
