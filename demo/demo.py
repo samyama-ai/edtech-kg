@@ -6,7 +6,7 @@
     python -m etl.load_pwcs --url http://localhost:8200 --graph edtech
     python -m demo.demo    --url http://localhost:8200 --graph edtech
 
-Twenty questions. Every number on screen is read from the engine as you watch —
+Twenty-one questions. Every number on screen is read from the engine as you watch —
 nothing here is a stored answer, and each query is printed before it runs so the
 audience can see there is no trick in it.
 
@@ -43,6 +43,14 @@ silent ceiling on it. Measured both ways before changing it: 7 rows either way.
 d ORDER BY d` is silently unsorted in 1.1.0 while `ORDER BY length(p)` sorts;
 aggregate aliases are the exception and do work. An unsorted list that looks
 sorted is the kind of thing an audience spots before you do. Raised as #79.
+`tests/test_demo.py` enforces the rule, because a rule that is only written
+down is one the next question added here will break silently.
+
+**The asides are not live.** Every figure in a TABLE is read from the engine
+as it is shown. The figures in the yellow aside lines — "960 pages", "138
+conditions", "Trade and Industrial Education is the most sequenced" — were
+read from today's graph and typed here. Re-check them when the catalogue is
+reloaded; a table cannot go stale, and these can.
 """
 
 from __future__ import annotations
@@ -331,6 +339,18 @@ def table(headers: list[str], rows: list[list], limit: int) -> None:
         print(f"    {DIM}… {len(rows) - limit} more{RESET}")
 
 
+def records(engine: Engine, query: str) -> list[list]:
+    """The rows, or a message naming the query that produced none.
+
+    `engine.run(q)["records"]` gave a bare KeyError on a 200 carrying neither
+    `error` nor `records` — the one traceback shape this module otherwise works
+    to eliminate, and the worst possible one in front of a room."""
+    result = engine.run(query)
+    if "records" not in result:
+        raise SystemExit(f"\nthe engine answered without records:\n  {query}\n")
+    return result["records"]
+
+
 def ask(engine: Engine, number: int, item: dict, wait: bool, limit: int) -> None:
     print(f"\n{CYAN}{'─' * 78}{RESET}")
     print(f"{CYAN}{BOLD}  Q{number}  {item['question']}{RESET}")
@@ -342,7 +362,7 @@ def ask(engine: Engine, number: int, item: dict, wait: bool, limit: int) -> None
     for headers, query in item["queries"]:
         print(f"{DIM}{query}{RESET}\n")
         started = time.time()
-        rows = engine.run(query)["records"]
+        rows = records(engine, query)
         elapsed = (time.time() - started) * 1000
         table(headers, rows, limit)
         print(f"\n    {GREEN}{len(rows)} row(s) in {elapsed:.0f} ms{RESET}\n")
@@ -356,8 +376,8 @@ def preflight(engine: Engine) -> None:
     holds several graphs at once, so this checks it is looking at the right one
     and that the edge every tier-4 question rests on is actually there.
     """
-    courses = engine.run("MATCH (c:Course) RETURN count(c)")["records"][0][0]
-    edges = engine.run("MATCH ()-[e:REQUIRES]->() RETURN count(e)")["records"][0][0]
+    courses = records(engine, "MATCH (c:Course) RETURN count(c)")[0][0]
+    edges = records(engine, "MATCH ()-[e:REQUIRES]->() RETURN count(e)")[0][0]
     if not courses or not edges:
         raise SystemExit(
             f"\nthis graph holds {courses:,} courses and {edges:,} prerequisite "
@@ -365,9 +385,19 @@ def preflight(engine: Engine) -> None:
             f"Load it first:  python -m etl.load_pwcs --url {engine.url} "
             f"--graph {engine.graph}\n")
 
-    total = engine.run("MATCH (n) RETURN count(n)")["records"][0][0]
-    mine = sum(engine.run(f"MATCH (n:{label}) RETURN count(n)")["records"][0][0]
-               for label in ("Course", "Subject", "Pathway", "Requirement"))
+    # Grouped by LABEL SET, not summed per label. Summing four separate counts
+    # counts a node carrying two of these labels twice, so `mine` could exceed
+    # `total` and print a note about another graph being loaded when none is —
+    # a warning that is actively misleading rather than merely absent.
+    #
+    # `MATCH (n) WHERE n:Course OR …` is the obvious spelling and does not
+    # parse in 1.1.0; `labels(n)` in a WHERE does not either. Grouping in the
+    # RETURN does, and gives each node exactly once.
+    mine_labels = {"Course", "Subject", "Pathway", "Requirement"}
+    total = records(engine, "MATCH (n) RETURN count(n)")[0][0]
+    mine = sum(count for held, count in
+               records(engine, "MATCH (n) RETURN labels(n), count(n)")
+               if mine_labels & set(held or []))
     if total != mine:
         print(f"\n{YELLOW}    note: this engine holds {total:,} nodes and this "
               f"catalogue put in {mine:,} — another graph is loaded alongside. "
