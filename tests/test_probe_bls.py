@@ -14,13 +14,12 @@ whole file as too large to read. The shared table fixture is in
 from __future__ import annotations
 
 import zipfile
-from pathlib import Path
 
 import pytest
 
 from etl import bls_access as access
 from etl import probe_bls as probe
-from tests.bls_fixtures import page, row, serve
+from tests.bls_fixtures import HEADER, page, row, serve
 
 
 # --------------------------------------------------------------------------
@@ -50,31 +49,11 @@ def test_the_no_match_sentinel_is_filtered_by_the_reader(tmp_path, monkeypatch):
     The first version of this test pre-subtracted the sentinel from its own
     fixture, so it never reached the code under test and passed with the filter
     deleted."""
-    def cell(value):
-        return f'<c t="inlineStr"><is><t>{value}</t></is></c>'
-
-    sheet = ("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/"
-             "2006/main\"><sheetData>"
-             f"<row>{cell('CIP Code')}{cell('SOC Code')}</row>"
-             f"<row>{cell('11.0101')}{cell('13-2011')}</row>"
-             f"<row>{cell('01.0508')}{cell('99-9999')}</row>"
-             "</sheetData></worksheet>")
-    book = tmp_path / "crosswalk.xlsx"
-    with zipfile.ZipFile(book, "w") as z:
-        z.writestr("xl/workbook.xml",
-                   '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/'
-                   '2006/main"><sheets><sheet name="CIP-SOC" r:id="rId1" '
-                   'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/'
-                   'relationships"/></sheets></workbook>')
-        z.writestr("xl/_rels/workbook.xml.rels",
-                   '<Relationships xmlns="http://schemas.openxmlformats.org/package/'
-                   '2006/relationships"><Relationship Id="rId1" '
-                   'Target="worksheets/sheet1.xml"/></Relationships>')
-        z.writestr("xl/sharedStrings.xml",
-                   '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/'
-                   '2006/main"></sst>')
-        z.writestr("xl/worksheets/sheet1.xml", sheet)
-
+    book = workbook(tmp_path / "crosswalk.xlsx", "CIP-SOC", [
+        ["CIP Code", "SOC Code"],
+        ["11.0101", "13-2011"],
+        ["01.0508", "99-9999"],
+    ])
     monkeypatch.setattr(probe, "CROSSWALK", book)
     found = probe.crosswalk_soc()
     assert "13-2011" in found
@@ -85,6 +64,9 @@ def test_a_missing_field_is_not_counted_as_present(monkeypatch):
     serve(monkeypatch, page(row("13-2011", wage="-", education="-")))
     present = probe.projections()["field_present"]
     assert present["Median Annual Wage"] == 0
+    assert present["Education, Work Experience, and Training"] == 0, (
+        "the fixture sets education to '-' too; asserting only the wage left "
+        "half of what this test sets up unchecked")
     # By pattern, not by year: the heading rolls with each release.
     employment = [f for f in present if f.startswith("Employment 2")]
     assert employment, present
@@ -197,8 +179,6 @@ def test_no_crosswalk_locally_does_not_claim_zero_coverage(monkeypatch, tmp_path
         "with no crosswalk there is nothing measured as missing either")
 
 
-
-
 def test_next_releases_employment_headings_are_read_not_refused(monkeypatch):
     """BLS republishes this table on a rolling decade: the 2024-34 projections
     become 2025-35. Headings pinned to the literal years turn that into a hard
@@ -291,21 +271,32 @@ def test_the_reachable_set_reads_the_soc_column_not_every_cell(tmp_path, monkeyp
     assert "99-9999" not in got, "the NO MATCH sentinel reached the reachable set"
 
 
-def test_a_sheet_with_no_soc_column_contributes_nothing_rather_than_everything():
-    """The File Guide sheet is prose. Falling back to scanning every cell when
-    no SOC column is found would put the prose back in the denominator."""
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp:
-        book = workbook(Path(tmp) / "b.xlsx", "File Guide", [
-            ["File Name", "Description"],
-            ["CIP-SOC", "crosswalks 2020 CIP to 2018 SOC, e.g. 19-1011"],
-        ])
-        original = probe.CROSSWALK
-        probe.CROSSWALK = book
-        try:
-            assert probe.crosswalk_soc() == set()
-        finally:
-            probe.CROSSWALK = original
+def test_a_workbook_with_no_soc_column_anywhere_is_refused(tmp_path, monkeypatch):
+    """The one structural parse here that used to degrade quietly.
+
+    A present workbook whose headers have been renamed yields no SOC column on
+    any sheet, and the old code returned an empty set — indistinguishable from
+    "there is no crosswalk on this machine". Coverage would then be reported
+    against a denominator of zero as though it had been measured, which is the
+    difference between "BLS covers none of them" and "we could not read the
+    file". Refused, like every other layout change in this module.
+    """
+    book = workbook(tmp_path / "b.xlsx", "File Guide", [
+        ["File Name", "Description"],
+        ["CIP-SOC", "crosswalks 2020 CIP to 2018 SOC, e.g. 19-1011"],
+    ])
+    monkeypatch.setattr(probe, "CROSSWALK", book)
+    with pytest.raises(probe.MalformedSource, match="no sheet has a SOC code column"):
+        probe.crosswalk_soc()
+
+
+def test_a_missing_workbook_is_not_the_same_as_an_unreadable_one(tmp_path, monkeypatch):
+    """Absent is a fact about this machine — `data/` is gitignored, so a fresh
+    clone has none of it. Present-and-unreadable is a fact about the source.
+    Reporting both as an empty set made a coverage figure of zero mean two
+    different things."""
+    monkeypatch.setattr(probe, "CROSSWALK", tmp_path / "not-here.xlsx")
+    assert probe.crosswalk_soc() == set()
 
 
 def test_a_renamed_header_is_refused_before_the_rows_are_walked(monkeypatch):
@@ -325,3 +316,36 @@ def test_a_renamed_header_is_refused_before_the_rows_are_walked(monkeypatch):
     with pytest.raises(probe.MalformedSource, match="Median Annual Wage"):
         probe.projections()
     assert not walked, "rows were walked before the header was checked"
+
+
+def test_a_wanted_field_matching_no_column_is_a_layout_change(monkeypatch):
+    """Reporting 0 of 832 for a renamed column reads as BLS having stopped
+    publishing it."""
+    serve(monkeypatch, page(row("13-2011")).replace("Median Annual Wage 2024",
+                                                    "Typical Pay 2024"))
+    with pytest.raises(probe.MalformedSource, match="no column matches"):
+        probe.projections()
+
+
+def test_a_repeated_code_cannot_push_coverage_above_the_count(monkeypatch):
+    """Fields were counted per row while occupations were deduped, so a
+    repeated code printed over 100%."""
+    serve(monkeypatch, page(row("13-2011"), row("13-2011")))
+    result = probe.projections()
+    assert result["occupations"] == 1
+    assert all(v <= result["occupations"] for v in result["field_present"].values())
+
+
+def test_two_columns_matching_one_field_are_counted_once(monkeypatch):
+    """A second published column containing a WANTED substring — a "Median
+    Annual Wage 2023" beside the 2024 one — counted twice and pushed that
+    field's coverage above the occupation count."""
+    header = HEADER.replace("<TH>Median Annual Wage 2024</TH>",
+                            "<TH>Median Annual Wage 2024</TH>"
+                            "<TH>Median Annual Wage 2023</TH>")
+    body = row("13-2011").replace("<TD>$50,000</TD>",
+                                  "<TD>$50,000</TD><TD>$48,000</TD>")
+    serve(monkeypatch, "<html>" + header + body + "</html>")
+    result = probe.projections()
+    assert result["occupations"] == 1
+    assert result["field_present"]["Median Annual Wage"] == 1, "counted per column"

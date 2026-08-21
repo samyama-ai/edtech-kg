@@ -14,24 +14,18 @@ Parsing and coverage are in `tests/test_probe_bls.py`.
 
 from __future__ import annotations
 
-import pathlib
 import re
-
-import pytest
 
 from etl import bls_access as access
 from etl import probe_bls as probe
-from tests.bls_fixtures import HEADER, page, row, serve
-
-DOCUMENT = (pathlib.Path(__file__).resolve().parents[1]
-            / "docs" / "sources" / "bls-occupation.md")
+from tests.bls_fixtures import page, row, serve
 
 
 # --------------------------------------------------------------------------
 # access
 # --------------------------------------------------------------------------
 
-def test_a_blocked_geography_is_recorded_not_dropped(monkeypatch):
+def test_a_refused_download_is_recorded_not_dropped(monkeypatch):
     serve(monkeypatch, page(row("13-2011")))
     monkeypatch.setattr(probe, "crosswalk_soc", lambda: set())
     monkeypatch.setattr(access, "attempt",
@@ -51,6 +45,10 @@ def test_the_head_request_reads_size_without_downloading(monkeypatch):
                    "content-type": "application/x-zip-compressed"}
         def __enter__(self): return self
         def __exit__(self, *a): return False
+        # `read()` even though HEAD does not use it: the GET fallback path
+        # would hit `AttributeError` here rather than failing with a message
+        # about the thing under test.
+        def read(self): return b""
     monkeypatch.setattr(access.urllib.request, "urlopen",
                         lambda rq, *a, **k: (seen.append(rq.get_method()), R())[1])
     got = access.head("https://x/big.zip")
@@ -102,6 +100,7 @@ def test_content_type_is_what_decides_not_status(monkeypatch):
         headers = {"content-type": "text/html"}
         def __enter__(self): return self
         def __exit__(self, *a): return False
+        def read(self): return b""
     monkeypatch.setattr(access.urllib.request, "urlopen", lambda *a, **k: Response())
 
     got = access.head("https://www.bls.gov/oes/special-requests/oesm26nat.zip")
@@ -172,15 +171,30 @@ def test_the_release_year_is_not_written_down_anywhere():
     — the shape this constant actually had — is a dict, not a module-level
     string, and a scan of `str` values alone would have passed on it.
     """
+    # EVERY module that could hold one, not just `probe_bls`. Splitting the
+    # access layer out moved `OEWS_URL` to `etl/bls_access.py` while this guard
+    # went on scanning `vars(probe_bls)` — where the constant no longer was. It
+    # found nothing and passed on an empty set: the exact vacuous pass it exists
+    # to prevent, introduced by a refactor that did not follow the constant.
+    #
     # `__builtins__` is a module-sized dict that no constant of ours lives in,
     # and walking it is the bulk of this test's work. Dunders are skipped.
-    constants = {name: value for name, value in vars(probe).items()
+    constants = {f"{owner.__name__}.{name}": value
+                 for owner in (probe, access)
+                 for name, value in vars(owner).items()
                  if not name.startswith("__")}
     baked = sorted({name for name, value in constants.items()
                     for text in strings_in(value)
                     if re.search(r"oesm\d\d", text)})
     assert not baked, f"a release year is hard-coded in {baked} — it will go stale"
     assert "{yy}" in access.OEWS_URL, "the release year is not a parameter"
+    # The scan must actually SEE the URL constant. Without this, moving
+    # `OEWS_URL` to a third module turns the check above into a scan of two
+    # modules that no longer contain it — which is exactly how it broke when
+    # the access layer was split out.
+    assert any(name.endswith(".OEWS_URL") for name in constants), (
+        "OEWS_URL is in neither scanned module, so this guard is looking at "
+        "nothing — follow the constant or add its module here")
 
 
 def test_a_year_hidden_in_a_container_is_found():
@@ -294,39 +308,6 @@ def test_the_default_agent_is_not_called_anonymous():
     assert access.AGENTS["library default"] is None
     assert "anonymous" not in " ".join(access.AGENTS).lower()
     assert "" in access.AGENTS.values(), "no empty-string arm — the closest to absent"
-
-
-def test_a_wanted_field_matching_no_column_is_a_layout_change(monkeypatch):
-    """Reporting 0 of 832 for a renamed column reads as BLS having stopped
-    publishing it."""
-    serve(monkeypatch, page(row("13-2011")).replace("Median Annual Wage 2024",
-                                                    "Typical Pay 2024"))
-    with pytest.raises(probe.MalformedSource, match="no column matches"):
-        probe.projections()
-
-
-def test_a_repeated_code_cannot_push_coverage_above_the_count(monkeypatch):
-    """Fields were counted per row while occupations were deduped, so a
-    repeated code printed over 100%."""
-    serve(monkeypatch, page(row("13-2011"), row("13-2011")))
-    result = probe.projections()
-    assert result["occupations"] == 1
-    assert all(v <= result["occupations"] for v in result["field_present"].values())
-
-
-def test_two_columns_matching_one_field_are_counted_once(monkeypatch):
-    """A second published column containing a WANTED substring — a "Median
-    Annual Wage 2023" beside the 2024 one — counted twice and pushed that
-    field's coverage above the occupation count."""
-    header = HEADER.replace("<TH>Median Annual Wage 2024</TH>",
-                            "<TH>Median Annual Wage 2024</TH>"
-                            "<TH>Median Annual Wage 2023</TH>")
-    body = row("13-2011").replace("<TD>$50,000</TD>",
-                                  "<TD>$50,000</TD><TD>$48,000</TD>")
-    serve(monkeypatch, "<html>" + header + body + "</html>")
-    result = probe.projections()
-    assert result["occupations"] == 1
-    assert result["field_present"]["Median Annual Wage"] == 1, "counted per column"
 
 
 def test_the_identity_test_page_is_verified_by_content_not_by_status(monkeypatch):

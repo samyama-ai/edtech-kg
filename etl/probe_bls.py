@@ -196,13 +196,16 @@ def crosswalk_soc() -> set[str]:
     same as covering the ones this graph reaches.
     """
     if not CROSSWALK.exists():
+        # Absent is a fact about this MACHINE — the file is gitignored, so a
+        # fresh clone has none of it. Distinct from "present and unreadable".
         return set()
     import zipfile  # noqa: PLC0415
 
     from etl.probe_cipsoc import rows, sheets  # noqa: PLC0415
 
     book = zipfile.ZipFile(CROSSWALK)
-    found = set()
+    found: set[str] = set()
+    columns_seen, headers_seen = 0, []
     for part in sheets(book).values():
         table = list(rows(book, part))
         if not table:
@@ -217,13 +220,30 @@ def crosswalk_soc() -> set[str]:
         soc_at = next((i for i, name in enumerate(header)
                        if "SOC" in name and "Code" in name), None)
         if soc_at is None:
+            headers_seen.append(header[:4])
             continue
+        columns_seen += 1
         for row in table[1:]:
             if len(row) <= soc_at:
                 continue
             code = row[soc_at].strip()
             if SOC_CODE.fullmatch(code) and code not in NOT_AN_OCCUPATION:
                 found.add(code)
+
+    # The one structural parse in this file that used to degrade quietly. If
+    # the workbook is present and NO sheet yields a SOC column — a renamed
+    # header, a re-shaped release — every sheet was skipped and this returned
+    # an empty set, indistinguishable from "there is no crosswalk on this
+    # machine". Coverage would then be reported against a denominator of zero
+    # as though it had been measured.
+    #
+    # Refused, like every other layout change in this module. `projections()`
+    # raises MalformedSource on a renamed heading for exactly this reason.
+    if not columns_seen:
+        raise MalformedSource(
+            f"{CROSSWALK} is present but no sheet has a SOC code column — the "
+            f"headers are {headers_seen}. Reporting zero reachable occupations "
+            f"would read as BLS covering none of them.")
     return found
 
 
