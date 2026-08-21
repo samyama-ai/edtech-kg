@@ -209,7 +209,7 @@ CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.url IS UNIQUE;
 // asserting a REQUIRES to a course that was never named would invent a link.
 
 // What a published pathway is made of.
-//   (:Pathway)-[:INCLUDES {section, sections, credits}]->(:Course)
+//   (:Pathway)-[:INCLUDES {section, sections, rows, credits}]->(:Course)
 //
 // 185 edges over 38 pathways, from 202 published rows. The district publishes
 // this in a typed field — entity references with a credit value each, grouped
@@ -221,8 +221,11 @@ CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.url IS UNIQUE;
 // MERGE in 1.1.0 ignores the property map and matches on start, type and end
 // alone, so two edges between one pathway and one course cannot be told apart
 // and the second is dropped silently (#77). 17 of the 202 rows are that case.
-// `sections` counts how many were folded in, so the collapse is visible in the
-// graph rather than only in the loader's output.
+// `rows` counts how many published rows folded into the edge, so the collapse
+// is visible in the graph rather than only in the loader's output. `sections`
+// is how many NAMED sections it covers, which is what `section` joins — the
+// two differ the moment two rows share a section or a row carries none, and
+// `sections` alone was being read as the row count it is not.
 
 // Programme to occupation — the only exact, government-published join between
 // education and work. 6,097 mappings over 2,143 programmes and 868 occupations.

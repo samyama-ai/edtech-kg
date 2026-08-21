@@ -17,7 +17,6 @@ from pathlib import Path
 import pytest
 
 from etl import load_pwcs as loader
-from etl import pwcs_edges as edges_mod
 from etl.engine import Unquotable
 
 SCHEMA = Path(__file__).resolve().parents[1] / "schema" / "edtech_kg.cypher"
@@ -177,123 +176,9 @@ COURSE_BY_PATH = {"/a/one": "https://catalog.pwcs.edu/a/one",
                   "/a/two": "https://catalog.pwcs.edu/a/two"}
 
 
-def prerequisites(*records):
-    return edges_mod.prerequisite_pairs(list(records), BY_PATH, COURSE_BY_PATH)
-
-
 def course(url: str, *hrefs: str) -> dict:
     return {"url": url,
             "prerequisite_links": [{"href": h, "name": "n"} for h in hrefs]}
-
-
-def test_two_links_to_the_same_course_make_one_edge():
-    """An edge MERGE matches on start, type and end alone (#77), so two links
-    naming the same course give two MERGEs, ONE edge, and a counter of two —
-    and `verify()` then exits non-zero on a well-formed catalogue."""
-    got = prerequisites(course("https://catalog.pwcs.edu/a/three", "/a/one", "/a/one"))
-    assert got["pairs"] == [("https://catalog.pwcs.edu/a/three",
-                             "https://catalog.pwcs.edu/a/one")]
-    assert got["duplicated"] == 1
-
-
-def test_a_prerequisite_pointing_at_an_unparsed_page_is_counted():
-    got = prerequisites(course("https://catalog.pwcs.edu/a/three", "/node/1435"))
-    assert got["pairs"] == [] and got["unresolved"] == 1
-
-
-def test_a_prerequisite_resolves_to_the_node_key_not_the_href():
-    """The key a Course node was created with, via `by_path` — not whatever
-    spelling the href happened to use."""
-    got = prerequisites(course("https://catalog.pwcs.edu/a/three", "/a/one/"))
-    assert got["pairs"][0][1] == "https://catalog.pwcs.edu/a/one"
-
-
-def test_a_prerequisite_naming_a_subject_page_writes_no_edge_and_counts_none():
-    """The one real defect in this branch. `by_path` holds subject and pathway
-    pages too, so a prerequisite pointing at one resolved as if it were a
-    course — and the statement written is `MATCH (a:Course …), (b:Course …)`
-    where `b` is a `:Subject`. The MATCH finds nothing, no edge is written,
-    and the counter still increments; `verify()` then reports a mismatch with
-    nothing to say why.
-
-    This is the guard `pwcs_source.read` already applies to pathway rows,
-    missing on the edge the graph exists for. No link does this today — that
-    is a property of this catalogue, measured, not a property of the code.
-    """
-    got = prerequisites(course("https://catalog.pwcs.edu/a/three", "/a"))
-    assert got["pairs"] == [], "a subject page was resolved as a course"
-    assert got["off_level"] == ["https://catalog.pwcs.edu/a"], got
-    # And not conflated with a page that did not parse — different facts.
-    assert got["unresolved"] == 0, got
-
-
-def pathway(url: str, *rows) -> dict:
-    return {"url": url, "courses": [{"url": u, "section": s, "credits": c}
-                                    for u, s, c in rows]}
-
-
-def test_a_pathway_course_resolves_through_by_path():
-    """This matched on `absolute(href)` while Course nodes are created from the
-    sitemap URL verbatim, and the two normalise differently — `course_urls()`
-    leaves `<loc>` untouched, `absolute()` strips a trailing slash. A mismatch
-    writes no edge and still increments the counter."""
-    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
-                 ("https://catalog.pwcs.edu/a/one/", "First", "1"))], BY_PATH, COURSE_BY_PATH)
-    assert list(edges["grouped"]) == [("https://catalog.pwcs.edu/p",
-                                       "https://catalog.pwcs.edu/a/one")]
-
-
-def test_a_course_in_two_sections_is_one_edge_with_both_names():
-    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
-                 ("https://catalog.pwcs.edu/a/one", "First", "1"),
-                 ("https://catalog.pwcs.edu/a/one", "Second", "1"))], BY_PATH, COURSE_BY_PATH)
-    assert len(edges["grouped"]) == 1
-    assert edges["collapsed"] == 1
-    assert next(iter(edges["grouped"].values()))["sections"] == ["First", "Second"]
-
-
-def test_differing_credits_across_sections_are_counted_not_lost():
-    """The section names were preserved when rows were folded and the credits
-    were not — the same silent loss #77 is about."""
-    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
-                 ("https://catalog.pwcs.edu/a/one", "First", "1"),
-                 ("https://catalog.pwcs.edu/a/one", "Second", "2"))], BY_PATH, COURSE_BY_PATH)
-    assert edges["conflicting"] == 1
-
-
-def test_a_pathway_row_naming_an_unparsed_page_is_counted():
-    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
-                 ("https://catalog.pwcs.edu/node/1435", "First", "1"))], BY_PATH, COURSE_BY_PATH)
-    assert edges["grouped"] == {} and edges["unlinkable"] == 1
-
-
-def test_apply_schema_does_not_truncate_a_statement_carrying_a_url(tmp_path):
-    """`apply_schema` stripped comments by splitting on `//`, which cuts
-    `MERGE (n {url: 'https://x'})` at the scheme. No schema statement carries a
-    URL today — they are all in comments — which is the only reason the naive
-    split never did damage."""
-    schema = tmp_path / "s.cypher"
-    schema.write_text("// a comment mentioning https://example.org\n"
-                      "CREATE CONSTRAINT ON (c:C) ASSERT c.url IS UNIQUE;  // key\n"
-                      "MERGE (n:C {url: 'https://example.org/x'});\n")
-    engine = Recorder()
-    loader.apply_schema(engine, quiet=True, schema=schema)
-    assert engine.sent == [
-        "CREATE CONSTRAINT ON (c:C) ASSERT c.url IS UNIQUE",
-        "MERGE (n:C {url: 'https://example.org/x'})"], engine.sent
-
-
-def test_a_semicolon_inside_a_literal_does_not_split_the_statement():
-    """`strip_comment` was made quote-aware and the `;` split was not, so the
-    pair disagreed: the stripper preserved `MERGE (n {t: 'a;b'})` and the split
-    then cut it in half, sending the engine two fragments it rejects.
-
-    No schema statement carries a semicolon in a literal today, which is
-    exactly why nothing would have caught the first one that did."""
-    assert loader.split_statements("MERGE (n:C {t: 'a;b'});\nCREATE INDEX ON :C(y);") \
-        == ["MERGE (n:C {t: 'a;b'})", "CREATE INDEX ON :C(y)"]
-    assert loader.split_statements('MERGE (n:C {t: "x;y"})') == ['MERGE (n:C {t: "x;y"})']
-    assert loader.split_statements("  \n ;; \n") == []
 
 
 def test_a_requirement_is_labelled_from_the_list_it_came_from():
@@ -315,32 +200,6 @@ def test_a_requirement_is_labelled_from_the_list_it_came_from():
     matched = [q for q in engine.sent if "HAS_REQUIREMENT" in q]
     assert matched, engine.sent
     assert "MATCH (n:Pathway" in matched[0], matched[0]
-
-
-def test_a_comment_is_stripped_but_a_url_in_a_literal_is_not():
-    """Splitting on `//` unconditionally truncates a statement carrying a URL
-    at the scheme. No schema statement does today — the URLs are in comments —
-    which is the only reason the naive split never did damage."""
-    assert loader.strip_comment("CREATE INDEX ON :C(year);  // annual") \
-        == "CREATE INDEX ON :C(year);  "
-    assert loader.strip_comment("MERGE (n {url: 'https://x/y'})") \
-        == "MERGE (n {url: 'https://x/y'})"
-    assert loader.strip_comment('MERGE (n {u: "a//b"}) // t') == 'MERGE (n {u: "a//b"}) '
-    assert loader.strip_comment("// whole line") == ""
-
-
-def test_the_first_credit_value_is_kept_and_the_disagreement_is_counted():
-    """A course in two sections of one pathway may carry different credits.
-    The engine holds one edge, so one value survives — the FIRST, and the
-    disagreement is reported rather than lost. Untested until now: the count
-    was asserted and the surviving value was not, so keeping the last would
-    have passed."""
-    edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
-                 ("https://catalog.pwcs.edu/a/one", "First", "1"),
-                 ("https://catalog.pwcs.edu/a/one", "Second", "2"))], BY_PATH, COURSE_BY_PATH)
-    entry = next(iter(edges["grouped"].values()))
-    assert entry["credits"] == "1", "the first published credit value must survive"
-    assert edges["conflicting"] == 1
 
 
 def test_the_includes_write_joins_the_sections_and_counts_them():
@@ -382,6 +241,10 @@ def test_verify_compares_the_engine_against_the_loader_and_names_the_gap():
             self.answers = answers
 
         def scalar(self, query):
+            # The property-presence check asks a different question; these
+            # fixtures are about counts.
+            if "IS NULL" in query:
+                return 0
             hits = [v for fragment, v in self.answers.items() if fragment in query]
             assert len(hits) == 1, (
                 f"{len(hits)} fragments match this query, so the answer would "
@@ -415,20 +278,6 @@ def test_a_label_named_twice_with_two_keys_is_a_clash_not_a_last_wins():
         pairs_to_map([("Course", "url"), ("Course", "ctid")], "the schema")
 
 
-def test_a_pathway_row_naming_a_subject_page_writes_no_edge_and_counts_none():
-    """The same off-level defect `prerequisite_pairs` was fixed for, on the
-    other edge. `by_path` holds subject and pathway pages, so a row naming one
-    resolved — and the statement written is `MATCH (c:Course …)`, which finds
-    nothing. No edge, and the counter still incremented."""
-    edges = edges_mod.pathway_edges(
-        [pathway("https://catalog.pwcs.edu/p",
-                 ("https://catalog.pwcs.edu/a", "First", "1"))],
-        BY_PATH, COURSE_BY_PATH)
-    assert edges["grouped"] == {}, "a subject page was resolved as a course"
-    assert edges["off_level"] == ["https://catalog.pwcs.edu/a"], edges
-    assert edges["unlinkable"] == 0, edges
-
-
 def test_verify_reads_back_the_requirement_nodes_too():
     """`Requirement` was written and never read back. It is the one label whose
     key is DERIVED rather than taken from the source, so a collision in
@@ -439,6 +288,8 @@ def test_verify_reads_back_the_requirement_nodes_too():
             self.answers = answers
 
         def scalar(self, query):
+            if "IS NULL" in query:
+                return 0
             hits = [v for fragment, v in self.answers.items() if fragment in query]
             assert len(hits) == 1, f"ambiguous: {query}"
             return hits[0]
@@ -473,3 +324,54 @@ def test_a_course_under_a_non_subject_parent_writes_no_edge_and_counts_none():
     loaded = loader.load(engine, data, quiet=True)
     assert loaded["in_subject"] == 0, "a pathway page was resolved as a subject"
     assert not [q for q in engine.sent if "IN_SUBJECT" in q], engine.sent
+
+
+def test_a_surplus_reads_as_stale_data_and_a_shortfall_as_a_lost_write():
+    """`verify()` holds the graph to the CATALOGUE, not to this run's writes.
+    MERGE never removes, so a source row deleted since the last load leaves the
+    engine holding more than the loader wrote — a real failure under that
+    contract, but one whose fix is `--reset` rather than debugging the loader.
+    The two directions have to read differently."""
+    class Counts:
+        def __init__(self, answers):
+            self.answers = answers
+
+        def scalar(self, query):
+            if "IS NULL" in query:
+                return 0
+            hits = [v for fragment, v in self.answers.items() if fragment in query]
+            assert len(hits) == 1, f"ambiguous: {query}"
+            return hits[0]
+
+    loaded = {"subjects": 1, "courses": 2, "pathways": 3, "in_subject": 4,
+              "requires": 5, "includes": 6, "requirements": 7}
+    base = {":Subject": 1, ":Course": 2, ":Pathway": 3, ":Requirement": 7,
+            "IN_SUBJECT": 4, "REQUIRES": 5, "INCLUDES": 6, "HAS_REQUIREMENT": 7}
+
+    surplus = loader.verify(Counts(dict(base, REQUIRES=9)), loaded)
+    assert len(surplus) == 1 and "--reset" in surplus[0], surplus
+    assert "MERGE never removes" in surplus[0], surplus[0]
+
+    shortfall = loader.verify(Counts(dict(base, REQUIRES=2)), loaded)
+    assert len(shortfall) == 1 and "did not land" in shortfall[0], shortfall
+    assert "--reset" not in shortfall[0], shortfall[0]
+
+
+def test_a_node_left_without_its_properties_is_reported():
+    """`upsert` MERGEs the key and SETs the rest in a second statement. That
+    second request can fail on its own — retries exhausted, a 4xx — leaving a
+    node that exists, carries its key and has none of its properties. A COUNT
+    passes it, because counting is exactly what it satisfies."""
+    class Counts:
+        def scalar(self, query):
+            if "n.name IS NULL" in query and "(n:Course)" in query:
+                return 3
+            if "IS NULL" in query:
+                return 0
+            return 1 if "(n:" in query else 1
+
+    loaded = {"subjects": 1, "courses": 1, "pathways": 1, "in_subject": 1,
+              "requires": 1, "includes": 1, "requirements": 1}
+    problems = loader.verify(Counts(), loaded)
+    assert any("carry the key and no `name`" in p for p in problems), problems
+    assert any("3 node(s)" in p for p in problems), problems

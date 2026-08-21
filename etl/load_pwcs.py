@@ -35,15 +35,14 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from pathlib import Path
 
+from etl.cypher_script import apply_schema
 from etl.engine import Engine, Unquotable, lit, upsert
 from etl.pwcs_edges import pathway_edges, prerequisite_pairs
 from etl.pwcs_source import read, requirement_id, segments
 from etl import probe_pwcs as source
 
 DEFAULT_URL = "http://localhost:8200"
-SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "edtech_kg.cypher"
 
 
 # --------------------------------------------------------------------------
@@ -58,8 +57,14 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     """Every write is a MERGE.
 
     A constraint in 1.1.0 declares the key; it does not reject a duplicate
-    CREATE (schema/edtech_kg.cypher). So re-running this must converge, and
-    only MERGE gives that.
+    CREATE (schema/edtech_kg.cypher). So re-running this must converge on the
+    rows the catalogue still has, and only MERGE gives that.
+
+    **MERGE converges for additions and never removes.** A row the district
+    has deleted since the last load stays in the graph, so a re-run is only
+    equal to the catalogue when it starts from `--reset`. `verify()` holds the
+    graph to the catalogue rather than to this run's writes, and reports a
+    surplus as exactly that.
     """
     def say(message: str) -> None:
         if not quiet:
@@ -284,7 +289,12 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
             f"MATCH (:Pathway {{url: {lit(pathway)}}})-[e:INCLUDES]->"
             f"(:Course {{url: {lit(course)}}}) "
             f"SET e.section = {lit(' | '.join(entry['sections']) or None)}, "
+            # `sections` is how many NAMED sections this edge covers, which is
+            # what `section` joins. `rows` is how many published rows folded
+            # into it — the number the schema comment promises, and the two
+            # differ the moment a row repeats a section or carries none.
             f"e.sections = {lit(len(entry['sections']))}, "
+            f"e.rows = {lit(entry['rows'])}, "
             f"e.credits = {lit(entry['credits'])}")
         includes += 1
     say(f"  INCLUDES   {includes:>5,}")
@@ -297,80 +307,24 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
             "pathway_rows_unresolvable": sum(len(p["dangling"]) for p in data["pathways"])}
 
 
-def strip_comment(line: str) -> str:
-    """Drop a `//` comment, but not a `//` inside a string literal.
-
-    Splitting on `//` unconditionally truncates `MERGE (n {url: 'https://x'})`
-    at the scheme. No statement in the schema carries a URL today — the URLs
-    are in comments — so the naive split has never done damage, and would the
-    day a default or an example value was added.
-
-    Quote tracking only, no full parser: 1.1.0 has no escape sequence inside a
-    string literal (see `lit`), so a quote character always opens or closes one
-    and never appears within.
-    """
-    quote = None
-    for i, character in enumerate(line):
-        if quote:
-            if character == quote:
-                quote = None
-        elif character in "\'\"":
-            quote = character
-        elif character == "/" and line[i:i + 2] == "//":
-            return line[:i]
-    return line
-
-
-def split_statements(text: str) -> list[str]:
-    """Split on `;`, but not on a `;` inside a string literal.
-
-    `strip_comment` was made quote-aware and this was not, which left the pair
-    inconsistent: the comment stripper would carefully preserve
-    `MERGE (n {t: 'a;b'})` and the split would then cut it in half, sending the
-    engine two fragments it rejects. No schema statement carries a semicolon in
-    a literal today — which is exactly why nothing would have caught the first
-    one that did.
-
-    Quote tracking only, no parser, for the reason `strip_comment` gives: 1.1.0
-    has no escape sequence inside a string literal, so a quote always opens or
-    closes one and never appears within.
-    """
-    statements, current, quote = [], [], None
-    for character in text:
-        if quote:
-            if character == quote:
-                quote = None
-        elif character in "'\"":
-            quote = character
-        elif character == ";":
-            statements.append("".join(current))
-            current = []
-            continue
-        current.append(character)
-    statements.append("".join(current))
-    return [s.strip() for s in statements if s.strip()]
-
-
-def apply_schema(engine: Engine, quiet: bool = False,
-                 schema: Path | None = None) -> int:
-    """The constraints, from the schema file — not retyped here.
-
-    A copy would drift from the file the tests execute, which is the defect
-    this repo keeps finding: two things that should be one, with only one
-    maintained.
-    """
-    text = (schema or SCHEMA).read_text()
-    statements = split_statements(
-        "\n".join(strip_comment(line) for line in text.splitlines()))
-    for statement in statements:
-        engine.run(statement)
-    if not quiet:
-        print(f"  schema     {len(statements):>5,} statements")
-    return len(statements)
-
-
 def verify(engine: Engine, loaded: dict) -> list[str]:
-    """Does the graph hold what the loader says it wrote?
+    """Does the graph hold this catalogue, and only this catalogue?
+
+    **The contract is "the graph equals the catalogue", not "everything this
+    run wrote landed."** Those are different checks and the code used to argue
+    for one while performing the other.
+
+    It matters because MERGE converges for ADDITIONS and never removes
+    anything. The district drops a prerequisite; a re-run writes everything
+    else correctly and the stale edge stays; the engine then holds more than
+    the loader wrote, and this exits non-zero on a load that did exactly what
+    it should. That is not a false alarm under this contract — the graph no
+    longer equals the catalogue — but the message has to say so, and say what
+    to do about it, rather than reporting a bare mismatch.
+
+    So: **a re-run after anything is removed at the source needs `--reset`.**
+    `load()` says the same, and a surplus is reported differently from a
+    shortfall below.
 
     Counted from the engine, not from the loader's own tallies — a loader that
     reports what it *intended* to write is the one failure this cannot catch
@@ -388,6 +342,16 @@ def verify(engine: Engine, loaded: dict) -> list[str]:
     """
     where = f"n.source = {lit(CATALOGUE)}"
     problems = []
+
+    def mismatch(kind: str, name: str, expected: int, got: int) -> str:
+        if got > expected:
+            return (f"{name}: loader wrote {expected:,}, engine holds {got:,} — "
+                    f"{got - expected:,} more {kind}(s) than this catalogue "
+                    f"contains. MERGE never removes, so this is what a source "
+                    f"row being deleted looks like on a re-run. Re-run with "
+                    f"--reset.")
+        return (f"{name}: loader wrote {expected:,}, engine holds {got:,} — "
+                f"{expected - got:,} {kind}(s) did not land.")
     for label, expected in (("Subject", loaded["subjects"]),
                             ("Course", loaded["courses"]),
                             ("Pathway", loaded["pathways"]),
@@ -399,14 +363,35 @@ def verify(engine: Engine, loaded: dict) -> list[str]:
                             ("Requirement", loaded["requirements"])):
         got = engine.scalar(f"MATCH (n:{label}) WHERE {where} RETURN count(n)")
         if got != expected:
-            problems.append(f"{label}: loader wrote {expected:,}, engine holds {got:,}")
+            problems.append(mismatch("node", label, expected, got))
+    # A node that exists, carries its key, and has none of its properties.
+    #
+    # `upsert` MERGEs the key and SETs the rest in a SECOND statement, because
+    # a bare SET after MERGE does not parse in 1.1.0 (#75). Pre-rendering every
+    # value stops an Unquotable from landing the first without the second — but
+    # the second request can still fail on its own: retries exhausted, a 4xx, a
+    # parse error from a value nobody expected. The node is then half written,
+    # and a COUNT cannot see it, because counting is exactly what it passes.
+    #
+    # Recoverable, since the loader is re-runnable. But nothing said it had
+    # happened, and "verified" appeared on the console either way.
+    for label, prop in (("Subject", "name"), ("Course", "name"),
+                        ("Pathway", "name"), ("Requirement", "text")):
+        half = engine.scalar(
+            f"MATCH (n:{label}) WHERE {where} AND n.{prop} IS NULL RETURN count(n)")
+        if half:
+            problems.append(
+                f"{label}: {half:,} node(s) carry the key and no `{prop}` — the "
+                f"MERGE landed and the SET that follows it did not. Re-running "
+                f"the loader repairs them.")
+
     for edge, expected in (("REQUIRES", loaded["requires"]),
                            ("IN_SUBJECT", loaded["in_subject"]),
                            ("INCLUDES", loaded["includes"]),
                            ("HAS_REQUIREMENT", loaded["requirements"])):
         got = engine.scalar(f"MATCH (n)-[e:{edge}]->() WHERE {where} RETURN count(e)")
         if got != expected:
-            problems.append(f"{edge}: loader wrote {expected:,}, engine holds {got:,}")
+            problems.append(mismatch("edge", edge, expected, got))
     return problems
 
 

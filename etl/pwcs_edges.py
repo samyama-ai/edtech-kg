@@ -95,7 +95,7 @@ def pathway_edges(pathways: list[dict], by_path: dict,
     the credits were not, which is the same silent loss #77 is about.
     """
     grouped: dict[tuple[str, str], dict] = {}
-    unlinkable, off_level = 0, []
+    unlinkable, off_level, resolved = 0, [], 0
     for record in pathways:
         for course in record["courses"]:
             path = source.path_of(course["url"])
@@ -105,15 +105,38 @@ def pathway_edges(pathways: list[dict], by_path: dict,
                 else:
                     unlinkable += 1
                 continue
+            resolved += 1
             entry = grouped.setdefault((record["url"], course_by_path[path]),
-                                       {"sections": [], "credits": course["credits"],
+                                       {"sections": [], "rows": 0,
+                                        "credits": course["credits"],
                                         "credit_values": set()})
+            # Rows folded into THIS edge. `len(sections)` counts distinct
+            # names, which is not the same number the moment two rows share a
+            # section or one carries none.
+            entry["rows"] += 1
             if course["section"] and course["section"] not in entry["sections"]:
                 entry["sections"].append(course["section"])
             entry["credit_values"].add(course["credits"])
     return {"grouped": grouped, "unlinkable": unlinkable,
             "off_level": off_level,
-            "collapsed": sum(len(e["sections"]) - 1 for e in grouped.values()
-                             if len(e["sections"]) > 1),
+            # ROWS that folded into an edge, not extra section NAMES.
+            #
+            # This was `sum(len(sections) - 1 …)`, and `sections` holds
+            # DISTINCT NON-EMPTY names — so two rows for one pair in the same
+            # section counted 0, a row with an empty section counted 0, and
+            # three rows across two sections counted 1 rather than 2. The
+            # console line says "N published rows are a course in a second
+            # section", `e.sections` goes onto the edge as "how many were
+            # folded in", and `verify()` cannot see the difference because
+            # `includes` is `len(grouped)` either way. Rows could vanish
+            # beyond what was reported — the #77 failure this whole section
+            # exists to prevent, one level up.
+            #
+            # `resolved - len(grouped)` is independent of section names and
+            # cannot drift. It agrees at 17 on this catalogue only because
+            # every duplicate happens to fall in a distinct named section,
+            # which is a property of the data and not of the code.
+            "collapsed": resolved - len(grouped),
+            "resolved_rows": resolved,
             "conflicting": sum(1 for e in grouped.values()
                                if len(e["credit_values"]) > 1)}
