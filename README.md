@@ -53,7 +53,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .
 
 python -m etl.download_data          # fetch source data into data/
-python -m etl.loader                 # build + load the graph
+python -m etl.load_pwcs              # build + load the graph
 python -m mcp_server.server          # expose the KG over MCP
 pytest                               # run tests
 ```

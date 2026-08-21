@@ -107,27 +107,39 @@ def test_tier_two_labels_are_marked_as_empty():
     graph. The doc must say which are which."""
     doc = SCHEMA_DOC.read_text()
     assert "modelled and empty" in doc
-    modelled = section(doc, "modelled and empty", "## Edge types")
-    for label in ("Credential", "Pathway", "Level", "Competency", "EarningsRecord"):
-        assert f"`{label}`" in modelled, label
+    tier_two = section(doc, "modelled and empty", "## Edge types")
+    for label in ("Credential", "Level", "Competency", "EarningsRecord"):
+        assert f"`{label}`" in tier_two, label
+
+    # `Pathway` is deliberately NOT in that list any more. It was modelled on
+    # the Credential Registry and left empty; a district publishes pathways as
+    # pages and 38 of them load, so it is tier 1 keyed on `url`. Asserted in
+    # both directions, because a label that drifts back into tier 2 while the
+    # loader keeps writing it would be a table saying "empty" about 38 nodes.
+    assert "`Pathway`" not in tier_two, "Pathway is populated; it is not tier 2"
+    tier_one = section(doc, "## Node labels — tier 1", "## Node labels — tier 2")
+    assert "`Pathway`" in tier_one, "Pathway is loaded but appears in neither tier"
 
 
-def test_the_unenforced_merge_rule_is_admitted():
-    """The file requires loaders to MERGE because 1.1.0 does not reject a
-    duplicate CREATE — and etl/loader.py is still the repo template, so nothing
-    enforces it. That gap is stated rather than left implied.
+def test_the_limits_of_the_merge_rule_are_admitted():
+    """1.1.0 does not reject a duplicate CREATE, so "loaders must MERGE" is a
+    rule with no enforcement behind it. One loader is now checked against this
+    file by a test; the engine still checks nothing, and the document has to
+    keep saying which of those two is true.
 
-    Matched on the CLAIM, not on one sentence. The previous version pinned the
-    exact words "Nothing enforces the MERGE rule yet", so moving the paragraph
-    out of the numbered scope list — where it did not belong, being a statement
-    about loaders rather than about scope — broke a test that has no opinion
-    about where the paragraph sits.
+    Matched on the CLAIM, not on one sentence. An earlier version pinned exact
+    words, so moving the paragraph out of the numbered scope list — where it
+    did not belong, being about loaders rather than about scope — broke a test
+    that has no opinion about where the paragraph sits.
     """
-    doc = " ".join(SCHEMA_DOC.read_text().split()).lower()
-    assert "merge rule is not enforced" in doc or "nothing enforces the merge rule" in doc, \
-        "the doc no longer admits that nothing enforces the MERGE rule"
-    assert "duplicate create" in doc, \
+    text = SCHEMA_DOC.read_text()
+    flat = " ".join(text.split()).lower()
+    assert "merge rule is enforced for one loader" in flat, \
+        "the doc no longer says which of the loader and the engine enforces it"
+    assert "does not reject a duplicate create" in flat, \
         "the reason the rule matters — 1.1.0 accepts a duplicate CREATE — is gone"
+    assert "etl/loader.py is still the repo template" not in text, \
+        "the doc still describes the state before etl/load_pwcs.py existed"
 
 
 def test_no_document_calls_960_a_course_count():
@@ -145,6 +157,28 @@ def test_no_document_calls_960_a_course_count():
         assert "960 courses" not in flat, (
             f"{path.name} still calls 960 a course count; it is the sitemap "
             f"page count, and the course count is 795")
+
+
+def test_the_documented_holes_include_the_one_the_loader_reports():
+    """`docs/schema.md` opens its holes list with "written down before anyone
+    finds it". #87 — 172 published rows that never become INCLUDES edges — was
+    found, filed and printed by the loader while the page still read as if
+    `INCLUDES` were complete.
+
+    A page that states its own limits is only worth reading if the statement
+    keeps up with what is known, so the guard is that a hole the CODE reports
+    is a hole the DOCUMENT names.
+    """
+    doc = SCHEMA_DOC.read_text()
+    holes = section(doc, "## What this schema does not claim", "## Verified against")
+    assert "#87" in holes, (
+        "the loader prints the #87 coverage gap on every run and the holes "
+        "list does not mention it")
+    includes_row = [line for line in doc.splitlines()
+                    if line.startswith("| `INCLUDES`")]
+    assert includes_row, "the INCLUDES row moved"
+    assert "#87" in includes_row[0], (
+        "the INCLUDES row quotes a count without saying it is short")
 
 
 def test_every_documented_edge_exists_in_the_schema():

@@ -19,9 +19,8 @@ import re
 import pytest
 
 from tests.schema_source import (SCHEMA, WRAP_LIMIT, code, constraint_line,
-                                 declarations,
-                                 edges, first_column, labels, section,
-                                 statements)
+                                 declarations, edges, first_column, labels,
+                                 section, statements)
 
 
 def test_every_label_is_constrained_once():
@@ -376,3 +375,50 @@ def test_a_declaration_wrapped_wider_than_the_window_raises_rather_than_vanishin
 
     # Not declared at all is still a quiet None — that is a real answer.
     assert constraint_line("Absent", "CREATE INDEX ON :C(year);") is None
+
+
+def test_a_label_sits_under_the_tier_banner_it_belongs_to():
+    """`Pathway` carried a comment reading "TIER 1" while the declaration sat
+    physically under the `TIER 2 — modelled, not yet populated` banner. Both
+    statements were in the file, and the reader believed whichever they reached
+    first.
+
+    Only the markdown doc was guarded, so nothing checked the cypher itself —
+    which is the file that executes, and the one a loader author reads.
+    """
+    text = SCHEMA.read_text()
+    # Declarations, via `labels()` — not any mention of the label. Both tiers
+    # name each other's labels in edge patterns, so a substring test reports
+    # `(:Course)-[:DEVELOPS]->(:Competency)` as a Course declaration.
+    declared_in_tier_one = set(labels(
+        section(text, "TIER 1 — uniqueness constraints", "TIER 2 — modelled")))
+    declared_in_tier_two = set(labels(section(text, "TIER 2 — modelled")))
+    assert declared_in_tier_one and declared_in_tier_two, "the banners moved"
+
+    for label in ("Course", "Subject", "Pathway", "Requirement"):
+        assert label in declared_in_tier_one, (
+            f"{label} is loaded but is not declared under TIER 1")
+        assert label not in declared_in_tier_two, (
+            f"{label} is loaded, but its constraint sits under the tier-2 "
+            f'"modelled, not yet populated" banner')
+
+    for label in ("Credential", "Level", "Competency", "EarningsRecord"):
+        assert label in declared_in_tier_two, (
+            f"{label} is unpopulated but is not declared under TIER 2")
+
+
+def test_a_heading_mentioned_in_prose_does_not_truncate_the_section():
+    """`section()` sliced on the FIRST occurrence of a heading, so a sentence
+    quoting that heading above the banner itself cut the section short — every
+    caller then checked a fragment, and a containment test against a fragment
+    passes.
+
+    Ambiguity is refused rather than guessed at: two occurrences is a document
+    the reader cannot resolve, and saying so beats picking one.
+    """
+    quoted = ("Everything under ## TIER 2 is unpopulated.\n"
+              "## TIER 2\nthe real section\n")
+    with pytest.raises(AssertionError, match="ambiguous"):
+        section(quoted, "## TIER 2")
+
+    assert section("intro\n## TIER 2\nbody\n", "## TIER 2").strip() == "body"

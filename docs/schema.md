@@ -30,22 +30,28 @@ source holds, not what any graph contains.
 | `School` | `ncessch` | A school, CCD | 102,268 |
 | `District` | `leaid` | A school district, CCD | 19,714 |
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
-| `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**, across the pages that state any. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key |
+| `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key. All 138 sit on course pages; `HAS_REQUIREMENT` accepts a pathway too, and none states one |
+| `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | 38 |
 | `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
 
-**Where the district's three figures come from.** `etl/probe_pwcs.py` reports
-960 — every page in the sitemap — and calls them all courses. The catalogue has
-three levels: 127 subject indexes, 795 courses, 38 CTE pathway pages.
+**`Pathway` moved here from tier 2**, and its key changed from `ctid` to `url`.
+It was modelled on the Credential Registry, which publishes 98 pathways against
+47,861 Registry *course records* — a different population from `Course` above,
+which is district catalogue pages — so it was declared and left empty. But a
+district publishes pathways too, as pages: PWCS publishes 38, and they load. A
+district pathway has no `ctid`, so keeping that key would have given all 38
+nodes a null value for the declared key — which 1.1.0 accepts in silence,
+because a constraint here declares the key and does not enforce it. The
+Registry's own pathways remain unloaded and will need a distinct label or a
+composite key carrying the publisher; that is **edtech-kg#85**, not a decision
+to take on one publisher's evidence.
 
-**The 38 are deliberately not modelled on this branch.** They have no node
-label here: `Pathway` is tier 2, keyed on the Credential Registry's `ctid`,
-which a district pathway page does not have. So the split closes as
-127 + 795 + 38 = 960 with one third of it declared and one third named and left
-alone, rather than a third of the subtraction going unaccounted for. Loading
-them is edtech-kg#80, and the key that would let them in is edtech-kg#85.
-
-So none of
-the three rows above is a number the probe prints as such today; each falls out
+**Where the district's figures come from.** `etl/probe_pwcs.py` reports 960 —
+every page in the sitemap — and calls them all courses. The catalogue has three
+levels: 127 subject indexes, 795 courses, 38 CTE pathway pages, and all three
+are declared above, so the split closes as 127 + 795 + 38 = 960 with nothing
+left over. So none of the
+district rows above is a number the probe prints as such today; each falls out
 of the depth split, and **edtech-kg#74** is where the probe is corrected to
 report them separately. The table carries the corrected figures because a
 reader skimming it should not take away a number this page goes on to refute.
@@ -59,7 +65,6 @@ loader, not about the source.
 | Label | Key | Why it is here, and why it is empty |
 |---|---|---|
 | `Credential` | `ctid` | 133,346 published, but under each publisher's own terms rather than CTDL's CC BY 4.0 (edtech-kg#56) |
-| `Pathway` | `ctid` | CTDL's pathway vocabulary is rich; the Registry publishes **98** pathways against 47,861 Registry *course records* — a different population from `Course` above, which is district catalogue pages |
 | `AwardingBody` | `id` | The competency gap, below |
 | `Level` | `id` = `body\|code` | Same |
 | `Competency` | `id` | Same |
@@ -71,7 +76,8 @@ loader, not about the source.
 | Edge | From → To | Meaning |
 |---|---|---|
 | `REQUIRES` | Course → Course | **The prerequisite edge.** 240 measured, all resolving |
-| `HAS_REQUIREMENT` | Course → Requirement | A prose condition — not a course reference |
+| `HAS_REQUIREMENT` | Course / Pathway → Requirement | A prose condition — not a course reference |
+| `INCLUDES` | Pathway → Course | What a published pathway is made of. 185 edges from 202 rows — **17 rows repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77) so the section names are joined onto the one edge. **Not the whole catalogue: 172 further rows are unwritten, see hole 7 (#87).** Carries the district's section name and credit value |
 | `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 6,097 mappings |
 | `OFFERS` | Institution → Programme | What a college teaches |
 | `AT` / `IN` | Completion → Institution / Programme | Who graduated, where, in what |
@@ -168,13 +174,18 @@ where each body grades on its own scale and the scales do not align.
 
 Written down before anyone finds it.
 
-**Before the list: the MERGE rule is not enforced by anything.** The schema
-says a loader must MERGE on the key, because 1.1.0 does not reject a duplicate
-CREATE — measured directly, not assumed. `etl/loader.py` is still the repo
-template, so for any loader but this district's the rule is prose.
-**edtech-kg#7** is the national-spine loader, where it stops being a comment.
+**Before the list: the MERGE rule is enforced for one loader, not by the
+engine.** `etl/load_pwcs.py` MERGEs on the key throughout, and a test compares
+the property it keys each label on against the property this file declares — so
+for that loader the rule is checked rather than hoped for. It is still not a
+guarantee: 1.1.0 does not reject a duplicate CREATE, measured directly rather
+than assumed, so any future loader that forgets is stopped by nothing but that
+test. **edtech-kg#7**, the national-spine loader, is where the rule gets tested
+a second time.
+
 That is a statement about the loaders, not about what this schema claims, which
 is why it sits above the list rather than inside it as an item "0".
+
 
 1. **No student.** Individual records are permanently out of scope
    ([`scope.md`](scope.md) §1). Nothing here can answer "where is this child".
@@ -191,6 +202,28 @@ is why it sits above the list rather than inside it as an item "0".
 6. **`PREPARES_FOR` is a published claim, not causation.** The crosswalk says a
    programme prepares for an occupation. It does not say graduates get those
    jobs, and nothing here supports that reading.
+7. **`INCLUDES` is short by 172 edges, from 182 published rows.** Pages are classified by URL
+   depth, and four pages publish a pathway course table at *course* depth, so
+   they load as `Course` and their course tables are never read:
+
+   | Page | Rows | Resolving |
+   |---|---:|---:|
+   | `/specialty-programs/center-for-biotechnology-and-engineering` | 111 | 105 |
+   | `/specialty-programs/information-technology-center-for-applied-sciences…` | 24 | 22 |
+   | `/specialty-programs/international-baccalaureate` | 21 | 19 |
+   | `/virtual-prince-william/virtual-prince-william-information` | 26 | 26 |
+
+   182 rows published, 172 of them naming a course that is loaded — the other
+   ten name pages that are not. Both figures are given because the earlier
+   wording said "172 published rows" against a table whose Rows column sums to
+   182, and a reader adding it up finds the two disagree.
+
+   Four named, because "four pages" followed by two examples leaves a reader
+   counting. The loader measures and prints this on every
+   run rather than leaving it to the difference between two other numbers, and
+   #87 carries the four pages with their row counts. Reported rather than
+   fixed here because reclassifying them moves the node and edge totals this
+   file, the README and the demo all quote.
 
 ## Verified against the engine
 

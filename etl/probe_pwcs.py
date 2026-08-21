@@ -90,8 +90,18 @@ def text_of(markup: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", " ", markup))
 
 
+def cached_path(url: str):
+    """Where this page is cached.
+
+    Its own function so a caller can ask "is the cache complete" without
+    re-deriving the key. Two derivations of one path is the same defect class
+    as two normalisations of one URL: they agree until one changes.
+    """
+    return CACHE / (urllib.parse.quote(url, safe="") + ".html")
+
+
 def fetch(url: str, use_cache: bool = True) -> str:
-    key = CACHE / (urllib.parse.quote(url, safe="") + ".html")
+    key = cached_path(url)
     if use_cache and key.exists():
         return key.read_text(encoding="utf-8", errors="replace")
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
