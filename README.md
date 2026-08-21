@@ -178,7 +178,7 @@ etl/          probes (one per source) + load_pwcs.py
 schema/       edtech_kg.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
 docs/         scope, questions, schema, ontology-reuse, sources/
-tests/        pytest, one file per probe
+tests/        pytest, one file per probe — split by subject where one outgrew review
 ```
 
 ## Quick start
@@ -190,7 +190,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 431 tests
+pytest                           # 480 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they

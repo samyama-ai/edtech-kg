@@ -28,10 +28,11 @@ import pytest
 
 REVIEWABLE_LINES = 500
 
-# Already over the line when this guard was written, tracked as #86. The list
-# may only SHRINK — a test below fails if anything is added to it, so the
-# exception cannot quietly become the rule.
-OVERSIZED_ALREADY = {"etl/probe_registry.py", "tests/test_probe_registry.py"}
+# EMPTY, and that is the point: #86 split the last two files that were over the
+# line when this guard was written. The list may only SHRINK — a test below
+# fails if anything is added to it, so the exception cannot quietly become the
+# rule, and there is now no exception at all to argue from.
+OVERSIZED_ALREADY: set[str] = set()
 
 ROOT = Path(__file__).resolve().parents[1]
 
