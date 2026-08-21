@@ -20,6 +20,7 @@ files use are in `tests/schema_source.py`.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -31,6 +32,7 @@ import pytest
 from tests.schema_source import SCHEMA_DOC, section, statements
 
 SAMYAMA_URL = os.environ.get("SAMYAMA_URL", "http://localhost:8080")
+
 
 def engine_available():
     try:
@@ -65,8 +67,15 @@ def query(url, statement):
             return {"error": f"a 200 that is not JSON: {exc}",
                     "transport": True}
     except urllib.error.HTTPError as exc:
+        # 5xx is the ENGINE FAILING, not the engine refusing. A 400 carrying a
+        # parse error is a genuine rejection and the thing two tests below are
+        # asserting; a 500 from a dying engine looks identical to them without
+        # this flag — which is the exact failure the flag was introduced to
+        # close, left open on the one branch that has a readable body.
+        transport = exc.code >= 500
         try:
-            return {"error": exc.read().decode(errors="replace")[:300]}
+            return {"error": exc.read().decode(errors="replace")[:300],
+                    "transport": transport}
         except Exception:  # noqa: BLE001
             return {"error": f"HTTP {exc.code}, and the body could not be read",
                     "transport": True}
@@ -170,7 +179,20 @@ def empty_engine():
         pytest.skip(f"nothing answering at {TEST_URL}")
 
     held = rows(TEST_URL, "MATCH (n) RETURN count(n)")[0][0]
+    # `if held:` on a string is truthy for "0" — an engine returning the count
+    # as text would report an empty instance as loaded. Coerced first, and a
+    # value that will not coerce is reported rather than guessed at.
+    try:
+        held = int(held)
+    except (TypeError, ValueError):
+        pytest.fail(f"the engine answered the node count with {held!r}, which "
+                    f"is not a number — this guard cannot tell whether the "
+                    f"instance is empty")
     if held:
+        # `int()` first: `f"{held:,}"` raises TypeError on a string, and the
+        # engine returning a count as text would then crash the guard instead
+        # of reporting the graph it found — an error about formatting, in the
+        # message whose job is to say "point this somewhere else".
         pytest.fail(
             f"SAMYAMA_TEST_URL points at an engine holding {held:,} nodes. These "
             f"tests write and DETACH DELETE; use a fresh instance.")
@@ -179,18 +201,25 @@ def empty_engine():
 
 @pytest.fixture
 def ladder(empty_engine):
-    """A fresh engine holding only the fixture, torn down afterwards."""
+    """A fresh engine holding only the fixture, torn down afterwards.
+
+    Every statement below goes to `empty_engine`, the value this fixture
+    depends on — not to the module-global `TEST_URL`. They are the same string
+    today, so reading the global worked; it also meant the dependency was
+    decorative, and a change to how the URL is resolved would have left this
+    writing to whatever the global happened to hold.
+    """
     # try/finally: a FIXTURE statement that fails used to abort before `yield`,
     # so the teardown never ran and the nodes it had already written stayed —
     # making every later run fail the "engine holding N nodes" guard above, for
     # a reason that looks nothing like the original failure.
     try:
         for statement in FIXTURE:
-            result = query(TEST_URL, statement)
+            result = query(empty_engine, statement)
             assert "error" not in result, f"{statement[:70]} -> {result['error']}"
-        yield TEST_URL
+        yield empty_engine
     finally:
-        query(TEST_URL, "MATCH (n) WHERE n.src = 'fx' DETACH DELETE n")
+        query(empty_engine, "MATCH (n) WHERE n.src = 'fx' DETACH DELETE n")
 
 
 def test_q65_what_must_i_take_first_returns_the_full_ancestor_set(ladder):
@@ -281,6 +310,13 @@ def test_the_doc_marks_every_tier_four_row_this_file_executes():
     table = blocks[1]
     claimed = set(re.findall(r"\| (Q\d+)", table))
     assert claimed, "no question numbers in the tier-4 table — did it change shape?"
+    # The slice must be the TABLE, not merely something with Q-numbers in it.
+    # `section()` returning an unexpected span — a heading reworded, a blank
+    # line moved — would otherwise be papered over by any prose that mentions
+    # a question number.
+    assert table.lstrip().startswith("|"), (
+        f"the slice taken as the tier-4 table does not start with a table row, "
+        f"so it is not the table: {table[:80]!r}")
 
     # Read off this module's own test names rather than a hand-kept literal.
     # A literal makes the guard say what somebody last remembered: delete a
@@ -314,7 +350,7 @@ def test_applying_the_schema_twice_changes_nothing(empty_engine):
                 f"{statement[:70]} -> {result.get('error')}")
 
 
-def test_naming_and_dropping_a_constraint_or_index_are_parse_errors(ladder):
+def test_naming_and_dropping_a_constraint_or_index_are_parse_errors(empty_engine):
     """Recorded so the finding survives review rather than being re-litigated.
 
     "Name the constraints so a specific one can be replaced" is sound advice
@@ -329,13 +365,13 @@ def test_naming_and_dropping_a_constraint_or_index_are_parse_errors(ladder):
         "CREATE INDEX probe_named_idx ON :ProbeNamed(k)",
         "DROP CONSTRAINT ON (x:ProbeNamed) ASSERT x.k IS UNIQUE",
     ):
-        result = query(ladder, statement)
+        result = query(empty_engine, statement)
         assert "error" in result, f"1.1.0 now accepts {statement!r}"
         assert not result.get("transport"), (
             f"the engine went away rather than refusing: {result['error']}")
 
     # `SHOW CONSTRAINTS` does parse — what is declared can at least be read.
-    assert "error" not in query(ladder, "SHOW CONSTRAINTS")
+    assert "error" not in query(empty_engine, "SHOW CONSTRAINTS")
 
 
 def test_a_constraint_declares_the_key_and_does_not_enforce_it(ladder):
@@ -344,6 +380,14 @@ def test_a_constraint_declares_the_key_and_does_not_enforce_it(ladder):
     If 1.1.0 ever starts rejecting the duplicate, this fails — and the schema's
     "loaders must MERGE" paragraph becomes advice rather than the only thing
     standing between a re-run and a doubled graph.
+
+    **This leaves a constraint behind, and it cannot be removed.** `DROP
+    CONSTRAINT` is a parse error in 1.1.0 — asserted two tests up — so the
+    `DupProbe` declaration outlives the run. That is safe here and worth
+    knowing: a constraint declares a key without enforcing it, so an inherited
+    one changes nothing about a later test, and the fixture's guard counts
+    NODES, which the teardown does remove. The alternative is not cleaning up
+    better, it is a fresh container per test.
     """
     assert "error" not in query(
         ladder, "CREATE CONSTRAINT ON (u:DupProbe) ASSERT u.k IS UNIQUE")
@@ -354,4 +398,36 @@ def test_a_constraint_declares_the_key_and_does_not_enforce_it(ladder):
         "1.1.0 now rejects a duplicate against a declared key — the schema says "
         "it does not, and every 'loaders must MERGE' note rests on that")
     held = rows(ladder, "MATCH (n:DupProbe) RETURN count(n)")[0][0]
-    assert held == 2, f"expected both duplicates to be stored, got {held}"
+    assert int(held) == 2, f"expected both duplicates to be stored, got {held!r}"
+
+
+def test_a_5xx_is_a_transport_failure_and_a_400_is_a_refusal(monkeypatch):
+    """The distinction two tests in this file rest on.
+
+    `query()` reports every failure in one `{"error": …}` shape, so the tests
+    asserting "1.1.0 REFUSED this" need a way to tell a refusal from a dying
+    engine. The flag was set for a non-JSON 200, an unreadable body and a
+    URLError — and NOT for an HTTPError with a readable body, which is exactly
+    what a 500 from a failing engine looks like. Both refusal tests would have
+    passed on an engine failure: the failure the flag exists to close.
+
+    A 400 carrying a parse error is a genuine rejection and must NOT be
+    flagged, or those tests would skip the finding they exist to record.
+    """
+    def failing(code, body):
+        def urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(
+                "http://x", code, "boom", {}, io.BytesIO(body))
+        return urlopen
+
+    monkeypatch.setattr(urllib.request, "urlopen", failing(500, b"upstream died"))
+    got = query("http://x", "MATCH (n) RETURN n")
+    assert got.get("transport") is True, got
+
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        failing(400, b'{"error": "Parse error: unexpected token"}'))
+    got = query("http://x", "MATCH (n) RETURN n")
+    assert "error" in got, got
+    assert not got.get("transport"), (
+        "a 400 parse error was flagged as a transport failure, which would make "
+        "every 'the engine refused this' test skip its own finding")

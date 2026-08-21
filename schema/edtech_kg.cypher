@@ -315,11 +315,21 @@ CREATE CONSTRAINT ON (cp:Competency) ASSERT cp.id IS UNIQUE;
 // EarningsRecord is a node, not a property on Occupation, because the figure is
 // per cohort and per year and revises — Q55 asks which rankings move when it
 // does.
-// id = sha1("<what it is about>|<cohort>|<year>|<source>") — the same composite
-// shape as Completion, for the same reason: several publishers report earnings
-// for overlapping populations, and a row from College Scorecard is not a row
-// from BLS even where both name the same occupation and year. Tier 2; the
-// components firm up when the first source is loaded (edtech-kg#21, #37).
+//
+// The subject is named by kind and id rather than described. An earlier
+// spelling read "<what it is about>", which is a description a loader cannot
+// implement — and the two edges below already say the figure is about exactly
+// one of an occupation or a programme.
+//
+// The same composite shape as Completion, for the same reason: several
+// publishers report earnings for overlapping populations, and a row from
+// College Scorecard is not a row from BLS even where both name the same
+// occupation and year. Tier 2; the components firm up when the first source
+// is loaded (edtech-kg#21, #37).
+//
+// id = sha1("<subject kind>|<subject id>|<cohort>|<year>|<source>"), where
+// subject kind is "occupation" or "programme" and subject id is its SOC or
+// CIP code.
 CREATE CONSTRAINT ON (er:EarningsRecord) ASSERT er.id IS UNIQUE;
 CREATE INDEX ON :EarningsRecord(year);
 
@@ -329,8 +339,12 @@ CREATE INDEX ON :EarningsRecord(year);
 // -----------------------------------------------------------------------------
 // Geography — "near me" needs this to be true (#44)
 // -----------------------------------------------------------------------------
-// id = "<kind>|<federal identifier>" — "state|VA", "cbsa|47900",
-// "county|51153" — because a bare FIPS code is not unique across kinds. Tier 2 and blocked on #44, which is the question of
+// id = "<kind>|<published identifier>" — "state|VA", "cbsa|47900",
+// "county|51153". Not "federal identifier": the state example is a USPS postal
+// abbreviation, not the FIPS code (Virginia is FIPS 51), and calling all three
+// federal invited a loader author to look for a number that is not what the
+// example shows. The kind is carried because a bare code is not unique across
+// kinds — 51 is Virginia as a state FIPS and something else as a county. Tier 2 and blocked on #44, which is the question of
 // what "near me" has to mean before any of this is worth loading.
 CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 

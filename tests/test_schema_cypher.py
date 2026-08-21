@@ -1,32 +1,28 @@
-"""The schema file must match what the documents claim about it.
+"""The cypher file itself — its syntax, its structure, and how it is read.
 
 `schema/edtech_kg.cypher` is the executable ontology, not prose. The same test
 in `regulatory-affairs-kg` caught both a constraint collision and a syntax form
 the engine does not parse — neither of which two rounds of reading had found.
 
-No engine. These parse the file and compare it against `docs/schema.md` and
-`docs/questions.md`; the tests that need a running instance are in
-`tests/test_schema_engine.py`, and the helpers both use are in
-`tests/schema_source.py`.
+No engine, and no documents. These read only the cypher: that every label is
+constrained once, that the syntax is the form 1.1.0 parses, that a commented-out
+constraint is not counted, and that every key states what it is composed of.
 
-Split out at 599 lines, when review skipped the whole file as too large to
-read — the second time a test file in this repo has been the thing nobody
-could check.
+The file against `docs/schema.md` and `docs/questions.md` is
+`tests/test_schema_documents.py`. The tests that need a running instance are
+`tests/test_schema_engine.py`, and the readers all three share are in
+`tests/schema_source.py`.
 """
 
 import re
 
 import pytest
 
-from tests.schema_source import (QUESTIONS, SCHEMA, SCHEMA_DOC, code,
-                                 constraint_line, declarations, edges,
-                                 first_column, labels, section, statements)
-from tests.spelling import spelled
+from tests.schema_source import (SCHEMA, WRAP_LIMIT, code, constraint_line,
+                                 declarations,
+                                 edges, first_column, labels, section,
+                                 statements)
 
-
-# --------------------------------------------------------------------------
-# the file itself
-# --------------------------------------------------------------------------
 
 def test_every_label_is_constrained_once():
     """A label constrained twice is how a key collision gets in."""
@@ -123,43 +119,6 @@ def test_only_the_first_column_is_read():
     assert first_column("| `REQUIRES` | `Course` -> `Course` | x |") == {"REQUIRES"}
 
 
-# --------------------------------------------------------------------------
-# the schema against the documents that describe it
-# --------------------------------------------------------------------------
-
-def test_every_constrained_label_appears_in_the_schema_doc():
-    """A label nobody documented is a label nobody can use."""
-    documented = SCHEMA_DOC.read_text()
-    missing = [label for label in labels() if f"`{label}`" not in documented]
-    assert not missing, f"in the cypher but not in docs/schema.md: {missing}"
-
-
-def test_every_documented_label_exists_in_the_schema():
-    """The reverse: the doc must not promise a label the ontology does not
-    declare. Both tables in docs/schema.md are label tables."""
-    # `section()`, not a raw split: `split(h)[0]` on a renamed heading yields
-    # the WHOLE document as the "label table", so `first_column` finds rows
-    # from every table on the page and the check passes on the wrong set.
-    tables = section(SCHEMA_DOC.read_text(), "# Node labels — tier 1", "## Edge types")
-    documented = first_column(tables)
-    assert documented, "no label rows found — did the tables change shape?"
-    assert documented <= set(labels()), f"documented but not declared: {documented - set(labels())}"
-
-
-def documented_edges() -> set[str]:
-    """The edge table's first column. Two tests sliced and parsed the same
-    table independently, so a change had to be made in both places."""
-    table = section(SCHEMA_DOC.read_text(), "## Edge types", "## Why these shapes")
-    documented = first_column(table)
-    assert documented, "no edge rows found — a reflowed table would pass vacuously"
-    return documented
-
-
-def test_every_documented_edge_exists_in_the_schema():
-    documented = documented_edges()
-    assert documented <= edges(), f"documented but not in the cypher: {documented - edges()}"
-
-
 def test_the_prerequisite_edge_is_present():
     """REQUIRES is what makes nineteen of the twenty tier-4 questions
     answerable. If it ever disappears, the graph argument goes with it."""
@@ -199,81 +158,6 @@ def test_the_schema_refuses_the_edges_the_sources_do_not_publish():
             f"`-[:EQUIVALENT_TO{properties}]->`")
 
 
-def test_the_schema_doc_agrees_with_the_questions_it_claims_to_serve():
-    """`docs/schema.md` says "nineteen of the twenty tier-4 questions" — a
-    hand-written number about a different document, which is the class of claim
-    this repo has had to correct three times."""
-    block = section(QUESTIONS.read_text(), "## Tier 4", "## Tier 5")
-    questions = re.split(r"\*\*Q\d+", block)[1:]
-    answerable = sum(1 for q in questions if "✅" in q)
-
-    # Read the document's own words and compare integers. Predicting how it
-    # will spell a number wedges the test: with a digits fallback, a count
-    # outside the word map demands the literal digits, so spelling it out —
-    # the natural fix, and what both documents do — leaves this failing.
-    claim = SCHEMA_DOC.read_text().lower()
-    stated = re.search(r"([\w-]+) of the ([\w-]+) tier-4", claim)
-    assert stated, "the schema doc no longer states a tier-4 count in that shape"
-    assert (spelled(stated.group(1)), spelled(stated.group(2))) == (answerable, len(questions)), (
-        f"the schema doc says {stated.group(0)!r}, but questions.md has "
-        f"{answerable} answerable of {len(questions)}"
-    )
-
-
-def test_the_competency_gap_count_agrees_with_the_questions():
-    """docs/schema.md and the cypher both said six; questions.md says three.
-    The schema was drafted before #65 corrected that count, and the stale
-    figure shipped in two files — the hand-counted-figure class again, one
-    document removed from where it was fixed."""
-    block = section(QUESTIONS.read_text(), "## Tier 1", "## The competency gap")
-    # Explicit pairing, not `zip(*[iter(...)]*2)`: that drops a trailing
-    # element when the split is odd, so the last question on the page could
-    # vanish from the count without anything failing.
-    parts = re.split(r"\*\*Q(\d+)", block)[1:]
-    assert len(parts) % 2 == 0, (
-        f"the tier-1 block splits into {len(parts)} pieces, which is odd — the "
-        f"question markers and their bodies no longer alternate")
-    blocked = [parts[i] for i in range(0, len(parts), 2)
-               if "competency" in parts[i + 1].lower()]
-    # Anchored on the competency-gap sentence itself. A looser pattern matched
-    # an unrelated "those questions was blocked" elsewhere on the page.
-    for path, pattern in ((SCHEMA_DOC, r"([\w-]+) questions?[^.]*?blocked on one thing"),
-                          (SCHEMA, r"competency gap — ([\w-]+) questions")):
-        stated = re.search(pattern, path.read_text().lower())
-        assert stated, f"{path.name} no longer states a competency-gap count"
-        assert spelled(stated.group(1)) == len(blocked), (
-            f"{path.name} says {stated.group(1)!r}, but questions.md blocks "
-            f"{len(blocked)}: {blocked}")
-
-
-def test_what_it_does_not_claim_is_written_down():
-    """The house standard: limits stated before anyone finds them."""
-    for document in (SCHEMA.read_text(), SCHEMA_DOC.read_text()):
-        assert "does not claim" in document.lower()
-
-
-def test_tier_two_labels_are_marked_as_empty():
-    """A modelled-but-unpopulated label read as populated would overstate the
-    graph. The doc must say which are which."""
-    doc = SCHEMA_DOC.read_text()
-    assert "modelled and empty" in doc
-    modelled = section(doc, "modelled and empty", "## Edge types")
-    for label in ("Credential", "Pathway", "Level", "Competency", "EarningsRecord"):
-        assert f"`{label}`" in modelled, label
-
-
-def test_every_edge_in_the_schema_is_documented():
-    """The reverse direction, which labels already had and edges did not: an
-    edge added to the cypher and never written down would not have failed.
-
-    Only the first column counts. Collecting every backticked word in the table
-    picks up the node labels in the From/To column too, so an edge sharing a
-    name with a label would pass without being documented."""
-    documented = documented_edges()
-    missing = sorted(edges() - documented)
-    assert not missing, f"in the cypher but not in docs/schema.md: {missing}"
-
-
 def test_no_label_is_keyed_on_a_bare_path():
     """A catalogue-relative path does not carry the district. `probe_pwcs`
     resolves by path, which is correct inside one catalogue and only inside
@@ -305,10 +189,11 @@ def test_the_url_key_states_how_it_is_normalised():
     # block for the word instead lets a gutted rule pass: "lower" also occurs
     # in the sentence explaining why the PATH is not lower-cased, so a host
     # line reading "host — whatever" still found it.
-    lines = [l.strip(" /") for l in rule.splitlines() if l.strip(" /")]
+    lines = [line.strip(" /") for line in rule.splitlines()
+             if line.strip(" /")]
     for part, decision in (("host", "lower"), ("path", "preserved"),
                            ("trailing", "removed"), ("query", "dropped")):
-        stated = next((l for l in lines if l.startswith(part)), None)
+        stated = next((line for line in lines if line.startswith(part)), None)
         assert stated, f"the rule does not have a line for {part}"
         assert decision in stated, (
             f"the {part} line does not say it is {decision}: {stated!r}")
@@ -335,24 +220,6 @@ def test_the_equivalence_edge_states_its_direction():
     text = SCHEMA.read_text()
     assert "not symmetric" in text.lower()
     assert "traverse both" in text.lower()
-
-
-def test_the_unenforced_merge_rule_is_admitted():
-    """The file requires loaders to MERGE because 1.1.0 does not reject a
-    duplicate CREATE — and etl/loader.py is still the repo template, so nothing
-    enforces it. That gap is stated rather than left implied.
-
-    Matched on the CLAIM, not on one sentence. The previous version pinned the
-    exact words "Nothing enforces the MERGE rule yet", so moving the paragraph
-    out of the numbered scope list — where it did not belong, being a statement
-    about loaders rather than about scope — broke a test that has no opinion
-    about where the paragraph sits.
-    """
-    doc = " ".join(SCHEMA_DOC.read_text().split()).lower()
-    assert "merge rule is not enforced" in doc or "nothing enforces the merge rule" in doc, \
-        "the doc no longer admits that nothing enforces the MERGE rule"
-    assert "duplicate create" in doc, \
-        "the reason the rule matters — 1.1.0 accepts a duplicate CREATE — is gone"
 
 
 def test_a_url_in_a_string_literal_survives_comment_stripping():
@@ -399,7 +266,8 @@ def test_a_trailing_comment_on_the_last_line_still_reads_as_terminated():
     is not a defect. Through `code()`, both spellings pass."""
     for ending in ("CREATE INDEX ON :C(year);",
                    "CREATE INDEX ON :C(year);  // rebuilt annually"):
-        body = "\n".join(l for l in code(ending).splitlines() if l.strip())
+        body = "\n".join(line for line in code(ending).splitlines()
+                        if line.strip())
         assert body.rstrip().endswith(";"), ending
 
 
@@ -429,23 +297,6 @@ def test_a_renamed_heading_fails_with_a_sentence_not_an_index_error():
     with pytest.raises(AssertionError, match="no longer follows"):
         section("## Edge types\nrows", "## Edge types", "## Why these shapes")
     assert section("a ## H b ## J c", "## H", "## J").strip() == "b"
-
-
-def test_no_document_calls_960_a_course_count():
-    """The tier-1 correction says the course count is 795; a later section still
-    said "one district, 960 courses". A page that corrects itself in one place
-    and repeats the error in another is worse than one that never corrected it.
-
-    Both files, not just the doc. The guard used to read `docs/schema.md`
-    alone, and the same wrong figure was sitting in the cypher's own "what this
-    does NOT claim" section — the stale-figure-one-file-over class this repo
-    has now corrected three times.
-    """
-    for path in (SCHEMA_DOC, SCHEMA):
-        flat = " ".join(path.read_text(errors="replace").split())
-        assert "960 courses" not in flat, (
-            f"{path.name} still calls 960 a course count; it is the sitemap "
-            f"page count, and the course count is 795")
 
 
 def test_every_composite_key_names_its_components():
@@ -481,3 +332,47 @@ def test_every_composite_key_names_its_components():
     assert not undocumented, (
         f"these are keyed on an opaque id and do not state what it is composed "
         f"of, so a bad key is undetectable after load: {sorted(undocumented)}")
+
+
+def test_a_constraint_form_the_pattern_does_not_know_fails_loudly():
+    """`DECLARATION` reads `… ASSERT n.p IS UNIQUE`. A form it does not know —
+    `IS NODE KEY`, a composite, anything a later engine adds — used to drop out
+    of `declarations()` silently, and every check reading that list then passed
+    on a smaller set.
+
+    1.1.0 does not parse `IS NODE KEY` today, measured, so this guards the file
+    changing rather than the file as it is.
+    """
+    with pytest.raises(AssertionError, match="match the declaration pattern"):
+        declarations("CREATE CONSTRAINT ON (n:A) ASSERT n.k IS UNIQUE;\n"
+                     "CREATE CONSTRAINT ON (n:B) ASSERT (n.a, n.b) IS NODE KEY;\n")
+    # The known form still parses cleanly.
+    assert declarations("CREATE CONSTRAINT ON (n:A) ASSERT n.k IS UNIQUE;") == [("A", "k")]
+
+
+def test_a_block_comment_is_refused_rather_than_half_parsed():
+    """`/* … */` is legal Cypher and 1.1.0 accepts it — measured. The readers
+    here strip only `//`, so one would pass through into a statement and the
+    failure would surface as "this is not a constraint or an index", pointing
+    at the wrong thing."""
+    with pytest.raises(AssertionError, match="block"):
+        code("/* a note */\nCREATE INDEX ON :C(year);")
+    assert "CREATE INDEX" in code("// a note\nCREATE INDEX ON :C(year);")
+
+
+def test_a_declaration_wrapped_wider_than_the_window_raises_rather_than_vanishing():
+    """`None` from `constraint_line` means "not declared". A declaration
+    wrapped wider than the search window would also have returned `None` —
+    indistinguishable, so the caller's assertion would have reported the wrong
+    fault: "this label is not declared" about a label that plainly is.
+
+    The window is generous (the widest wrap in the real file is one line), so
+    this is a guard on the failure MODE rather than on a case the file has.
+    """
+    wide = ("CREATE CONSTRAINT ON\n" + "\n" * (WRAP_LIMIT + 2) +
+            "  (c:Stretched)\n  ASSERT c.url IS UNIQUE;\n")
+    with pytest.raises(AssertionError, match="wrapped wider"):
+        constraint_line("Stretched", wide)
+
+    # Not declared at all is still a quiet None — that is a real answer.
+    assert constraint_line("Absent", "CREATE INDEX ON :C(year);") is None

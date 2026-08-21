@@ -10,16 +10,38 @@ a running instance — and the helpers were the only reason they shared a file.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = ROOT / "schema" / "edtech_kg.cypher"
+
+
+@lru_cache(maxsize=1)
+def schema_text() -> str:
+    """The schema file, read once.
+
+    `code()`, `patterns()` and `constraint_line()` each re-read it on every
+    call, and `constraint_line()` is called once per label — so a single test
+    run read the same unchanging file dozens of times. Cached, because it is
+    the same file for the life of the process and nothing here writes to it.
+    """
+    return SCHEMA.read_text(encoding="utf-8")
 SCHEMA_DOC = ROOT / "docs" / "schema.md"
 QUESTIONS = ROOT / "docs" / "questions.md"
 
 
+BLOCK_COMMENT = re.compile(r"/\*")
+
+
 def strip_comment(line: str) -> str:
     """Drop a `//` comment, but not a `//` inside a string literal.
+
+    **Only `//`.** A `/* … */` block comment is legal Cypher and 1.1.0 accepts
+    it — measured — so one added to the schema would pass straight through here
+    into a statement, and the failure would surface as "this statement is not a
+    constraint or an index", pointing at the wrong thing. The file uses `//`
+    throughout; `code()` refuses a block comment rather than half-parsing one.
 
     Splitting unconditionally truncates `MERGE (n {url: 'https://x'})` at the
     scheme. No statement in the schema carries a URL today — the URLs are all
@@ -55,7 +77,13 @@ def code(text: str | None = None) -> str:
     synthetic line proves the technique and says nothing about the code that
     ships — the dead-path test, which this repo has shipped before.
     """
-    source = SCHEMA.read_text(encoding="utf-8") if text is None else text
+    source = schema_text() if text is None else text
+    assert not BLOCK_COMMENT.search(source), (
+        "this file uses `//` comments throughout and the readers here strip "
+        "only those. A `/* … */` block is legal Cypher and 1.1.0 accepts it, "
+        "so it would pass through into a statement — refused here rather than "
+        "half-parsed, because a partial comment parser is how a statement gets "
+        "silently truncated.")
     return "\n".join(strip_comment(line) for line in source.splitlines())
 
 
@@ -98,7 +126,7 @@ def patterns(text: str | None = None) -> str:
     Takes `text` for the same reason `code()` does: so a test can drive it
     with markup the file does not contain, rather than reimplementing it.
     """
-    return SCHEMA.read_text(encoding="utf-8") if text is None else text
+    return schema_text() if text is None else text
 
 
 def edges(text: str | None = None) -> set[str]:
@@ -162,23 +190,61 @@ def declarations(text: str | None = None) -> list[tuple[str, str]]:
     Whitespace is collapsed before matching, for the reason `labels()` gives:
     a declaration wrapped at the line width matches nothing, drops out of the
     list, and every containment check against the smaller list passes.
+
+    **Every `CREATE CONSTRAINT` must match, and that is asserted.** The pattern
+    reads `… ASSERT n.p IS UNIQUE`; a form it does not know — `IS NODE KEY`, a
+    composite, anything a later engine adds — would otherwise drop out
+    silently, which is the same vacuous pass this module exists to prevent,
+    one level up. 1.1.0 does not parse `IS NODE KEY` today (measured), so this
+    is a guard against the file changing rather than against the file as it is.
     """
-    return DECLARATION.findall(" ".join(code(text).split()))
+    flat = " ".join(code(text).split())
+    found = DECLARATION.findall(flat)
+    declared = len(re.findall(r"CREATE CONSTRAINT\b", flat))
+    assert len(found) == declared, (
+        f"{declared} CREATE CONSTRAINT statements in the schema and only "
+        f"{len(found)} match the declaration pattern. The unmatched ones are "
+        f"invisible to every check that reads this list — widen the pattern "
+        f"rather than leaving them out.")
+    return found
 
 
-def constraint_line(label: str) -> int | None:
-    """The line the declaration of `label` ENDS on, or None.
+# How many lines one declaration may be wrapped across. Five is generous — the
+# longest in the file is one — but the number matters, so a declaration wrapped
+# wider than this must FAIL rather than silently not be found.
+WRAP_LIMIT = 5
 
-    Callers want the comment block above a declaration, so they need a line
-    number — but they were finding it with `f":{label})" in line`, which is
-    exactly the line-local test that misses a wrapped declaration. This walks
-    a growing window so a declaration spanning several lines is still located
-    by its last line, which is the one the comment block sits above.
+
+def constraint_line(label: str, text: str | None = None) -> int | None:
+    """The **0-indexed** line the declaration of `label` ends on.
+
+    0-indexed because callers slice `lines[start:at]` to read the comment block
+    above it, and an off-by-one there is a comment block that silently excludes
+    its first line. Stated here because the convention is not visible at the
+    call site.
+
+    Callers want that comment block, so they need a line number — but they were
+    finding it with `f":{label})" in line`, the line-local test that misses a
+    wrapped declaration. This walks a growing window instead.
+
+    `None` means the label is not declared at all. It does NOT mean "declared
+    but wrapped too wide": that case raises, because a silent `None` there is
+    indistinguishable from "not declared", and the caller's assertion would
+    then report the wrong fault.
     """
-    lines = SCHEMA.read_text(encoding="utf-8").splitlines()
+    # `text` for the same reason `code()` takes it: so a test can drive this
+    # against a hazard the real file does not contain — here, a declaration
+    # wrapped wider than the window.
+    lines = (schema_text() if text is None else text).splitlines()
     for end in range(len(lines)):
-        window = " ".join(" ".join(lines[max(0, end - 4):end + 1]).split())
+        window = " ".join(" ".join(lines[max(0, end - WRAP_LIMIT + 1):end + 1]).split())
         for found, _ in DECLARATION.findall(window):
             if found == label:
                 return end
+
+    declared = {name for name, _ in declarations(text)}
+    assert label not in declared, (
+        f"{label} IS declared, but its declaration could not be located within "
+        f"{WRAP_LIMIT} lines — it is wrapped wider than that. Returning None "
+        f"here would be indistinguishable from 'not declared at all'.")
     return None

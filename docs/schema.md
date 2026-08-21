@@ -30,7 +30,7 @@ source holds, not what any graph contains.
 | `School` | `ncessch` | A school, CCD | 102,268 |
 | `District` | `leaid` | A school district, CCD | 19,714 |
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
-| `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | 138 nodes, one per course that states one |
+| `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**, across the pages that state any. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key |
 | `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
 
 **Where the district's three figures come from.** `etl/probe_pwcs.py` reports
