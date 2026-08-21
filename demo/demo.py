@@ -260,7 +260,8 @@ QUESTIONS: list[dict] = [
     dict(tier=5, question="What does a CTE pathway require that its own page never says?",
          aside="Two structures at once — the pathway's course list, and "
                "prerequisites of unknown depth reaching outside it. A family "
-               "reads the IT page, sees eleven courses, and misses four more.",
+               "reads the IT specialty program page, sees nineteen courses, "
+               "and misses five more it never lists.",
          queries=[(["pathway", "requirement it never lists", "reached by"],
                    "MATCH (p:Pathway)-[:INCLUDES]->(c:Course)-[:REQUIRES*1..8]->(need:Course) "
                    "WHERE NOT EXISTS { MATCH (p)-[:INCLUDES]->(need) } "
