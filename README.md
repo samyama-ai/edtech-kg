@@ -1,7 +1,5 @@
 # Education-to-Career Pathways Knowledge Graph
 
-[![CI](https://git.samyama.ai/Samyama.ai/edtech-kg/actions/workflows/ci.yml/badge.svg)](https://git.samyama.ai/Samyama.ai/edtech-kg/actions?workflow=ci.yml)
-
 **1,098 nodes. 1,287 edges. One school district's published course catalogue, as a graph
 you can walk — plus eight measured public sources for the college and career side.**
 
