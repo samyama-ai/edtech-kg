@@ -10,13 +10,15 @@ Reading the catalogue is `tests/test_pwcs_source.py`; writing it is
 
 from __future__ import annotations
 
+import json
+import math
 from pathlib import Path
 
 import pytest
 
+import etl.engine as module
 from etl import load_pwcs as loader
-from etl import pwcs_source as reader
-from etl.engine import Unquotable
+from etl.engine import Engine, Unquotable
 
 CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
 
@@ -28,6 +30,44 @@ needs_cache = pytest.mark.skipif(
     not CACHE.exists() or not any(CACHE.iterdir()),
     reason="no cached catalogue in data/pwcs — run `python -m etl.probe_pwcs` first")
 
+
+@pytest.fixture
+def replies(monkeypatch):
+    """Stand one canned reply in for the engine, and record what was sent.
+
+    `monkeypatch`, not a hand-rolled try/finally around the stdlib global.
+    Four tests each saved and restored `urllib.request.urlopen` themselves —
+    boilerplate that mutates urllib for the whole interpreter, so a test
+    failing between the swap and the finally leaves every later test talking to
+    a stub. Patching `etl.engine`'s own reference confines it to this module,
+    and pytest undoes it even when the test raises.
+    """
+    def install(payload: bytes):
+        sent = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return payload
+
+        def urlopen(request, timeout=None):
+            sent["url"] = request.full_url
+            sent["method"] = request.get_method()
+            sent["body"] = request.data
+            sent["headers"] = dict(request.header_items())
+            return Response()
+
+        monkeypatch.setattr(module.urllib.request, "urlopen", urlopen)
+        return sent
+
+    return install
+
+
 # --------------------------------------------------------------------------
 # lit() — 1.1.0 has no escape sequence, so the quote choice IS the defence
 # --------------------------------------------------------------------------
@@ -38,13 +78,23 @@ needs_cache = pytest.mark.skipif(
     ('say "hi"', "'say \"hi\"'"),
     ("back\\slash", "'back\\slash'"),
     (None, "null"),
-    (True, "true"),
-    (False, "false"),
     (3, "3"),
     (1.5, "1.5"),
 ])
 def test_a_value_is_wrapped_in_the_quote_it_does_not_contain(value, expected):
     assert loader.lit(value) == expected
+
+
+def test_a_bool_is_not_rendered_as_a_number():
+    """`isinstance(True, int)` is true, so the bool branch has to come first.
+    Load-bearing ordering, and untested until now.
+
+    Deliberately not a row in the table above — the table asserts renderings,
+    this asserts a branch ORDER, and a row saying `True -> "true"` states the
+    outcome without saying what it is guarding."""
+    assert loader.lit(True) == "true"
+    assert loader.lit(False) == "false"
+    assert loader.lit(1) == "1", "an int must still render as a number"
 
 
 def test_a_value_holding_both_quotes_is_refused_not_mangled():
@@ -68,97 +118,120 @@ def test_a_quote_cannot_terminate_the_literal_early():
         assert rendered[0] not in value, rendered
 
 
+def test_a_non_finite_float_is_refused_rather_than_sent():
+    """`str(float('nan'))` is `nan`, which 1.1.0 does not parse. Sent, the
+    statement is rejected at the far end with a message about the whole query
+    rather than about the value; refused here, the offending value is named."""
+    for value in (math.nan, math.inf, -math.inf):
+        with pytest.raises(Unquotable):
+            loader.lit(value)
+
+
 @needs_cache
 def test_no_value_in_this_catalogue_is_unquotable():
     """Stated as a measurement rather than a hope — if a future catalogue
-    breaks it, this says so rather than the loader raising mid-run."""
+    breaks it, this says so rather than the loader raising mid-run.
+
+    The count is asserted. The loop alone proved nothing: `read()` returning
+    empty lists, or records whose fields are all None, ran zero `lit()` calls
+    and passed — reporting a measurement nobody had made.
+    """
     data = loader.read()
+    checked = 0
     for record in data["subjects"] + data["courses"] + data["pathways"]:
         for value in (record["url"], record["title"], record.get("requirements_text")):
             if value:
                 loader.lit(value)
+                checked += 1
+    assert checked > 1_000, (
+        f"only {checked} values were quotable-checked; the catalogue holds "
+        f"~1,000 pages, so this measured almost nothing")
 
 
 # --------------------------------------------------------------------------
 # the engine client
 # --------------------------------------------------------------------------
 
-def test_a_non_finite_float_is_refused_rather_than_sent():
-    """`str(float('nan'))` is `nan`, which 1.1.0 does not parse. Sent, the
-    statement is rejected at the far end with a message about the whole query
-    rather than about the value; refused here, the offending value is named."""
-    import math
-    for value in (math.nan, math.inf, -math.inf):
-        with pytest.raises(Unquotable):
-            loader.lit(value)
+def test_a_well_formed_reply_is_decoded_and_the_request_is_shaped_right(replies):
+    """The happy path, which nothing covered: every other test here asserts a
+    failure, so a client that decoded correctly and posted to the wrong URL —
+    or sent the query under the wrong key — would have passed the whole file."""
+    sent = replies(b'{"columns": ["n"], "records": [[7]]}')
+    engine = Engine("http://engine:8080/", graph="edtech")
+
+    assert engine.run("MATCH (n) RETURN count(n)") == {
+        "columns": ["n"], "records": [[7]]}
+    assert sent["url"] == "http://engine:8080/api/query", sent["url"]
+    assert sent["method"] == "POST", sent["method"]
+    assert json.loads(sent["body"]) == {
+        "query": "MATCH (n) RETURN count(n)", "graph": "edtech"}
+    assert sent["headers"].get("Content-type") == "application/json", sent["headers"]
+    assert engine.statements == 1
 
 
-def test_a_bool_is_not_rendered_as_a_number():
-    """`isinstance(True, int)` is true, so the bool branch has to come first.
-    Load-bearing ordering, and untested until now."""
-    assert loader.lit(True) == "true"
-    assert loader.lit(False) == "false"
+def test_scalar_returns_the_one_value(replies):
+    replies(b'{"columns": ["c"], "records": [[795]]}')
+    assert Engine("http://x").scalar("MATCH (n:Course) RETURN count(n)") == 795
 
 
-def test_a_rejected_statement_is_an_error_even_though_the_status_was_200():
+def test_a_rejected_statement_is_an_error_even_though_the_status_was_200(replies):
     """The engine answers 200 with an `error` key for a parse failure."""
-    from etl.engine import Engine
-    engine = Engine("http://x")
-
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self): return b'{"error": "Parse error: unexpected token"}'
-
-    import etl.engine as module
-    original = module.urllib.request.urlopen
-    module.urllib.request.urlopen = lambda *a, **k: Response()
-    try:
-        with pytest.raises(RuntimeError, match="Parse error"):
-            engine.run("MATCH (n) RETURN n")
-    finally:
-        module.urllib.request.urlopen = original
+    replies(b'{"error": "Parse error: unexpected token"}')
+    with pytest.raises(RuntimeError, match="Parse error"):
+        Engine("http://x").run("MATCH (n) RETURN n")
 
 
-def test_a_non_object_response_says_so_rather_than_asking_it_for_a_key():
+def test_a_non_object_response_says_so_rather_than_asking_it_for_a_key(replies):
     """`"error" in result` on a string asks about substrings — a different
     question that happens not to raise."""
-    from etl.engine import Engine
-    engine = Engine("http://x")
-
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self): return b'"just a string"'
-
-    import etl.engine as module
-    original = module.urllib.request.urlopen
-    module.urllib.request.urlopen = lambda *a, **k: Response()
-    try:
-        with pytest.raises(RuntimeError, match="not an object"):
-            engine.run("MATCH (n) RETURN n")
-    finally:
-        module.urllib.request.urlopen = original
+    replies(b'"just a string"')
+    with pytest.raises(RuntimeError, match="not an object"):
+        Engine("http://x").run("MATCH (n) RETURN n")
 
 
-def test_scalar_does_not_confuse_no_rows_with_a_null_value():
+def test_a_reply_with_no_records_key_names_the_statement(replies):
+    """`run(query)["records"]` raised a bare KeyError naming a string, which
+    says nothing about which statement produced it — the one failure shape this
+    class otherwise works to eliminate."""
+    replies(b'{"columns": ["n"]}')
+    with pytest.raises(RuntimeError, match="without records"):
+        Engine("http://x").scalar("MATCH (n) RETURN count(n)")
+
+
+def test_scalar_does_not_confuse_no_rows_with_a_null_value(replies):
     """It returned None for three different things — no rows, an empty row, and
     a null. A caller cannot tell "matched nothing" from "the query is wrong"."""
-    from etl.engine import Engine
+    replies(b'{"columns": ["n"], "records": []}')
+    with pytest.raises(RuntimeError, match="no rows at all"):
+        Engine("http://x").scalar("MATCH (n:Nothing) RETURN count(n)")
+
+    replies(b'{"columns": ["n"], "records": [[]]}')
+    with pytest.raises(RuntimeError, match="no columns"):
+        Engine("http://x").scalar("MATCH (n:Nothing) RETURN count(n)")
+
+    replies(b'{"columns": ["n"], "records": [[null]]}')
+    assert Engine("http://x").scalar("MATCH (n) RETURN n.missing") is None, \
+        "a null the engine actually returned is a value, not an absence"
+
+
+def test_no_attempts_is_a_caller_error_not_an_engine_fault():
+    """`attempts=0` skipped the retry loop and fell through with `result =
+    None`, which the shape check then reported as the ENGINE answering with a
+    NoneType — a message describing a server fault for a bad argument."""
+    with pytest.raises(ValueError, match="at least 1"):
+        Engine("http://x").run("MATCH (n) RETURN n", attempts=0)
+
+
+def test_an_unquotable_property_stops_before_the_node_is_written(replies):
+    """`upsert` validated identifiers up front but rendered property values
+    inside the second statement, so an Unquotable one raised AFTER the MERGE
+    had landed — leaving a node that exists, carries its key, and has none of
+    its properties. Nothing downstream distinguishes that from a node the
+    source says nothing about."""
+    sent = replies(b'{"columns": [], "records": []}')
     engine = Engine("http://x")
-
-    class Response:
-        payload = b'{"columns": ["n"], "records": []}'
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self): return self.payload
-
-    import etl.engine as module
-    original = module.urllib.request.urlopen
-    module.urllib.request.urlopen = lambda *a, **k: Response()
-    try:
-        with pytest.raises(RuntimeError, match="no rows at all"):
-            engine.scalar("MATCH (n:Nothing) RETURN count(n)")
-    finally:
-        module.urllib.request.urlopen = original
-
+    with pytest.raises(Unquotable):
+        module.upsert(engine, "Course", "url", "https://t/a",
+                      {"title": """it's a "problem\""""})
+    assert engine.statements == 0, "the MERGE was sent before the value was checked"
+    assert not sent, "nothing should have reached the engine"

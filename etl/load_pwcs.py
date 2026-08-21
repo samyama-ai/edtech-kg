@@ -34,13 +34,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 from etl.engine import Engine, lit, upsert
-from etl.pwcs_source import (absolute, parse_pathway, read, requirement_id,
-                             segments)
+from etl.pwcs_source import read, requirement_id, segments
 from etl import probe_pwcs as source
 
 DEFAULT_URL = "http://localhost:8200"
@@ -155,6 +153,17 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
         say(f"  {len(unparsed)} sitemap page(s) did not parse and cannot be "
             f"linked to: {sorted(unparsed)[:3]}")
 
+    # Stated before anyone finds it. Four pages publish a course table and are
+    # not classified as pathways, because this catalogue is classified by URL
+    # depth and those four sit at depth 2. Their rows are never read, so the
+    # INCLUDES count below is short by what they hold. Raised as #87; reported
+    # here rather than fixed, because reclassifying moves the node and edge
+    # totals that three documents quote.
+    if data.get("misfiled"):
+        say(f"  {len(data['misfiled'])} page(s) publish a pathway course table "
+            f"but are loaded as courses, so their rows are NOT written as "
+            f"INCLUDES edges — see #87: {sorted(data['misfiled'])[:2]}")
+
     say(f"  subjects   {len(data['subjects']):>5,}")
     for record in data["subjects"]:
         upsert(engine, "Subject", "url", record["url"],
@@ -191,13 +200,8 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
         say(f"  {orphaned} course(s) have no published subject page; left "
             f"unattached rather than attached to something invented")
 
-    # Course -> Course. The edge this graph exists for.
-    # Deduped before writing, for the reason INCLUDES is: an edge MERGE is
-    # matched on start, type and end alone (#77), so two links on one page
-    # pointing at the same course produce two MERGEs, ONE edge, and a counter
-    # of two — and `verify()` then exits non-zero on a catalogue that is
-    # perfectly well-formed. It does not happen at 240 of 240 today. The shape
-    # should not differ between the two edges for that reason alone.
+    # Course -> Course. The edge this graph exists for. Deduped and resolved
+    # in `prerequisite_pairs`, which states why.
     prerequisites = prerequisite_pairs(data["courses"], by_path)
     if prerequisites["duplicated"]:
         say(f"  {prerequisites['duplicated']} prerequisite link(s) name a course "
@@ -229,19 +233,28 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
         say(f"  {skipped_subjects} subject page(s) state a requirement; not "
             f"loaded — a subject is not a thing a student enrols in")
 
+    # The label comes from the LIST the record was read out of, not from
+    # counting the segments of its URL. Depth is how `pwcs_source` classifies a
+    # page in the first place, so re-deriving it here means one page can be a
+    # Pathway to the reader and a Course to the loader the moment the district
+    # publishes a pathway at a different depth — and the MATCH below would then
+    # look for a label the node does not carry, write no edge, and still count
+    # one.
     requirements = 0
-    for record in data["courses"] + data["pathways"]:
-        text = record.get("requirements_text")
-        if not text:
-            continue
-        label = "Course" if len(segments(record["url"])) == 2 else "Pathway"
-        upsert(engine, "Requirement", "id", requirement_id(record["url"], text),
-               {"text": " ".join(text.split()), "source": CATALOGUE})
-        engine.run(
-            f"MATCH (n:{label} {{url: {lit(record['url'])}}}), "
-            f"(r:Requirement {{id: {lit(requirement_id(record['url'], text))}}}) "
-            f"MERGE (n)-[:HAS_REQUIREMENT]->(r)")
-        requirements += 1
+    for label, records in (("Course", data["courses"]),
+                           ("Pathway", data["pathways"])):
+        for record in records:
+            text = record.get("requirements_text")
+            if not text:
+                continue
+            node_id = requirement_id(record["url"], text)
+            upsert(engine, "Requirement", "id", node_id,
+                   {"text": " ".join(text.split()), "source": CATALOGUE})
+            engine.run(
+                f"MATCH (n:{label} {{url: {lit(record['url'])}}}), "
+                f"(r:Requirement {{id: {lit(node_id)}}}) "
+                f"MERGE (n)-[:HAS_REQUIREMENT]->(r)")
+            requirements += 1
     say(f"  HAS_REQ    {requirements:>5,}")
 
     # Pathway -> Course, with the section and the credit value the district
@@ -257,19 +270,9 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     # 17 of the 202 published rows are a course appearing in two named sections
     # of the same pathway — a real fact about the catalogue, not a duplicate.
     # Rather than write 202 statements and let 17 disappear, the rows are
-    # grouped here and the sections joined onto the one edge the engine can
-    # hold. The collapse is counted and reported, so the number that vanished
-    # is on the page rather than in the difference between two other numbers.
-    # **Resolved through `by_path`, like REQUIRES and IN_SUBJECT.**
-    #
-    # This matched on `absolute(href)` while Course NODES are created from the
-    # sitemap URL verbatim. The two normalise differently — `course_urls()`
-    # returns `<loc>` untouched and `absolute()` strips a trailing slash — so a
-    # sitemap entry ending in "/" would give a node keyed with the slash and a
-    # MATCH looking for it without. The MATCH finds nothing, no edge is
-    # written, and the counter still increments. `verify()` catches it as a
-    # mismatch, which is the design working, but the edge should be resolved
-    # the same way as every other edge rather than relying on that.
+    # grouped in `pathway_edges` and the sections joined onto the one edge the
+    # engine can hold; the collapse is counted and reported, so the number that
+    # vanished is on the page rather than in the difference between two others.
     edges = pathway_edges(data["pathways"], by_path)
     grouped, collapsed = edges["grouped"], edges["collapsed"]
     if edges["unlinkable"]:
@@ -284,6 +287,12 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
             f"the same pathway; the engine holds one edge per pair, so the "
             f"section names are joined onto it")
 
+    # Two statements per edge, not one. `MERGE (p)-[e:INCLUDES]->(c) SET e.x`
+    # does not parse in 1.1.0 — the parser takes `ON CREATE SET` / `ON MATCH
+    # SET` after a MERGE but not a bare SET (#75) — and `ON CREATE SET` alone
+    # fires only on insert, so a re-run after the district edits a section name
+    # would keep the old one. The MATCH … SET always refreshes, which is what a
+    # re-runnable loader needs. Same trade as `upsert`, for the same reason.
     includes = 0
     for (pathway, course), entry in grouped.items():
         engine.run(
@@ -331,6 +340,36 @@ def strip_comment(line: str) -> str:
     return line
 
 
+def split_statements(text: str) -> list[str]:
+    """Split on `;`, but not on a `;` inside a string literal.
+
+    `strip_comment` was made quote-aware and this was not, which left the pair
+    inconsistent: the comment stripper would carefully preserve
+    `MERGE (n {t: 'a;b'})` and the split would then cut it in half, sending the
+    engine two fragments it rejects. No schema statement carries a semicolon in
+    a literal today — which is exactly why nothing would have caught the first
+    one that did.
+
+    Quote tracking only, no parser, for the reason `strip_comment` gives: 1.1.0
+    has no escape sequence inside a string literal, so a quote always opens or
+    closes one and never appears within.
+    """
+    statements, current, quote = [], [], None
+    for character in text:
+        if quote:
+            if character == quote:
+                quote = None
+        elif character in "'\"":
+            quote = character
+        elif character == ";":
+            statements.append("".join(current))
+            current = []
+            continue
+        current.append(character)
+    statements.append("".join(current))
+    return [s.strip() for s in statements if s.strip()]
+
+
 def apply_schema(engine: Engine, quiet: bool = False,
                  schema: Path | None = None) -> int:
     """The constraints, from the schema file — not retyped here.
@@ -340,9 +379,8 @@ def apply_schema(engine: Engine, quiet: bool = False,
     maintained.
     """
     text = (schema or SCHEMA).read_text()
-    statements = [s.strip() for s in
-                  "\n".join(strip_comment(line) for line in text.splitlines()).split(";")
-                  if s.strip()]
+    statements = split_statements(
+        "\n".join(strip_comment(line) for line in text.splitlines()))
     for statement in statements:
         engine.run(statement)
     if not quiet:

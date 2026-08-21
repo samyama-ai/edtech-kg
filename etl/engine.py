@@ -31,6 +31,12 @@ class Engine:
         self.retries = 0
 
     def run(self, query: str, attempts: int = 4) -> dict:
+        # A caller passing 0 skipped the loop entirely and fell through with
+        # `result = None`, which then failed the shape check below reporting
+        # that the ENGINE answered with a NoneType — a message describing a
+        # server fault for what is a caller's argument.
+        if attempts < 1:
+            raise ValueError(f"attempts must be at least 1, got {attempts}")
         payload = json.dumps({"query": query, "graph": self.graph}).encode()
         result = None
         for attempt in range(attempts):
@@ -68,8 +74,6 @@ class Engine:
                 raise RuntimeError(f"unreachable on: {query[:160]}\n{exc}") from exc
         # The engine answers 200 with an `error` key for a parse failure, so a
         # rejected statement is not an HTTP error and would otherwise pass.
-        # The engine answers 200 with an `error` key for a parse failure, so a
-        # rejected statement is not an HTTP error and would otherwise pass.
         # `in` on a non-dict is a different question — on a string it asks about
         # substrings — so the shape is checked before the key.
         if not isinstance(result, dict):
@@ -89,7 +93,15 @@ class Engine:
         query matched nothing" from "the query returned nothing at all", and
         the second is a bug in the query.
         """
-        records = self.run(query)["records"]
+        result = self.run(query)
+        # Not `result["records"]`: a 200 carrying neither `error` nor `records`
+        # raised a bare KeyError naming a string, which says nothing about
+        # which statement produced it — the one failure shape this class
+        # otherwise works to eliminate.
+        if "records" not in result:
+            raise RuntimeError(f"the engine answered without an error and "
+                               f"without records\n  on: {query[:160]}")
+        records = result["records"]
         if not records:
             raise RuntimeError(f"no rows at all from: {query[:160]}")
         if not records[0]:
@@ -115,10 +127,18 @@ def upsert(engine: Engine, label: str, key: str, value: str, props: dict) -> Non
     for name in props:
         identifier(name)
 
-    engine.run(f"MERGE (n:{label} {{{key}: {lit(value)}}})")
-    if props:
-        assignments = ", ".join(f"n.{name} = {lit(v)}" for name, v in props.items())
-        engine.run(f"MATCH (n:{label} {{{key}: {lit(value)}}}) SET {assignments}")
+    # Every value is rendered BEFORE anything is sent. Rendering the property
+    # values inside the second statement meant an Unquotable one raised after
+    # the MERGE had already landed, leaving a node that exists, carries its
+    # key, and has none of its properties. Nothing downstream distinguishes
+    # that from a node the source genuinely says nothing about — it is a
+    # half-written record that looks like a complete one.
+    keyed = lit(value)
+    assignments = ", ".join(f"n.{name} = {lit(v)}" for name, v in props.items())
+
+    engine.run(f"MERGE (n:{label} {{{key}: {keyed}}})")
+    if assignments:
+        engine.run(f"MATCH (n:{label} {{{key}: {keyed}}}) SET {assignments}")
 
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")

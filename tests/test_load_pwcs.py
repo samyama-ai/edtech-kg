@@ -10,35 +10,37 @@ The engine client is `tests/test_engine.py`; the parsing is
 
 from __future__ import annotations
 
+import inspect
+import re
 from pathlib import Path
 
 import pytest
 
 from etl import load_pwcs as loader
-from etl import pwcs_source as reader
 from etl.engine import Unquotable
 
-CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
-
-# `read()` walks 960 pages. Cached they are local and instant; cold it is 960
-# requests to a school district from a test run. `data/` is gitignored, so a
-# fresh clone has none of it, and these would hammer the source rather than
-# fail. Skipped instead — with the command that makes them runnable.
-needs_cache = pytest.mark.skipif(
-    not CACHE.exists() or not any(CACHE.iterdir()),
-    reason="no cached catalogue in data/pwcs — run `python -m etl.probe_pwcs` first")
+SCHEMA = Path(__file__).resolve().parents[1] / "schema" / "edtech_kg.cypher"
 
 # --------------------------------------------------------------------------
 # the loader and the schema must agree on the key
 # --------------------------------------------------------------------------
 
+# Both constraint spellings. The file uses `ON … ASSERT` because the Neo4j-5
+# `FOR … REQUIRE` form does not parse in 1.1.0 — but a pattern pinned to only
+# that form returns an EMPTY map the day the engine catches up and someone
+# modernises the file, and every check below then passes on nothing.
+DECLARATION = re.compile(
+    r"CREATE CONSTRAINT (?:\w+ )?(?:IF NOT EXISTS )?"
+    r"(?:ON|FOR) \(\w+:(\w+)\) (?:ASSERT|REQUIRE) \w+\.(\w+) IS UNIQUE")
+
+
 def declared_keys() -> dict[str, str]:
-    import re
-    from pathlib import Path
-    text = (Path(__file__).resolve().parents[1] / "schema" / "edtech_kg.cypher").read_text()
-    code = "\n".join(line.split("//")[0] for line in text.splitlines())
-    return dict((label, key) for label, key in
-                re.findall(r"CREATE CONSTRAINT ON \(\w+:(\w+)\) ASSERT \w+\.(\w+) IS UNIQUE", code))
+    code = "\n".join(line.split("//")[0] for line in SCHEMA.read_text().splitlines())
+    declared = dict(DECLARATION.findall(" ".join(code.split())))
+    assert declared, (
+        "no constraints parsed out of the schema — a renamed file or a changed "
+        "constraint spelling would otherwise make every check below vacuous")
+    return declared
 
 
 def loader_keys() -> dict[str, str]:
@@ -48,11 +50,23 @@ def loader_keys() -> dict[str, str]:
     single-line call, so wrapping one across lines dropped that label from the
     schema-agreement check silently — a guard quietly covering less than it
     claimed.
+
+    The engine argument is `[^,]+`, not the literal name `engine`. Renaming
+    that parameter — or passing anything else — made the call invisible here
+    while it went on writing nodes.
+
+    Every call site must match, and that is asserted below rather than assumed:
+    a pattern that matches four of five calls reports agreement about the four
+    and says nothing about the fifth, which is the shape of a guard covering
+    less than it claims.
     """
-    import inspect
-    import re
-    return dict(re.findall(r'upsert\(\s*engine,\s*"(\w+)",\s*"(\w+)"',
-                           inspect.getsource(loader), re.S))
+    source = inspect.getsource(loader)
+    matched = re.findall(r'upsert\(\s*[^,]+,\s*"(\w+)",\s*"(\w+)"', source, re.S)
+    call_sites = len(re.findall(r"\bupsert\(", source))
+    assert len(matched) == call_sites, (
+        f"{call_sites} upsert call sites in the loader, {len(matched)} matched "
+        f"by this pattern — the unmatched ones are unchecked")
+    return dict(matched)
 
 
 def test_every_label_the_loader_writes_is_keyed_as_the_schema_declares():
@@ -208,3 +222,42 @@ def test_apply_schema_does_not_truncate_a_statement_carrying_a_url(tmp_path):
     loader.apply_schema(Recorder(), quiet=True, schema=schema)
     assert sent == ["CREATE CONSTRAINT ON (c:C) ASSERT c.url IS UNIQUE",
                     "MERGE (n:C {url: 'https://example.org/x'})"], sent
+
+
+def test_a_semicolon_inside_a_literal_does_not_split_the_statement():
+    """`strip_comment` was made quote-aware and the `;` split was not, so the
+    pair disagreed: the stripper preserved `MERGE (n {t: 'a;b'})` and the split
+    then cut it in half, sending the engine two fragments it rejects.
+
+    No schema statement carries a semicolon in a literal today, which is
+    exactly why nothing would have caught the first one that did."""
+    assert loader.split_statements("MERGE (n:C {t: 'a;b'});\nCREATE INDEX ON :C(y);") \
+        == ["MERGE (n:C {t: 'a;b'})", "CREATE INDEX ON :C(y)"]
+    assert loader.split_statements('MERGE (n:C {t: "x;y"})') == ['MERGE (n:C {t: "x;y"})']
+    assert loader.split_statements("  \n ;; \n") == []
+
+
+def test_a_requirement_is_labelled_from_the_list_it_came_from():
+    """The label was re-derived by counting URL segments, which is how
+    `pwcs_source` classifies a page in the first place. Re-deriving it means
+    one page can be a Pathway to the reader and a Course to the loader — and
+    the MATCH then looks for a label the node does not carry, writes no edge,
+    and still counts one.
+
+    The pathway here sits at COURSE depth on purpose: under the old rule it
+    was labelled `Course`, and no HAS_REQUIREMENT edge could ever match.
+    """
+    sent = []
+
+    class Recorder:
+        def run(self, query):
+            sent.append(query)
+
+    data = {"published": set(), "subjects": [], "courses": [],
+            "pathways": [{"url": "https://catalog.pwcs.edu/specialty/it",
+                          "title": "IT", "requirements_text": "Application required",
+                          "courses": [], "dangling": []}]}
+    loader.load(Recorder(), data, quiet=True)
+    matched = [q for q in sent if "HAS_REQUIREMENT" in q]
+    assert matched, sent
+    assert "MATCH (n:Pathway" in matched[0], matched[0]

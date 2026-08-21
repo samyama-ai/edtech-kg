@@ -164,6 +164,28 @@ CREATE CONSTRAINT ON (r:Requirement) ASSERT r.id IS UNIQUE;
 CREATE CONSTRAINT ON (cm:Completion) ASSERT cm.id IS UNIQUE;
 CREATE INDEX ON :Completion(year);
 
+// Pathway — a published route through courses, keyed on the URL of the page
+// that publishes it, for exactly the reason Course is.
+//
+// This moved out of tier 2. It was declared here keyed on `ctid`, CTDL's
+// identifier, because the Credential Registry was the only publisher in view —
+// 98 pathways against 47,861 courses, which is why it was modelled and left
+// empty. But a school district publishes pathways too, as pages: PWCS publishes
+// 38, sixteen CTE career pathways and twenty-two specialty programs, each with
+// its course list in a typed field. Those are loadable today and are loaded.
+//
+// A district pathway has no ctid. Keeping the ctid key would have given all 38
+// nodes a null value for the declared key — which 1.1.0 accepts silently, since
+// a constraint here declares the key and does not enforce it. That is the exact
+// failure this file warns about two hundred lines further up, and it would have
+// shipped.
+//
+// The Registry's own pathways are still NOT loaded, and when they are they need
+// either a distinct label or a composite key carrying the publisher — the shape
+// already used for Level (`id = "<body>|<code>"`). Raised as #85 rather than
+// decided here on one publisher's evidence.
+CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.url IS UNIQUE;
+
 // =============================================================================
 // TIER 1 — edges
 // =============================================================================
@@ -236,28 +258,6 @@ CREATE INDEX ON :Completion(year);
 // publisher's own terms rather than the vocabulary's CC BY 4.0 (#56), so
 // nothing is loaded until that is settled.
 CREATE CONSTRAINT ON (cr:Credential) ASSERT cr.ctid IS UNIQUE;
-
-// Pathway — a published route through courses. TIER 1, and keyed on the URL of
-// the page that publishes it, for exactly the reason Course is.
-//
-// This moved out of tier 2. It was declared here keyed on `ctid`, CTDL's
-// identifier, because the Credential Registry was the only publisher in view —
-// 98 pathways against 47,861 courses, which is why it was modelled and left
-// empty. But a school district publishes pathways too, as pages: PWCS publishes
-// 38, sixteen CTE career pathways and twenty-two specialty programs, each with
-// its course list in a typed field. Those are loadable today and are loaded.
-//
-// A district pathway has no ctid. Keeping the ctid key would have given all 38
-// nodes a null value for the declared key — which 1.1.0 accepts silently, since
-// a constraint here declares the key and does not enforce it. That is the exact
-// failure this file warns about two hundred lines further up, and it would have
-// shipped.
-//
-// The Registry's own pathways are still NOT loaded, and when they are they need
-// either a distinct label or a composite key carrying the publisher — the shape
-// already used for Level (`id = "<body>|<code>"`). Raised as #85 rather than
-// decided here on one publisher's evidence.
-CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.url IS UNIQUE;
 
 // -----------------------------------------------------------------------------
 // The competency gap — three questions in docs/questions.md are blocked here
