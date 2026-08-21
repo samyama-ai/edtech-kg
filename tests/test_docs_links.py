@@ -24,7 +24,14 @@ BACKTICK = re.compile(r"`((?:docs/|etl/|schema/|tests/)[\w\-./]+\.\w+)`")
 
 
 def references(document: Path):
-    text = document.read_text(errors="replace")
+    # `encoding="utf-8"`, not `errors="replace"`. These are repo-controlled
+    # Markdown files, so the encoding is known — and `read_text()` with no
+    # encoding uses the locale's, which decodes them wrongly on a non-UTF-8
+    # machine. `errors="replace"` stops the crash and substitutes U+FFFD, so a
+    # path with a non-ASCII character then either fails to match the pattern
+    # (a false pass) or resolves to a name that is not there (a confusing false
+    # failure). Naming the encoding fixes the cause rather than the symptom.
+    text = document.read_text(encoding="utf-8")
     for match in LINK.finditer(text):
         yield match.group(1).strip(), "link"
     for match in BACKTICK.finditer(text):

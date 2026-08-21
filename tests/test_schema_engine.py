@@ -54,14 +54,24 @@ def query(url, statement):
     )
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read())
+            body = response.read()
+        # A 200 carrying something that is not JSON — a proxy page, a truncated
+        # reply — raised out of here, losing the statement that caused it. The
+        # caller's job is to report WHICH statement broke, so every failure has
+        # to come back in the same shape.
+        try:
+            return json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return {"error": f"a 200 that is not JSON: {exc}",
+                    "transport": True}
     except urllib.error.HTTPError as exc:
         try:
             return {"error": exc.read().decode(errors="replace")[:300]}
         except Exception:  # noqa: BLE001
-            return {"error": f"HTTP {exc.code}, and the body could not be read"}
+            return {"error": f"HTTP {exc.code}, and the body could not be read",
+                    "transport": True}
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"error": f"engine unreachable mid-run: {exc}"}
+        return {"error": f"engine unreachable mid-run: {exc}", "transport": True}
 
 
 def run(statement):
@@ -139,8 +149,14 @@ def rows(url, statement):
 
 
 @pytest.fixture
-def ladder():
-    """A fresh engine holding only the fixture, torn down afterwards."""
+def empty_engine():
+    """A reachable, EMPTY engine — the guards, and nothing written.
+
+    Split out of `ladder` so a test about the schema alone does not run against
+    fixture data. Constraints are validated against existing rows, so a change
+    to the ladder could surface as a schema failure and send the next person
+    reading the wrong file.
+    """
     if not TEST_URL:
         message = "no engine at SAMYAMA_TEST_URL"
         if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
@@ -158,6 +174,12 @@ def ladder():
         pytest.fail(
             f"SAMYAMA_TEST_URL points at an engine holding {held:,} nodes. These "
             f"tests write and DETACH DELETE; use a fresh instance.")
+    return TEST_URL
+
+
+@pytest.fixture
+def ladder(empty_engine):
+    """A fresh engine holding only the fixture, torn down afterwards."""
     # try/finally: a FIXTURE statement that fails used to abort before `yield`,
     # so the teardown never ran and the nodes it had already written stayed —
     # making every later run fail the "engine holding N nodes" guard above, for
@@ -236,10 +258,14 @@ def test_shortest_path_needs_a_variable_on_both_ends(ladder):
         "1.1.0 refused shortestPath with anonymous endpoints; if it no longer "
         "does, drop the note in docs/schema.md that says it does")
     # A transport failure is not a refusal. `query()` reports an unreachable
-    # engine or a timeout in the same `{"error": …}` shape as a planning
-    # rejection, so the assertion above passed on the engine dying mid-run —
-    # recording a finding that had not been reproduced.
-    assert "unreachable mid-run" not in result["error"], (
+    # engine, a timeout, an unreadable error body or a non-JSON 200 in the same
+    # `{"error": …}` shape as a planning rejection, so this passed on the engine
+    # dying mid-run — recording a finding that had not been reproduced.
+    #
+    # Asked as a FLAG rather than by matching one wording: excluding the string
+    # "unreachable mid-run" left the other three synthesised failures still
+    # reading as refusals.
+    assert not result.get("transport"), (
         f"the engine went away rather than refusing the query, so this proves "
         f"nothing about 1.1.0: {result['error']}")
 
@@ -268,30 +294,35 @@ def test_the_doc_marks_every_tier_four_row_this_file_executes():
         f"{sorted(tested)}")
 
 
-def test_applying_the_schema_twice_changes_nothing(ladder):
+def test_applying_the_schema_twice_changes_nothing(empty_engine):
     """Re-running the file must be safe, because the loader applies it on every
     run. Other Cypher engines error on an already-present constraint, which is
     why the reflex is to ask for `IF NOT EXISTS` — a form 1.1.0 does not parse.
 
     So the property is asserted rather than assumed. If a future release starts
     refusing, this fails and `apply_schema` needs a guard.
+
+    Against `empty_engine`, not `ladder`: a constraint is validated against the
+    rows already present, so running this on fixture data would let a change to
+    the ladder surface as a schema failure.
     """
     for pass_number in (1, 2):
         for statement in statements():
-            result = query(ladder, statement)
+            result = query(empty_engine, statement)
             assert "error" not in result, (
                 f"pass {pass_number} of the schema failed on "
                 f"{statement[:70]} -> {result.get('error')}")
 
 
-def test_a_named_constraint_and_a_drop_are_both_parse_errors(ladder):
+def test_naming_and_dropping_a_constraint_or_index_are_parse_errors(ladder):
     """Recorded so the finding survives review rather than being re-litigated.
 
     "Name the constraints so a specific one can be replaced" is sound advice
-    against an engine that accepts names. This one does not: the named form is
-    a parse error, and `DROP CONSTRAINT` is a parse error too — so naming would
-    buy nothing even if it parsed. The day either is accepted, this goes red
-    and the note in schema/edtech_kg.cypher needs removing.
+    against an engine that accepts names. This one does not: the named
+    CONSTRAINT form, the named INDEX form and `DROP CONSTRAINT` are all parse
+    errors — so naming would buy nothing even if it parsed. The day any of them
+    is accepted, this goes red and the note in schema/edtech_kg.cypher needs
+    removing.
     """
     for statement in (
         "CREATE CONSTRAINT probe_named ON (x:ProbeNamed) ASSERT x.k IS UNIQUE",
@@ -300,7 +331,7 @@ def test_a_named_constraint_and_a_drop_are_both_parse_errors(ladder):
     ):
         result = query(ladder, statement)
         assert "error" in result, f"1.1.0 now accepts {statement!r}"
-        assert "unreachable mid-run" not in result["error"], (
+        assert not result.get("transport"), (
             f"the engine went away rather than refusing: {result['error']}")
 
     # `SHOW CONSTRAINTS` does parse — what is declared can at least be read.

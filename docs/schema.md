@@ -30,12 +30,21 @@ source holds, not what any graph contains.
 | `School` | `ncessch` | A school, CCD | 102,268 |
 | `District` | `leaid` | A school district, CCD | 19,714 |
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
-| `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | 138 |
+| `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | 138 nodes, one per course that states one |
 | `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
 
 **Where the district's three figures come from.** `etl/probe_pwcs.py` reports
 960 — every page in the sitemap — and calls them all courses. The catalogue has
-three levels: 127 subject indexes, 795 courses, 38 CTE pathway pages. So none of
+three levels: 127 subject indexes, 795 courses, 38 CTE pathway pages.
+
+**The 38 are deliberately not modelled on this branch.** They have no node
+label here: `Pathway` is tier 2, keyed on the Credential Registry's `ctid`,
+which a district pathway page does not have. So the split closes as
+127 + 795 + 38 = 960 with one third of it declared and one third named and left
+alone, rather than a third of the subtraction going unaccounted for. Loading
+them is edtech-kg#80, and the key that would let them in is edtech-kg#85.
+
+So none of
 the three rows above is a number the probe prints as such today; each falls out
 of the depth split, and **edtech-kg#74** is where the probe is corrected to
 report them separately. The table carries the corrected figures because a
@@ -50,7 +59,7 @@ loader, not about the source.
 | Label | Key | Why it is here, and why it is empty |
 |---|---|---|
 | `Credential` | `ctid` | 133,346 published, but under each publisher's own terms rather than CTDL's CC BY 4.0 (edtech-kg#56) |
-| `Pathway` | `ctid` | CTDL's pathway vocabulary is rich; the Registry publishes **98** against 47,861 courses |
+| `Pathway` | `ctid` | CTDL's pathway vocabulary is rich; the Registry publishes **98** pathways against 47,861 Registry *course records* — a different population from `Course` above, which is district catalogue pages |
 | `AwardingBody` | `id` | The competency gap, below |
 | `Level` | `id` = `body\|code` | Same |
 | `Competency` | `id` | Same |
@@ -98,11 +107,15 @@ host is what separates them, so the key keeps it.
 nineteen of the twenty tier-4 questions answerable — blast radius, shortest
 path, reachability, cycle detection. Direction is *course → what it requires*,
 so "what does skipping this close off" is an inbound traversal and "what do I
-need first" is outbound. Three days before this schema was written, every one of
-those questions was blocked.
+need first" is outbound. Before `etl/probe_pwcs.py` measured this catalogue,
+every one of those questions was blocked for want of a source.
 
-**A prose condition is a node, not an edge.** 138 courses say things like
-*"Teacher recommendation"*. The adopted term `schema:coursePrerequisites` permits
+**A prose condition is a node, not an edge.** 138 course pages say things like
+*"Teacher recommendation"* — and that is 138 `Requirement` nodes, because the
+key is `sha1("<course URL>|<normalised text>")`, so the relationship is one to
+one by construction. The 138 conditions are only **62 distinct texts**: the same
+wording on two courses is deliberately two nodes, since a condition belongs to
+the course that states it. The adopted term `schema:coursePrerequisites` permits
 a Course **or** free Text, so both are legitimate — but a Text is not
 traversable, and asserting an edge to a course nobody named would invent a link.
 Keeping `Requirement` addressable means an unresolved condition survives as data

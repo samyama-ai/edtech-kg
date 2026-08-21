@@ -18,7 +18,8 @@ import re
 
 import pytest
 
-from tests.schema_source import (QUESTIONS, SCHEMA, SCHEMA_DOC, code, edges,
+from tests.schema_source import (QUESTIONS, SCHEMA, SCHEMA_DOC, code,
+                                 constraint_line, declarations, edges,
                                  first_column, labels, section, statements)
 from tests.spelling import spelled
 
@@ -136,16 +137,26 @@ def test_every_constrained_label_appears_in_the_schema_doc():
 def test_every_documented_label_exists_in_the_schema():
     """The reverse: the doc must not promise a label the ontology does not
     declare. Both tables in docs/schema.md are label tables."""
-    tables = SCHEMA_DOC.read_text().split("## Edge types")[0]
+    # `section()`, not a raw split: `split(h)[0]` on a renamed heading yields
+    # the WHOLE document as the "label table", so `first_column` finds rows
+    # from every table on the page and the check passes on the wrong set.
+    tables = section(SCHEMA_DOC.read_text(), "# Node labels — tier 1", "## Edge types")
     documented = first_column(tables)
     assert documented, "no label rows found — did the tables change shape?"
     assert documented <= set(labels()), f"documented but not declared: {documented - set(labels())}"
 
 
-def test_every_documented_edge_exists_in_the_schema():
+def documented_edges() -> set[str]:
+    """The edge table's first column. Two tests sliced and parsed the same
+    table independently, so a change had to be made in both places."""
     table = section(SCHEMA_DOC.read_text(), "## Edge types", "## Why these shapes")
     documented = first_column(table)
-    assert documented, "no edge rows found"
+    assert documented, "no edge rows found — a reflowed table would pass vacuously"
+    return documented
+
+
+def test_every_documented_edge_exists_in_the_schema():
+    documented = documented_edges()
     assert documented <= edges(), f"documented but not in the cypher: {documented - edges()}"
 
 
@@ -215,8 +226,15 @@ def test_the_competency_gap_count_agrees_with_the_questions():
     figure shipped in two files — the hand-counted-figure class again, one
     document removed from where it was fixed."""
     block = section(QUESTIONS.read_text(), "## Tier 1", "## The competency gap")
-    blocked = [n for n, text in zip(*[iter(re.split(r"\*\*Q(\d+)", block)[1:])] * 2)
-               if "competency" in text.lower()]
+    # Explicit pairing, not `zip(*[iter(...)]*2)`: that drops a trailing
+    # element when the split is odd, so the last question on the page could
+    # vanish from the count without anything failing.
+    parts = re.split(r"\*\*Q(\d+)", block)[1:]
+    assert len(parts) % 2 == 0, (
+        f"the tier-1 block splits into {len(parts)} pieces, which is odd — the "
+        f"question markers and their bodies no longer alternate")
+    blocked = [parts[i] for i in range(0, len(parts), 2)
+               if "competency" in parts[i + 1].lower()]
     # Anchored on the competency-gap sentence itself. A looser pattern matched
     # an unrelated "those questions was blocked" elsewhere on the page.
     for path, pattern in ((SCHEMA_DOC, r"([\w-]+) questions?[^.]*?blocked on one thing"),
@@ -251,9 +269,7 @@ def test_every_edge_in_the_schema_is_documented():
     Only the first column counts. Collecting every backticked word in the table
     picks up the node labels in the From/To column too, so an edge sharing a
     name with a label would pass without being documented."""
-    table = section(SCHEMA_DOC.read_text(), "## Edge types", "## Why these shapes")
-    documented = first_column(table)
-    assert documented, "no edge rows found — a reflowed table would make this pass vacuously"
+    documented = documented_edges()
     missing = sorted(edges() - documented)
     assert not missing, f"in the cypher but not in docs/schema.md: {missing}"
 
@@ -364,13 +380,12 @@ def test_every_tier_two_key_says_how_it_is_composed():
     """`Requirement`, `Completion` and `Level` state their id formula; three
     tier-2 keys said only `id`. An unpopulated label whose key is undefined is
     a decision deferred without a record that it was deferred."""
-    lines = SCHEMA.read_text().splitlines()
+    lines = SCHEMA.read_text(encoding="utf-8").splitlines()
     for label in ("AwardingBody", "EarningsRecord", "Place"):
-        # A default rather than a bare `next()`: with none, a renamed label
-        # raises StopIteration from inside a generator, which pytest reports as
-        # an error with no message rather than as "this label is not declared".
-        line = next((i for i, l in enumerate(lines)
-                     if "ASSERT" in l and f":{label})" in l), None)
+        # `constraint_line`, not a line-local substring, for the reason the
+        # composite-key test below gives: a wrapped declaration is invisible
+        # to `f":{label})" in line` and the check then passes on nothing.
+        line = constraint_line(label)
         assert line is not None, f"{label} is no longer declared in the schema"
         preceding = "\n".join(lines[max(0, line - 8):line])
         assert "id =" in preceding or "id is" in preceding.lower(), \
@@ -443,20 +458,23 @@ def test_every_composite_key_names_its_components():
     loader's key auditable, and it is asserted rather than left to whoever
     reads the comments.
     """
-    text = SCHEMA.read_text()
-    lines = text.splitlines()
+    lines = SCHEMA.read_text(encoding="utf-8").splitlines()
 
-    opaque = [label for label in labels()
-              if re.search(rf"ASSERT \w+\.id IS UNIQUE", " ".join(
-                  l for l in lines if f":{label})" in l))]
+    # Through `declarations()`, which collapses whitespace first. Selecting by
+    # the line-local substring `f":{label})"` misses a declaration wrapped
+    # across two lines — the blind spot this file already has a test for — and
+    # the label then never enters `opaque`, so the loop below checks a smaller
+    # set and passes vacuously. Joining the matching lines with " " before
+    # regexing had a second fault: `ASSERT` on one line and `.id IS UNIQUE` on
+    # another matched across the join, admitting a label whose key is not an id.
+    opaque = [label for label, key in declarations() if key == "id"]
     assert opaque, "no id-keyed labels found — did the constraint spelling change?"
 
     formula = re.compile(r'(?:sha1\(")?<[^>]+>(?:\|<[^>]+>)*')
     undocumented = []
     for label in opaque:
-        at = next((i for i, l in enumerate(lines)
-                   if "ASSERT" in l and f":{label})" in l), None)
-        assert at is not None, label
+        at = constraint_line(label)
+        assert at is not None, f"{label} is declared but cannot be located"
         preceding = "\n".join(lines[max(0, at - 14):at])
         if not formula.search(preceding):
             undocumented.append(label)

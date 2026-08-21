@@ -58,7 +58,10 @@ def names_from(stdout: str) -> list[str]:
 # escape test below, which is the backstop and not the check.
 REVIEWABLE_TYPES = ["*.py", "*.md", "*.cypher", "*.yaml", "*.yml", "*.toml",
                     "*.json", "*.sql", "*.sh", "*.cfg", "*.ini",
-                    "Dockerfile", "Makefile"]
+                    # `*/` prefixed as well as bare: a git pathspec of
+                    # "Dockerfile" matches only at the repo ROOT, so one in
+                    # `docker/` or `deploy/` was outside the guard.
+                    "Dockerfile", "*/Dockerfile", "Makefile", "*/Makefile"]
 
 
 def git(*args: str) -> str:
@@ -88,7 +91,12 @@ def line_count(name: str) -> int | None:
         return None
     # One decoding policy for every reader here. Two tests disagreeing about
     # `errors=` meant one could raise UnicodeDecodeError where the other passed.
-    return len(path.read_text(errors="replace").splitlines())
+    #
+    # `errors="replace"` is right HERE and wrong in the link checker: this
+    # function counts LINES, and a substituted U+FFFD does not change how many
+    # there are. The link checker reads paths out of the text, where a
+    # substitution silently changes what it is looking for.
+    return len(path.read_text(encoding="utf-8", errors="replace").splitlines())
 
 
 def test_no_source_file_is_too_large_to_review():
@@ -98,6 +106,25 @@ def test_no_source_file_is_too_large_to_review():
     assert not oversized, (
         f"review skips files over {REVIEWABLE_LINES} lines and blocks the PR. "
         f"Split by subject, not by length: {oversized}")
+
+
+def parse_exceptions(source: str):
+    r"""`OVERSIZED_ALREADY` out of a copy of this file, or None if it is not
+    there at all.
+
+    An EMPTY set is the goal state — #86 closed, nothing exempt — and the
+    previous pattern `\{[^}]*\}` cannot match `set()`, which is how Python
+    spells it. So the day the list is finally emptied on `main`, the baseline
+    would read as "no baseline" and the ratchet would silently degrade to a
+    skip: the one moment it most needs to hold.
+    """
+    import ast
+    import re
+    found = re.search(r"^OVERSIZED_ALREADY = (set\(\)|\{[^}]*\})", source, re.M)
+    if not found:
+        return None
+    literal = found.group(1)
+    return set() if literal == "set()" else set(ast.literal_eval(literal))
 
 
 def baseline_exceptions():
@@ -112,17 +139,24 @@ def baseline_exceptions():
 
     None when there is no baseline to read — the commit that first adds this
     file, or a clone with no `main`. Reported as a skip rather than a pass.
+
+    `origin/main` is tried first and plain `main` second. In CI without a
+    fetch, `origin/main` can be behind; `main` is then the better answer, and
+    a baseline that is merely OLD is still a valid floor — the list may only
+    shrink, so comparing against an older, larger list can only be more
+    permissive, never wrongly strict.
     """
-    import ast
-    import re
     for ref in ("origin/main", "main"):
+        # `git show` is allowed to fail — the ref may not exist — so it does
+        # NOT go through `git()`, which skips the test on any failure. A
+        # missing BINARY still has to skip like everything else, though, so
+        # that one case is asked first.
+        git("rev-parse", "--git-dir")
         out = subprocess.run(["git", "show", f"{ref}:tests/test_file_sizes.py"],
                              cwd=ROOT, capture_output=True, text=True)
         if out.returncode != 0:
             continue
-        found = re.search(r"^OVERSIZED_ALREADY = (\{[^}]*\})", out.stdout, re.M)
-        if found:
-            return set(ast.literal_eval(found.group(1)))
+        return parse_exceptions(out.stdout)
     return None
 
 
@@ -228,16 +262,18 @@ def test_the_ratchet_reads_a_baseline_and_notices_growth():
     one commit editing both defeats it entirely, while the docstring goes on
     claiming the list may only shrink.
     """
-    import ast
-    import re
-
     blob = ('REVIEWABLE_LINES = 500\n'
             'OVERSIZED_ALREADY = {"etl/probe_registry.py", "tests/test_probe_registry.py"}\n'
             'ROOT = 1\n')
-    found = re.search(r"^OVERSIZED_ALREADY = (\{[^}]*\})", blob, re.M)
-    assert found, "the baseline parser no longer finds the list"
-    granted = set(ast.literal_eval(found.group(1)))
+    # THE parser, not a copy of it pasted here. Re-implementing the regex
+    # inline meant this test could pass while the real function was broken —
+    # the dead-path test this repo has shipped before.
+    granted = parse_exceptions(blob)
     assert granted == {"etl/probe_registry.py", "tests/test_probe_registry.py"}
+
+    # The goal state, which the previous pattern could not match at all.
+    assert parse_exceptions("OVERSIZED_ALREADY = set()\n") == set()
+    assert parse_exceptions("nothing here") is None
 
     # Shrinking is allowed; growing is not; SWAPPING is not — which is the
     # case a length check waves through.

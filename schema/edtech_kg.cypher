@@ -143,9 +143,14 @@ CREATE CONSTRAINT ON (r:Requirement) ASSERT r.id IS UNIQUE;
 // award level, for one demographic group.
 //
 // IPEDS publishes 9,026,310 such rows: institution x programme x award level x
-// demographic. That volume is the reason this is a node with a composite
+// demographic x YEAR. That volume is the reason this is a node with a composite
 // deterministic key rather than a property bag on an OFFERS edge — the same row
 // must MERGE on re-load, and an edge property cannot be keyed.
+//
+// The year is part of the grain and part of the key. The prose above used to
+// list four components while the formula below had five, so the two spellings
+// of one key disagreed — and a loader author reading the sentence rather than
+// the formula would have merged two years into one node.
 //
 // id = sha1("<unitid>|<cip_code>|<award_level>|<demographic>|<year>").
 // The bounded load (#23) takes a slice; the key is the same either way.
@@ -229,15 +234,37 @@ CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.ctid IS UNIQUE;
 // This is why Level is keyed on (body, code) and why EQUIVALENT_TO is not a
 // plain edge. Asserting an unpublished equivalence is exactly the error this
 // repo refused with Submission -> MarketedDevice in regulatory-affairs-kg.
-// id = "<publisher scheme>|<body identifier>" — the body's own published
+
+// AwardingBody — who issues a level.
+//
+// id = "<publisher scheme>|<body identifier>". The body's own published
 // identifier where it has one, else "slug|<kebab-cased name>". The scheme is
 // carried because two registers can issue the same identifier, which is the
-// same reason Level and Competency are composite. Tier 2 and unpopulated, so this is a shape rather than a measured
-// decision — the first body loaded settles it, and the reason goes here.
+// same reason Level and Competency are composite.
+//
+// Tier 2 and unpopulated, so this is a shape rather than a measured decision.
+// The first body loaded settles it, and the reason it is composite goes here
+// so that choice is not reopened.
 CREATE CONSTRAINT ON (ab:AwardingBody) ASSERT ab.id IS UNIQUE;
 
+// Level — a named step in one body's scheme.
+//
 // id = "<awarding body id>|<level code>", so the same label under two bodies
 // cannot collide.
+//
+// **The separator does not nest.** `AwardingBody.id` is itself
+// "<scheme>|<body>", so a Level id is "<scheme>|<body>|<level code>" and
+// "a|b|c" has two readings: body "a|b" with level "c", or body "a" with level
+// "b|c". Splitting on "|" therefore recovers the wrong parts, which matters
+// the moment anything reads an id back rather than only writing it.
+//
+// The rule: a Level id is built by APPENDING one separator to the awarding
+// body's id, and it is parsed by splitting from the RIGHT exactly once —
+// `body, _, code = id.rpartition("|")`. The level code is the only component
+// guaranteed free of the separator, and the body id keeps whatever internal
+// structure it has. The same rule applies to Competency, which embeds a
+// framework id the same way. Nothing enforces this but this note and the
+// loader that will first write one; tier 2, so no loader has yet.
 CREATE CONSTRAINT ON (lv:Level) ASSERT lv.id IS UNIQUE;
 
 // id = "<framework id>|<competency code>", the same shape as Level and for the

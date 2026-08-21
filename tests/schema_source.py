@@ -55,7 +55,7 @@ def code(text: str | None = None) -> str:
     synthetic line proves the technique and says nothing about the code that
     ships — the dead-path test, which this repo has shipped before.
     """
-    source = SCHEMA.read_text() if text is None else text
+    source = SCHEMA.read_text(encoding="utf-8") if text is None else text
     return "\n".join(strip_comment(line) for line in source.splitlines())
 
 
@@ -98,7 +98,7 @@ def patterns(text: str | None = None) -> str:
     Takes `text` for the same reason `code()` does: so a test can drive it
     with markup the file does not contain, rather than reimplementing it.
     """
-    return SCHEMA.read_text() if text is None else text
+    return SCHEMA.read_text(encoding="utf-8") if text is None else text
 
 
 def edges(text: str | None = None) -> set[str]:
@@ -145,3 +145,40 @@ def section(text: str, after: str, before: str | None = None) -> str:
     assert len(parts) > 1, (
         f"{before!r} no longer follows {after!r} in this document")
     return parts[0]
+
+
+# One declaration, whole, however it is wrapped. `code()` preserves lines, so a
+# declaration reflowed across two of them cannot be found by a line-local
+# substring — which is the blind spot `labels()` was fixed for, and which two
+# key-composition tests reintroduced by locating constraints their own way.
+DECLARATION = re.compile(
+    r"CREATE CONSTRAINT (?:\w+ )?(?:IF NOT EXISTS )?"
+    r"(?:ON|FOR) \(\w+:(\w+)\) (?:ASSERT|REQUIRE) \w+\.(\w+) IS UNIQUE")
+
+
+def declarations(text: str | None = None) -> list[tuple[str, str]]:
+    """Every `(label, key)` the schema declares, wrap-tolerant.
+
+    Whitespace is collapsed before matching, for the reason `labels()` gives:
+    a declaration wrapped at the line width matches nothing, drops out of the
+    list, and every containment check against the smaller list passes.
+    """
+    return DECLARATION.findall(" ".join(code(text).split()))
+
+
+def constraint_line(label: str) -> int | None:
+    """The line the declaration of `label` ENDS on, or None.
+
+    Callers want the comment block above a declaration, so they need a line
+    number — but they were finding it with `f":{label})" in line`, which is
+    exactly the line-local test that misses a wrapped declaration. This walks
+    a growing window so a declaration spanning several lines is still located
+    by its last line, which is the one the comment block sits above.
+    """
+    lines = SCHEMA.read_text(encoding="utf-8").splitlines()
+    for end in range(len(lines)):
+        window = " ".join(" ".join(lines[max(0, end - 4):end + 1]).split())
+        for found, _ in DECLARATION.findall(window):
+            if found == label:
+                return end
+    return None
