@@ -332,12 +332,18 @@ def test_the_identity_test_page_is_verified_by_content_not_by_status(monkeypatch
     monkeypatch.setattr(access, "fetch", fetch)
 
     # A 200 that is not the OEWS page must NOT be accepted.
-    assert access.identity_test_url({"release": "May 2031"}) == access.IDENTITY_TEST_FALLBACK
-    assert asked == ["https://www.bls.gov/oes/2031/may/oes_nat.htm"], asked
+    url, verified = access.identity_test_url({"release": "May 2031"})
+    assert url == access.IDENTITY_TEST_FALLBACK
+    # BOTH are checked: the derived URL, and then the fallback it lands on.
+    # The fallback is a pinned year, so it is the same hazard one step later —
+    # substituting it unchecked would put the whole matrix on an error body.
+    assert asked == ["https://www.bls.gov/oes/2031/may/oes_nat.htm",
+                     access.IDENTITY_TEST_FALLBACK], asked
+    assert verified is True, "the fallback answered with the marker, so it is verified"
 
     # The real page is.
     asked.clear()
-    assert access.identity_test_url({"release": "May 2030"}) == \
+    assert access.identity_test_url({"release": "May 2030"})[0] == \
         "https://www.bls.gov/oes/2030/may/oes_nat.htm"
 
 
@@ -348,9 +354,9 @@ def test_the_identity_test_falls_back_when_the_page_cannot_be_read(monkeypatch):
         raise RuntimeError("unreachable")
 
     monkeypatch.setattr(access, "fetch", unreachable)
-    assert access.identity_test_url({"release": "May 2031"}) == access.IDENTITY_TEST_FALLBACK
-    assert access.identity_test_url({}) == access.IDENTITY_TEST_FALLBACK
-    assert access.identity_test_url({"release": None}) == access.IDENTITY_TEST_FALLBACK
+    assert access.identity_test_url({"release": "May 2031"})[0] == access.IDENTITY_TEST_FALLBACK
+    assert access.identity_test_url({})[0] == access.IDENTITY_TEST_FALLBACK
+    assert access.identity_test_url({"release": None})[0] == access.IDENTITY_TEST_FALLBACK
 
 
 def test_head_falling_back_to_get_when_the_server_refuses_head(monkeypatch):
@@ -379,3 +385,43 @@ def test_head_falling_back_to_get_when_the_server_refuses_head(monkeypatch):
     assert seen == ["HEAD", "GET"], seen
     assert got["is_file"] is True, got
     assert got["method"] == "GET", got
+
+
+def test_the_fallback_url_is_verified_too_and_reported_when_it_is_not(monkeypatch):
+    """The fallback is a pinned 2023 URL — exactly the thing this function
+    exists to stop trusting. The year that release is retired it becomes a soft
+    404, every row of the matrix reads "served" against an error body, and the
+    User-Agent finding is confirmed by a page that is not the page.
+
+    Falling back is still right; an offline run needs something to report. What
+    cannot happen is falling back SILENTLY.
+    """
+    monkeypatch.setattr(access, "fetch", lambda url: "<title>Page not found</title>")
+    url, verified = access.identity_test_url({"release": "May 2031"})
+    assert url == access.IDENTITY_TEST_FALLBACK
+    assert verified is False, "the fallback was substituted without being checked"
+
+    marker = "May 2023 National Occupational Employment and Wage Estimates"
+    monkeypatch.setattr(access, "fetch", lambda url: f"<title>{marker}</title>")
+    url, verified = access.identity_test_url({})
+    assert url == access.IDENTITY_TEST_FALLBACK
+    assert verified is True, "a verified fallback should say so"
+
+
+def test_an_unverified_page_is_flagged_in_the_output(monkeypatch, capsys):
+    """The flag has to reach the reader. The JSON carries `url_verified` and
+    the printed matrix carries a warning above the rows it qualifies."""
+    serve(monkeypatch, page(row("13-2011")))
+    monkeypatch.setattr(access, "oews_latest",
+                        lambda year: {"release": "May 2030", "years_tried": ["30"],
+                                      "geographies": {}})
+    monkeypatch.setattr(access, "identity_test_url",
+                        lambda oews: ("https://www.bls.gov/oes/2023/may/oes_nat.htm",
+                                      False))
+    monkeypatch.setattr(access, "attempt", lambda url, agent=None: {"status": 200})
+    monkeypatch.setattr(probe, "crosswalk_soc", lambda: set())
+
+    result = probe.probe()
+    assert result["user_agent_test"]["url_verified"] is False, result
+    printed = capsys.readouterr().out
+    assert "could NOT be confirmed" in printed, printed

@@ -396,7 +396,7 @@ def test_a_year_list_of_any_shape_prints_readably(monkeypatch, capsys):
                         lambda year: {"release": None,
                                       "years_tried": [2026, "25"],
                                       "geographies": {}})
-    monkeypatch.setattr(access, "identity_test_url", lambda oews: "http://x")
+    monkeypatch.setattr(access, "identity_test_url", lambda oews: ("http://x", True))
     monkeypatch.setattr(access, "attempt", lambda url, agent=None: {"status": 200})
     monkeypatch.setattr(probe, "crosswalk_soc", lambda: set())
     probe.probe()

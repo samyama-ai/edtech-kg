@@ -267,7 +267,7 @@ def probe(quiet: bool = False) -> dict:
     # line of the printed block below.
     absent_sorted = sorted(absent)
     oews = bls_access.oews_latest(now.year)
-    identity_url = bls_access.identity_test_url(oews)
+    identity_url, identity_verified = bls_access.identity_test_url(oews)
 
     result = {
         "retrieved_at": stamp,
@@ -286,6 +286,10 @@ def probe(quiet: bool = False) -> dict:
         # whole measurement.
         "user_agent_test": {
             "url": identity_url,
+            # Whether the page was confirmed to BE the OEWS page, rather than
+            # a 200 that is not it. Every row below reads "served" either way,
+            # so this is the only thing separating the finding from an artefact.
+            "url_verified": identity_verified,
             "results": {label: bls_access.attempt(identity_url, agent)
                         for label, agent in bls_access.AGENTS.items()},
         },
@@ -322,8 +326,15 @@ def probe(quiet: bool = False) -> dict:
         else:
             print("\n  crosswalk not present locally — run "
                   "`python -m etl.probe_cipsoc --download` for the coverage figure")
-        print("\n  the same www.bls.gov page, by User-Agent\n")
-        for label, got in result["user_agent_test"]["results"].items():
+        matrix = result["user_agent_test"]
+        print("\n  the same www.bls.gov page, by User-Agent")
+        if not matrix["url_verified"]:
+            # Every row below says "served" whether or not the URL is the page.
+            # Unflagged, a soft 404 turns the whole finding into an artefact.
+            print(f"    ⚠ {matrix['url']} could NOT be confirmed as the OEWS "
+                  f"page — the rows below may all be describing an error body")
+        print()
+        for label, got in matrix["results"].items():
             print(f"    {label:42} {got.get('status') or 'no response'}")
 
         # Read from `result`, not rebound over the local of the same name that

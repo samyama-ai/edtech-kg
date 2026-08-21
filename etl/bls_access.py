@@ -176,16 +176,27 @@ def identity_test_url(oews: dict) -> str:
     asked the question this module exists to say you must not ask.
 
     The marker is the page's own subject line, which the not-found body does
-    not carry. The pinned URL is the fallback, so an offline run still has
-    something to report rather than probing a URL nothing answers.
+    not carry.
+
+    **The fallback is checked too, and reported when it fails.** It is a pinned
+    2023 URL, so it is exactly the thing this function exists to stop trusting:
+    the year that release is retired it becomes a soft 404, every row of the
+    matrix reads "served" against an error page, and the User-Agent finding is
+    confirmed by a page that is not the page. Falling back is still right — an
+    offline run needs something to report — but it has to be visible that the
+    page was not verified, not silently substituted.
+
+    Returns `(url, verified)`. `verified` is False when the URL is being used
+    without the content check having passed, for any reason including the
+    network being down.
     """
     release = (oews or {}).get("release") or ""
     match = re.search(r"(\d{4})", release)
     if match:
         candidate = f"https://www.bls.gov/oes/{match.group(1)}/may/oes_nat.htm"
         if is_the_oews_page(candidate):
-            return candidate
-    return IDENTITY_TEST_FALLBACK
+            return candidate, True
+    return IDENTITY_TEST_FALLBACK, is_the_oews_page(IDENTITY_TEST_FALLBACK)
 
 
 OEWS_PAGE_MARKER = "occupational employment and wage estimates"
