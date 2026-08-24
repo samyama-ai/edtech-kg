@@ -24,9 +24,15 @@ on:
     branches: [main]
 
 concurrency:
-  # A new push supersedes an in-flight run for the same ref.
+  # A new push supersedes an in-flight run for the same ref — on a PR, where
+  # only the latest state matters. NOT on main: cancelling there leaves a
+  # merged commit with no completed run, which is a commit nobody checked.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  # The job reads the repo and nothing else.
+  contents: read
 
 env:
   # The engine the figures in docs/ and README were measured against. Pinned,
@@ -42,6 +48,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The size ratchets compare this branch against `main`, and a shallow
+          # checkout has no `main` to compare with. They would skip — and with
+          # SAMYAMA_CI=1 a skip fails the build, so this is not a silent loss.
+          # But a ratchet that never runs in CI is a ratchet that is not there,
+          # which is this workflow's own subject one layer down.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:

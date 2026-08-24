@@ -78,6 +78,33 @@ def test_the_engine_is_waited_for_rather_than_slept_on(workflow):
         "the engine is waited for with a bare sleep rather than a poll")
 
 
+def test_the_checkout_is_deep_enough_for_the_ratchets(workflow):
+    """`actions/checkout@v4` defaults to a shallow clone that fetches only the
+    PR ref. Neither `origin/main` nor `main` resolves in it, so both size
+    ratchets — the exception list and the review limit — return no baseline and
+    skip.
+
+    With `SAMYAMA_CI=1` that fails the build rather than passing quietly, so
+    nothing is lost silently. The problem is one layer down: a ratchet that
+    never runs in CI is a ratchet that is not there, and these two are what
+    stop the size guard from being widened. Reproduced in a shallow clone
+    before fixing — both skipped, exactly here.
+    """
+    assert re.search(r"fetch-depth:\s*0", workflow), (
+        "actions/checkout is shallow, so the size ratchets have no `main` to "
+        "compare against and never run in CI")
+
+
+def test_a_merged_commit_is_not_left_without_a_run(workflow):
+    """`cancel-in-progress: true` applies to pushes as well as pull requests,
+    so two merges in quick succession cancel the first one's build — leaving a
+    commit on `main` that nothing ever checked. Superseding is right on a PR,
+    where only the latest state matters, and wrong on the branch of record."""
+    assert re.search(r"cancel-in-progress:\s*\$\{\{[^}]*pull_request", workflow), (
+        "cancel-in-progress is unconditional, so a fast second merge can leave "
+        "a commit on main with no completed run")
+
+
 def test_the_engine_image_is_pinned_to_a_version(workflow):
     """A floating tag changes the engine under published figures with no commit
     to point at. Every number in docs/ was measured against one build."""
@@ -108,7 +135,7 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
     """
     assert re.search(r"pip install[^\n]*\bpytest\b", workflow), "pytest is not installed"
 
-    reached = set(ROOT.glob("tests/*.py")) | {ROOT / "conftest.py"}
+    reached = set(ROOT.glob("tests/**/*.py")) | {ROOT / "conftest.py"}
     for path in sorted(reached):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("etl."):
@@ -126,7 +153,13 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
                 names = [node.module]
             third_party.update(n.split(".")[0] for n in names)
 
-    third_party -= set(sys.stdlib_module_names) | {"__future__", "conftest", "etl", "tests", "demo"}
+    # First-party names are read from the tree rather than listed here. A
+    # hand-kept list means a test that imports `mcp_server` or `schema` is
+    # reported as an uninstalled dependency, and the failure message points at
+    # the install step rather than at the import.
+    first_party = {d.name for d in ROOT.iterdir() if (d / "__init__.py").exists()}
+    first_party |= {p.stem for p in ROOT.glob("*.py")} | {"__future__"}
+    third_party -= set(sys.stdlib_module_names) | first_party
     assert third_party <= {"pytest"}, (
         f"the suite imports {sorted(third_party)}, which CI does not install. "
         f"Either add it to the install step or drop the dependency.")
