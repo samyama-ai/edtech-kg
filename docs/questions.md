@@ -66,9 +66,9 @@ hidden behind a national phrasing.
 **Q2.** What occupation does this SOC code name? ✅
 **Q3.** How many institutions are in the directory? ✅ — 6,256 measured
 **Q4.** How many schools and districts are there? ✅ — 102,268 and 19,714
-**Q5.** How many CIP-SOC mappings exist? ✅ — 6,097 measured
-**Q6.** How many distinct programmes appear in the crosswalk? ✅ — 2,143
-**Q7.** How many distinct occupations? ✅ — 868
+**Q5.** How many CIP-SOC mappings exist? ✅ — 5,903 measured, from 6,097 rows; 194 state that there is no mapping (#70)
+**Q6.** How many distinct programmes appear in the crosswalk? ✅ — 2,143, of which 1,949 map to an occupation
+**Q7.** How many distinct occupations? ✅ — 867 (`99-9999 NO MATCH` is a sentinel, not an occupation — #70)
 **Q8.** How many courses does this district publish? ✅ — 960
 **Q9.** What are this course's grade levels and length? ✅
 **Q10.** Which schools teach this course? ✅

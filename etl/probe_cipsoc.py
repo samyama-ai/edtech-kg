@@ -16,6 +16,20 @@ own probe — and why its figures were the last hand-counted numbers in this rep
 sheets this needs is about sixty lines of standard library. Adding openpyxl to count
 rows would make the probe harder to run than the thing it measures.
 
+**`99-9999` is not an occupation.** It is the crosswalk's own sentinel meaning
+"this programme maps to nothing", written into the SOC column beside the words
+NO MATCH. Counting it as an occupation inflated the published figure by one —
+868 where the answer is 867 (edtech-kg#70) — and counting its rows as mappings
+inflated those by 194, which is the same 194 programmes the workbook already
+lists on its "Unmatched CIP Codes" sheet. The same fact was being counted
+twice, in two different columns, and agreed with itself.
+
+So the sentinel is excluded here and reported in its own right rather than
+dropped: a figure that disappears is as hard to check as one that is wrong.
+`declared_no_match` and `unmatched_cip` are the workbook stating one fact in
+two places, and a test asserts they agree — here rather than as a hard refusal,
+because a partial or future workbook that states it once is odd, not corrupt.
+
 What the crosswalk is, and what it is not: NCES and the Bureau of Labor
 Statistics say themselves that it reflects **expert judgment about what a
 programme prepares a student for** — not measured employment outcomes. That
@@ -38,6 +52,10 @@ SOURCE_URL = "https://nces.ed.gov/ipeds/cipcode/Files/CIP2020_SOC2018_Crosswalk.
 LANDING_PAGE = "https://nces.ed.gov/ipeds/cipcode/post3.aspx?y=56"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 LOCAL = DATA_DIR / "CIP2020_SOC2018_Crosswalk.xlsx"
+
+# The crosswalk's own "NO MATCH" sentinel, written in the SOC column. Not an
+# occupation, and its rows are not mappings — see the module docstring.
+NO_MATCH_SOC = "99-9999"
 USER_AGENT = "edtech-kg/0.1 (+https://github.com/samyama-ai/edtech-kg)"
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -255,7 +273,13 @@ def measure(book: zipfile.ZipFile, path: Path, stamp: str, quiet: bool) -> dict:
 
     crosswalk = rows(book, parts["CIP-SOC"])
     head = find_header(crosswalk, "CIP")
-    mapped, partial = pairs(crosswalk, head)
+    listed, partial = pairs(crosswalk, head)
+
+    # The sentinel is a statement that there is NO occupation, so it is not one
+    # and its rows are not mappings. Split rather than filtered in place, so
+    # both halves stay reportable.
+    mapped = [(c, s) for c, s in listed if s != NO_MATCH_SOC]
+    declared_no_match = len(listed) - len(mapped)
     cip = [c for c, _ in mapped]
     soc = [s for _, s in mapped]
 
@@ -270,8 +294,11 @@ def measure(book: zipfile.ZipFile, path: Path, stamp: str, quiet: bool) -> dict:
         "landing_page": LANDING_PAGE,
         "file_bytes": path.stat().st_size,
         "mappings": len(mapped),
+        "rows_on_the_sheet": len(listed),
+        "declared_no_match": declared_no_match,
         "incomplete_rows": partial,
-        "distinct_cip": len(set(cip)),
+        "distinct_cip": len({c for c, _ in listed}),
+        "cip_with_an_occupation": len(set(cip)),
         "distinct_soc": len(set(soc)),
         "unmatched_cip": len(set(ucip)),
         "unmatched_soc": len(set(usoc)),
@@ -281,15 +308,17 @@ def measure(book: zipfile.ZipFile, path: Path, stamp: str, quiet: bool) -> dict:
         raise ValueError("the CIP-SOC sheet parsed to zero rows — refusing to report that as a count")
 
     if not quiet:
-        print(f"\nNCES-BLS CIP-SOC crosswalk\n")
+        print("\nNCES-BLS CIP-SOC crosswalk\n")
         print(f"  programme-to-occupation mappings   {result['mappings']:>8,}")
         print(f"  distinct CIP codes (programmes)    {result['distinct_cip']:>8,}")
+        print(f"    of those, mapping to an occupation {result['cip_with_an_occupation']:>7,}")
         print(f"  distinct SOC codes (occupations)   {result['distinct_soc']:>8,}")
         print(f"  CIP codes with no occupation       {result['unmatched_cip']:>8,}")
+        print(f"    written as {NO_MATCH_SOC} rows on the sheet {result['declared_no_match']:>6,}")
         print(f"  SOC codes with no programme        {result['unmatched_soc']:>8,}")
         print(f"\n  measured {stamp}")
         print(f"  source   {SOURCE_URL}")
-        print(f"  reproduce with: python -m etl.probe_cipsoc\n")
+        print("  reproduce with: python -m etl.probe_cipsoc\n")
     return result
 
 

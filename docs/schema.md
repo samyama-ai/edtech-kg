@@ -24,8 +24,8 @@ source holds, not what any graph contains.
 | Label | Key | Meaning | Measured in the source |
 |---|---|---|---|
 | `Course` | `url` | One published course page in one district's catalogue | **795** courses (960 sitemap pages − 127 subject − 38 pathway; #74) |
-| `Programme` | `cip_code` | A field of study, 6-digit CIP | 2,143 in the crosswalk |
-| `Occupation` | `soc_code` | An occupation, SOC code | 868 in the crosswalk |
+| `Programme` | `cip_code` | A field of study, 6-digit CIP | 2,143 in the crosswalk, of which 1,949 map to an occupation |
+| `Occupation` | `soc_code` | An occupation, SOC code | 867 in the crosswalk — 868 counted `99-9999 NO MATCH`, which is a sentinel, not an occupation (#70) |
 | `Institution` | `unitid` | A college or university, IPEDS | 6,256 |
 | `School` | `ncessch` | A school, CCD | 102,268 |
 | `District` | `leaid` | A school district, CCD | 19,714 |
@@ -78,7 +78,7 @@ loader, not about the source.
 | `REQUIRES` | Course → Course | **The prerequisite edge.** 240 measured, all resolving |
 | `HAS_REQUIREMENT` | Course / Pathway → Requirement | A prose condition — not a course reference |
 | `INCLUDES` | Pathway → Course | What a published pathway is made of. 185 edges from 202 rows — **17 rows repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77) so the section names are joined onto the one edge. **Not the whole catalogue: 172 further rows are unwritten, see hole 7 (#87).** Carries the district's section name and credit value |
-| `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 6,097 mappings |
+| `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 5,903 mappings, from 6,097 rows — 194 carry the `99-9999 NO MATCH` sentinel and are a statement that there is no mapping (#70) |
 | `OFFERS` | Institution → Programme | What a college teaches |
 | `AT` / `IN` | Completion → Institution / Programme | Who graduated, where, in what |
 | `TEACHES` | School → Course | Which school offers a course |
