@@ -24,6 +24,7 @@ No third-party dependency, as with the other probes.
 
 from __future__ import annotations
 
+import email.message
 import json
 import urllib.error
 import urllib.parse
@@ -58,21 +59,45 @@ class MalformedSource(Exception):
     """
 
 
-def get(url: str, headers_only: bool = False):
+def _request(url: str, method: str, extract):
+    """The request both callers share, and the one place a failure becomes
+    `HttpStatus` so a status code survives as a number rather than as text in
+    an exception message.
+
+    `extract` is applied INSIDE the try, not by the caller. Reading the body is
+    itself a network operation and can fail the same ways the connection can;
+    doing it outside would let a mid-read error escape as a bare `URLError`
+    while every other failure on this path arrives as `HttpStatus`.
+    """
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT},
-                                     method="HEAD" if headers_only else "GET")
+                                     method=method)
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
-            if headers_only:
-                return response.headers
-            return response.read()
+            return extract(response)
     except urllib.error.HTTPError as exc:
         raise HttpStatus(exc.code, url) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise HttpStatus(None, url, f" ({exc})") from exc
 
 
-def total(path: str, **params) -> int | str | None:
+def get(url: str) -> bytes:
+    """The body."""
+    return _request(url, "GET", lambda response: response.read())
+
+
+def head(url: str) -> email.message.Message:
+    """The headers, without pulling the body.
+
+    Split from `get()` rather than selected by a boolean, because a function
+    whose return TYPE depends on an argument cannot be annotated honestly —
+    `get(url, headers_only=True)` returned a header object and `get(url)`
+    returned bytes, and the signature could say neither. One caller wanted
+    headers; every other wanted bytes.
+    """
+    return _request(url, "HEAD", lambda response: response.headers)
+
+
+def total(path: str, **params) -> int | str:
     """The `x-total` header for a search path.
 
     Returns the int, or the string `"secured"` when the community refuses an
@@ -81,7 +106,7 @@ def total(path: str, **params) -> int | str | None:
     """
     query = urllib.parse.urlencode({"per_page": 1, **params})
     try:
-        headers = get(f"{REGISTRY}{path}?{query}", headers_only=True)
+        headers = head(f"{REGISTRY}{path}?{query}")
     except HttpStatus as exc:
         # Three different facts, three different answers. "secured" is a claim
         # about the community; anything else is a claim about the request, and
@@ -121,8 +146,18 @@ def describe(read: list[int], size: int, population: int | None) -> str:
                 f"could not be spread; biased toward whatever sorts first")
 
     total_pages = max(1, -(-population // PER_PAGE))
-    if len(read) >= total_pages:
+    # Coverage is pages x SIZE, not page count. `total_pages` is derived from
+    # PER_PAGE, so reading that many SHORT pages does not reach the population:
+    # at population=10 with a size of 5, one page is "every page" by count and
+    # half the records by content, and this said "the whole population, not a
+    # sample" about a 50% sample.
+    covered = len(read) * size
+    if len(read) >= total_pages and covered >= population:
         return f"every page — {population:,} records is the whole population, not a sample"
+    if len(read) >= total_pages:
+        return (f"{len(read)} page(s) of {size} — {covered:,} of {population:,} records. "
+                f"Every page was read, but at {size} per page rather than {PER_PAGE}, so "
+                f"this is not the whole population")
     if len(read) == 1:
         return (f"the first {size} of {population:,} records — a single page, so nothing "
                 f"is spread; biased toward whatever sorts first")

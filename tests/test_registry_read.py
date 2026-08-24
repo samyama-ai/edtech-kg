@@ -107,3 +107,64 @@ def test_a_sample_that_is_not_a_multiple_of_a_page_is_not_short_changed():
     sampling 100 while reporting the request. Ceiling, not floor."""
     pages, _ = read.sample_pages(130, 47861)
     assert len(pages) == 3
+
+
+# --------------------------------------------------------------------------
+# what the description is allowed to claim — from the #89 review
+# --------------------------------------------------------------------------
+
+def test_reading_every_page_at_a_short_size_is_not_the_whole_population():
+    """`total_pages` is derived from PER_PAGE, so "read every page" and "read
+    every record" are different claims whenever the page size is short.
+
+    At population 10 with a size of 5, one page IS every page by count and half
+    the records by content — and this said "the whole population, not a
+    sample". Overclaiming coverage is the one thing this module exists to
+    prevent; a caveat that overstates reach is worse than no caveat, because it
+    is quoted.
+
+    Reachable, not hypothetical: `sample_pages(5, 10)` returns exactly that.
+    """
+    pages, size = read.sample_pages(5, 10)
+    assert size < read.PER_PAGE, "the short-page case is unreachable, so this proves nothing"
+
+    said = read.describe(pages, size, 10)
+    # The CLAIM, not the phrase. "whole population" also appears in the
+    # corrected wording, as "this is not the whole population" — asserting on
+    # the bare phrase would fail on the fix and pass on a reworded bug.
+    assert "is the whole population, not a sample" not in said, said
+    assert "5 of 10 records" in said, said
+    assert "not the whole population" in said, said
+
+
+def test_reading_every_page_at_a_full_size_still_says_whole_population():
+    """The honest complete case must keep saying so — a fix that made every
+    description hedge would be its own inaccuracy."""
+    said = read.describe([1, 2], read.PER_PAGE, 100)
+    assert "whole population" in said, said
+
+
+def test_the_total_signature_does_not_promise_a_None_it_never_returns():
+    """`int | str | None` named a third case that cannot happen: every path
+    returns an int or one of four strings. A caller writing `if result is None`
+    is writing dead code the annotation told them to write."""
+    import inspect
+    assert "None" not in str(inspect.signature(read.total).return_annotation)
+
+
+def test_get_and_head_are_separate_because_their_return_types_are():
+    """One function returned bytes or a header object depending on a boolean,
+    so its signature could describe neither and carried no annotation at all.
+
+    Split, and asserted here rather than left to review: the boolean is the
+    kind of thing that gets reintroduced as a convenience.
+    """
+    import inspect
+    assert inspect.signature(read.get).return_annotation is bytes or \
+        "bytes" in str(inspect.signature(read.get).return_annotation)
+    assert "Message" in str(inspect.signature(read.head).return_annotation)
+    for name in ("get", "head"):
+        params = inspect.signature(getattr(read, name)).parameters
+        assert list(params) == ["url"], (
+            f"{name}{tuple(params)} takes more than a url — a flag that changes "
+            f"the return type is what was just removed")
