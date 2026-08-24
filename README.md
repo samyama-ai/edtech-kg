@@ -178,8 +178,16 @@ etl/          probes (one per source) + load_pwcs.py
 schema/       edtech_kg.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
 docs/         scope, questions, schema, ontology-reuse, sources/
+benchmarks/   the traversals behind docs/questions.md — empty, see #22
+mcp_server/   not implemented; mcp_server/README.md says what it should expose
 tests/        pytest, one file per probe
 ```
+
+The same seven directories as every sibling `*-kg` repo, so anyone who has seen one can
+navigate this one. Two hold only a README today, and each says so — an empty directory
+reads as "nothing to do here", which is the opposite of what it means.
+
+`CONTRIBUTING.md` carries the standard a PR here works to.
 
 ## Quick start
 
@@ -190,7 +198,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 431 tests
+pytest                           # 498 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they

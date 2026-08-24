@@ -1,18 +1,26 @@
 [project]
-name = "{{KG_SLUG}}-kg"
+name = "edtech-kg"
 version = "0.1.0"
-description = "{{KG_NAME}} knowledge graph built on Samyama"
+description = "Education-to-career pathways knowledge graph built on Samyama-Graph"
 requires-python = ">=3.10"
-dependencies = [
-    "samyama>=0.6.0",
-    "requests>=2.31",
-    "rich>=13.0",
-    "click>=8.0",
-    "fastmcp>=0.1.0",
-]
+
+# EMPTY, and measured rather than assumed: outside the standard library this
+# package imports nothing. The probes read .xlsx by unzipping XML, talk HTTP
+# through urllib, and parse HTML with `re` — each of those was a deliberate
+# choice recorded in the module that makes it, so that running a probe is never
+# harder than the thing it measures.
+#
+# The template shipped `samyama`, `requests`, `rich`, `click` and `fastmcp`.
+# None was imported by code anything reached: `click` came from a placeholder
+# loader and `fastmcp` from a placeholder MCP server, both removed here. A
+# dependency list nobody needs is its own kind of false claim — it says the
+# package cannot run without five things that were never used.
+dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "ruff>=0.1.0"]
+dev = ["pytest>=7.0", "flake8>=6.0", "pyflakes>=3.0"]
+# For mcp_server/, which is not implemented yet — see mcp_server/README.md.
+mcp = ["fastmcp>=0.1.0"]
 
 [tool.setuptools.packages.find]
 include = ["etl*", "mcp_server*"]
