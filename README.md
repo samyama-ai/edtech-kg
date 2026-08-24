@@ -190,7 +190,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 431 tests
+pytest                           # 486 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
@@ -204,3 +204,42 @@ SAMYAMA_TEST_URL=http://localhost:8201 SAMYAMA_REQUIRE_ENGINE=1 pytest
 `SAMYAMA_REQUIRE_ENGINE=1` turns an unreachable engine into a failure rather than a skip,
 because "verified against the engine" should never reach a README on the strength of a run
 nobody made.
+
+## Which engine produced these figures
+
+Every count on this page and in `docs/` was measured against one build.
+
+| | |
+|---|---|
+| Image | `public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0` |
+| Digest | `sha256:458895059c24b8b809f7e9fa42b62a16734254b0cc4dc7562a34cca12506f517` |
+| Version the engine reports | **1.7.0** |
+
+**The tag and the version are different numbers, and that is not a mistake.** The image is
+tagged `1.1.0`; the binary inside reports `1.7.0` from `/api/status`. Where this repo
+says "1.1.0" it means the tag — the thing you can actually pull. Both are recorded because
+a figure attributed to "1.1.0" is otherwise ambiguous between the two, and the person
+trying to reproduce it has no way to tell which was meant.
+
+The digest is here for the gap a tag cannot close: a tag can be repushed under the same
+name with different bytes, so a reader pulling `1.1.0` next month cannot otherwise tell
+whether they got what was measured. Pull by digest to be certain:
+
+```bash
+docker run --rm -p 8201:8080 public.ecr.aws/f9f6l5u4/samyama-graph@sha256:458895059c24b8b809f7e9fa42b62a16734254b0cc4dc7562a34cca12506f517
+```
+
+**What a version bump means.** Every published figure becomes unverified until it is
+re-measured — not wrong, unverified, which is worse because nothing looks different. The
+figures are not the only thing at stake: this repo works around engine behaviour in about
+sixty places (a constraint that declares a key without enforcing it, an edge `MERGE` that
+ignores its property map, `ORDER BY` on a non-aggregate alias being ignored), and each of
+those workarounds is correct only for the build it was measured against.
+
+So, on a bump: run the suite with `SAMYAMA_REQUIRE_ENGINE=1` first.
+`tests/test_engine_version.py` fails the moment the engine stops reporting the recorded
+version, and the engine-behaviour tests fail if a limitation has been fixed — which is the
+point, because a fixed limitation means a workaround to delete rather than keep. Then
+reload, re-measure, and update the figures in the same commit as the constant in
+`etl/engine.py`.
+
