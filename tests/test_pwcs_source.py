@@ -253,12 +253,12 @@ def test_a_page_publishing_a_course_table_is_a_pathway_whatever_its_depth():
         return titled("Specialty programs")
 
     got = reader.read(urls=urls, fetch=fetch)
-    assert [r["url"] for r in got["pathways"]] == \
-        ["https://catalog.pwcs.edu/specialty-programs/it-centre"], got["pathways"]
+    assert ([r["url"] for r in got["pathways"]]
+            == ["https://catalog.pwcs.edu/specialty-programs/it-centre"]), got["pathways"]
     assert got["courses"] == [], "the page was still read as a course"
     # And the disagreement is reported rather than silently resolved.
-    assert got["reclassified"] == \
-        ["https://catalog.pwcs.edu/specialty-programs/it-centre"], got
+    assert (got["reclassified"]
+            == ["https://catalog.pwcs.edu/specialty-programs/it-centre"]), got
 
 
 def test_a_page_at_course_depth_with_no_course_table_is_still_a_course():
@@ -268,8 +268,8 @@ def test_a_page_at_course_depth_with_no_course_table_is_still_a_course():
     urls = ["https://catalog.pwcs.edu/band",
             "https://catalog.pwcs.edu/band/concert"]
     got = reader.read(urls=urls, fetch=lambda u: titled("A page"))
-    assert [r["url"] for r in got["courses"]] == \
-        ["https://catalog.pwcs.edu/band/concert"], got["courses"]
+    assert ([r["url"] for r in got["courses"]]
+            == ["https://catalog.pwcs.edu/band/concert"]), got["courses"]
     assert got["pathways"] == [] and got["reclassified"] == [], got
 
 

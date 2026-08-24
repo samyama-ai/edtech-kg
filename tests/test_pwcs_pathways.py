@@ -30,8 +30,8 @@ def test_rows_are_read_from_every_section_not_only_the_first():
 def test_each_row_is_attributed_to_the_section_it_sits_under():
     markup = section("First", "/a/one") + section("Second", "/a/two")
     got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
-    assert {reader.segments(c["url"])[-1]: c["section"] for c in got["courses"]} \
-        == {"one": "First", "two": "Second"}
+    assert ({reader.segments(c["url"])[-1]: c["section"] for c in got["courses"]}
+            == {"one": "First", "two": "Second"})
 
 
 def test_a_row_before_any_section_title_has_no_section():
@@ -103,15 +103,28 @@ def test_a_row_with_no_credits_is_counted_rather_than_dropped():
 
     The real catalogue has exactly one such row, which is why the loss was
     small enough to go unnoticed and large enough to be wrong.
+
+    The row is emitted INSIDE the section. The previous fixture built
+    `section("First")` with no paths — which renders an empty
+    `field-degree-section-courses` div, the exact markup
+    `test_a_rendered_field_with_no_rows_is_a_parse_failure_not_an_empty_pathway`
+    asserts is a parse failure — and then appended the article after the closing
+    tag. It passed, because section attribution follows the last `<h2>` rather
+    than the enclosing div, so the row picked up "First" from outside it. That
+    is the test passing for a reason unrelated to credits, and a change to the
+    empty-field branch could have flipped it either way.
     """
-    no_credits = ('<article about="/a/one" class="node row degree-row">'
-                  '<div class="col-10"><a href="/a/one">A course</a></div>'
-                  '</article>')
-    got = reader.parse_pathway(section("First") + no_credits,
+    got = reader.parse_pathway(section("First", "/a/one", credits=None),
                                "https://catalog.pwcs.edu/p", PUBLISHED)
     assert [c["url"] for c in got["courses"]] == ["https://catalog.pwcs.edu/a/one"]
     assert got["courses"][0]["credits"] is None
+    assert got["courses"][0]["section"] == "First", (
+        "a credits-less row must still be attributed to its section — the "
+        "field it is missing is not the one that places it")
     assert got["rows_without_credits"] == 1, got
+    assert got["field_present_no_rows"] is False, (
+        "the fixture must not also be a parse failure, or this asserts two "
+        "things at once and neither cleanly")
 
 
 def test_dangling_and_resolved_rows_use_the_same_spelling():

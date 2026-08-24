@@ -11,14 +11,23 @@ files makes both of them pass while describing different pages.
 from __future__ import annotations
 
 
-def row(path: str, credits: str = "1") -> str:
+def row(path: str, credits: str | None = "1") -> str:
+    """One course row. `credits=None` omits the credits field entirely.
+
+    Omitting it is a real page shape, not a hypothetical: the catalogue
+    publishes exactly one row with no credits, and requiring the field made the
+    parser skip that row altogether — not into `rows`, not into `dangling`, just
+    gone. A builder that cannot express the shape cannot test the fix.
+    """
+    field = ("" if credits is None else
+             f'<span class="field field--name-field-credits field__item">{credits}</span>')
     return (f'<article about="{path}" class="node row degree-row">'
             f'<div class="col-10"><a href="{path}">A course</a></div>'
-            f'<span class="field field--name-field-credits field__item">{credits}</span>'
+            f'{field}'
             f'</article>')
 
 
-def section(title: str, *paths: str, credits: str = "1") -> str:
+def section(title: str, *paths: str, credits: str | None = "1") -> str:
     return (f'<h2 class="field field--name-field-degree-section-title '
             f'field__item">{title}</h2>'
             f'<div class="field field--name-field-degree-section-courses">'
