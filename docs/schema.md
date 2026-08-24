@@ -213,30 +213,39 @@ is why it sits above the list rather than inside it as an item "0".
 6. **`PREPARES_FOR` is a published claim, not causation.** The crosswalk says a
    programme prepares for an occupation. It does not say graduates get those
    jobs, and nothing here supports that reading.
-7. **A page is classified by what it publishes, not only by its URL.** Four
-   pages render a pathway's course table at course depth — two specialty
-   programs, International Baccalaureate and Virtual Prince William. Read by
-   depth alone they loaded as `Course`, their tables were never opened, and
-   172 published rows never became edges. Nothing failed: the loader and the
-   engine agreed about a set that was already short, which is why it took a
-   reviewer asking what the classifier assumed.
 
-   Fixed in edtech-kg#87. The markup now wins over the depth, and the loader
-   prints every page where the two disagree — so the next one is visible
-   rather than absorbed.
+## A page is classified by what it publishes, not only by its URL
 
-   `INCLUDES` moved from 185 edges to 316, and the +131 is checkable rather
-   than asserted. The four pages publish **182 rows**: 172 resolve to a loaded
-   course and 10 resolve to none. Of those 172, **41 repeat a pair already
-   listed on the same pathway** and fold onto one edge (#77), leaving
-   **172 − 41 = 131 new edges**, so **185 + 131 = 316**. The 10 unresolvable
-   rows are part of the 16 the `INCLUDES` row above accounts for; the other 6
-   were already there.
+This was hole 7 in the list above until edtech-kg#87 closed it. Kept here
+rather than deleted, because how a page gets its label is a property of the
+schema and the next source will have the same question — and because a defect
+that is quietly removed once fixed teaches nobody what to look for.
 
-   The node total is unchanged at 1,098: the four pages did not appear or
-   disappear, they changed label. `Requirement` is unchanged too — all 138
-   requirement blocks sit on course pages, and none of the four reclassified
-   pages carries one, measured after the change rather than assumed.
+Four pages render a pathway's course table at course depth. Three sit under
+`/specialty-programs/` — the Center for Biotechnology and Engineering, the
+Information Technology Center, and International Baccalaureate — and the fourth
+is Virtual Prince William, under its own path. Read by depth alone they loaded
+as `Course`, their tables were never opened, and 172 published rows never became
+edges. Nothing failed: the loader and the engine agreed about a set that was
+already short, which is why it took a reviewer asking what the classifier
+assumed.
+
+Fixed in edtech-kg#87. The markup now wins over the depth, and the loader
+prints every page where the two disagree — so the next one is visible
+rather than absorbed.
+
+`INCLUDES` moved from 185 edges to 316, and the +131 is checkable rather
+than asserted. The four pages publish **182 rows**: 172 resolve to a loaded
+course and 10 resolve to none. Of those 172, **41 repeat a pair already
+listed on the same pathway** and fold onto one edge (#77), leaving
+**172 − 41 = 131 new edges**, so **185 + 131 = 316**. The 10 unresolvable
+rows are part of the 16 the `INCLUDES` row above accounts for; the other 6
+were already there.
+
+The node total is unchanged at 1,098: the four pages did not appear or
+disappear, they changed label. `Requirement` is unchanged too — all 138
+requirement blocks sit on course pages, and none of the four reclassified
+pages carries one, measured after the change rather than assumed.
 
 ## Verified against the engine
 

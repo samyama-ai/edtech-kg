@@ -25,9 +25,6 @@ def section(title: str, *paths: str, credits: str = "1") -> str:
             + "".join(row(p, credits) for p in paths) + "</div>")
 
 
-PUBLISHED = {"/a/one", "/a/two", "/b/three"}
-
-
 def titled(name: str) -> str:
     return f"<html><h1>{name}</h1></html>"
 
