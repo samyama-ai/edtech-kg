@@ -62,8 +62,9 @@ come from. Depth still decides everything else, because a subject index and a
 course carry no field that tells them apart.
 
 None of the district rows above is a number the probe prints as such today, and
-**edtech-kg#74** is where the probe is corrected to report them separately. The table carries the corrected figures because a
-reader skimming it should not take away a number this page goes on to refute.
+**edtech-kg#74** is where the probe is corrected to report them separately. The
+table carries the corrected figures because a reader skimming it should not
+take away a number this page goes on to refute.
 
 `Completion` is 9,026,310 because that is what IPEDS publishes. Whether a
 bounded slice or all of it is loaded is **edtech-kg#23** — a question about the
@@ -86,7 +87,7 @@ loader, not about the source.
 |---|---|---|
 | `REQUIRES` | Course → Course | **The prerequisite edge.** 240 measured, all resolving |
 | `HAS_REQUIREMENT` | Course / Pathway → Requirement | A prose condition — not a course reference |
-| `INCLUDES` | Pathway → Course | What a published pathway is made of. 316 edges from 374 published rows — **58 rows repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77), so the section names are joined onto the one edge and `rows` records how many folded in. A further 16 rows resolve against no loaded course: measured, all 16 name a Drupal node id the catalogue publishes no page for. The check is "not a loaded course" rather than "not published", so a row naming a page that IS published but is a Subject or a Pathway would land here too — none does today. Carries the district's section name and credit value |
+| `INCLUDES` | Pathway → Course | What a published pathway is made of. The pathways publish **390 rows**: 374 resolve to a loaded course and **16 resolve to none** — the 16 are additional to the 374, not drawn from it. Of the 374, **58 repeat a pathway-course pair already listed**, each because that course appears in a second named section of the same pathway, and 1.1.0 holds one edge per pair (#77), so the section names are joined onto the one edge and `rows` records how many folded in. **374 − 58 = 316 edges.** On the 16: measured, every one names a Drupal node id the catalogue publishes no page for. The check is "not a loaded course" rather than "not published", so a row naming a page that IS published but is a Subject or a Pathway would land here too — none does today. Carries the district's section name and credit value |
 | `PREPARES_FOR` | Programme → Occupation | The CIP-SOC crosswalk. 6,097 mappings |
 | `OFFERS` | Institution → Programme | What a college teaches |
 | `AT` / `IN` | Completion → Institution / Programme | Who graduated, where, in what |
@@ -151,9 +152,9 @@ property cannot be keyed.
 ## The competency gap
 
 Three questions — Q41, Q59 and Q94 — are blocked on one thing: **every awarding
-body and every learning platform defines its own levels, and none publishes what a level means in
-competency terms.** A pass mark advances a student in one system and not in
-another. No crosswalk exists.
+body and every learning platform defines its own levels, and none publishes
+what a level means in competency terms.** A pass mark advances a student in one
+system and not in another. No crosswalk exists.
 
 The modelling answer is the one this repo has already used twice, not a new
 invention:
@@ -199,9 +200,10 @@ is why it sits above the list rather than inside it as an item "0".
 1. **No student.** Individual records are permanently out of scope
    ([`scope.md`](scope.md) §1). Nothing here can answer "where is this child".
 2. **No national prerequisite graph.** `REQUIRES` is populated for **one
-   district**, 791 courses drawn from a 960-page sitemap. Statewide directories publish none at all, so
-   this is a property of one publisher's catalogue software, not of US
-   education data. Whether a second district resolves as cleanly is edtech-kg#19.
+   district**, 791 courses drawn from a 960-page sitemap. Statewide directories
+   publish none at all, so this is a property of one publisher's catalogue
+   software, not of US education data. Whether a second district resolves as
+   cleanly is edtech-kg#19.
 3. **No Course → Programme edge.** No public source links a district course to
    a college programme's entry requirements. Q39 is marked blocked for exactly
    this reason.
@@ -213,7 +215,7 @@ is why it sits above the list rather than inside it as an item "0".
    jobs, and nothing here supports that reading.
 7. **A page is classified by what it publishes, not only by its URL.** Four
    pages render a pathway's course table at course depth — two specialty
-   programmes, International Baccalaureate and Virtual Prince William. Read by
+   programs, International Baccalaureate and Virtual Prince William. Read by
    depth alone they loaded as `Course`, their tables were never opened, and
    172 published rows never became edges. Nothing failed: the loader and the
    engine agreed about a set that was already short, which is why it took a
@@ -221,9 +223,20 @@ is why it sits above the list rather than inside it as an item "0".
 
    Fixed in edtech-kg#87. The markup now wins over the depth, and the loader
    prints every page where the two disagree — so the next one is visible
-   rather than absorbed. It moved `INCLUDES` from 185 edges to 316 and left
-   the node total unchanged at 1,098, because the four pages did not appear or
-   disappear; they changed label.
+   rather than absorbed.
+
+   `INCLUDES` moved from 185 edges to 316, and the +131 is checkable rather
+   than asserted. The four pages publish **182 rows**: 172 resolve to a loaded
+   course and 10 resolve to none. Of those 172, **41 repeat a pair already
+   listed on the same pathway** and fold onto one edge (#77), leaving
+   **172 − 41 = 131 new edges**, so **185 + 131 = 316**. The 10 unresolvable
+   rows are part of the 16 the `INCLUDES` row above accounts for; the other 6
+   were already there.
+
+   The node total is unchanged at 1,098: the four pages did not appear or
+   disappear, they changed label. `Requirement` is unchanged too — all 138
+   requirement blocks sit on course pages, and none of the four reclassified
+   pages carries one, measured after the change rather than assumed.
 
 ## Verified against the engine
 

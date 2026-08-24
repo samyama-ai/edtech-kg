@@ -251,9 +251,9 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     # loader that MERGEs per row loses the second silently, with no error and
     # no trace in the counts. Raised as #77.
     #
-    # 17 of the 202 published rows are a course appearing in two named sections
+    # 58 of the 374 resolving rows are a course appearing in two named sections
     # of the same pathway — a real fact about the catalogue, not a duplicate.
-    # Rather than write 202 statements and let 17 disappear, the rows are
+    # Rather than write 374 statements and let 58 disappear, the rows are
     # grouped in `pathway_edges` and the sections joined onto the one edge the
     # engine can hold; the collapse is counted and reported, so the number that
     # vanished is on the page rather than in the difference between two others.

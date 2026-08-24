@@ -95,7 +95,7 @@ def catalogue():
 
 @needs_cache
 def test_the_three_levels_account_for_every_sitemap_page(catalogue):
-    """795 courses, 127 subjects, 38 pathways. The probe reports all 960 as
+    """791 courses, 127 subjects, 42 pathways. The probe reports all 960 as
     courses (#74); the split has to add up or one of the three is wrong.
 
     A page can leave the sitemap total in TWO ways, and this used to blame the
@@ -112,7 +112,7 @@ def test_the_three_levels_account_for_every_sitemap_page(catalogue):
     assert total == len(data["urls"]), (
         f"{len(data['urls'])} pages in the sitemap, {total} classified, "
         f"{len(data['unclassified'])} unclassified, {len(data['unparsed'])} unparsed")
-    # The invariant, not the census. Asserting 127/795/38 fails the day the
+    # The invariant, not the census. Asserting 127/791/42 fails the day the
     # district publishes one more course — which is not a defect, and a test
     # that cries about it teaches people to ignore it. What must hold is that
     # every page lands in exactly one bucket and none is left unclassified.
@@ -122,8 +122,8 @@ def test_the_three_levels_account_for_every_sitemap_page(catalogue):
 
 @needs_cache
 def test_no_prerequisite_crosses_out_of_the_course_level(catalogue):
-    """The claim edtech-kg#74 rests on: reclassifying 165 pages does not touch
-    the 240 edges, because no page outside the 795 is at either end of one.
+    """The claim edtech-kg#74 rests on: reclassifying 169 pages does not touch
+    the 240 edges, because no page outside the 791 is at either end of one.
 
     **Both assertions below hold when nothing was parsed.** An empty
     `prerequisite_links` on every record satisfies the loop, and an empty

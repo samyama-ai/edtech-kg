@@ -18,11 +18,11 @@ def row(path: str, credits: str = "1") -> str:
             f'</article>')
 
 
-def section(title: str, *paths: str) -> str:
+def section(title: str, *paths: str, credits: str = "1") -> str:
     return (f'<h2 class="field field--name-field-degree-section-title '
             f'field__item">{title}</h2>'
             f'<div class="field field--name-field-degree-section-courses">'
-            + "".join(row(p) for p in paths) + "</div>")
+            + "".join(row(p, credits) for p in paths) + "</div>")
 
 
 PUBLISHED = {"/a/one", "/a/two", "/b/three"}
@@ -30,3 +30,10 @@ PUBLISHED = {"/a/one", "/a/two", "/b/three"}
 
 def titled(name: str) -> str:
     return f"<html><h1>{name}</h1></html>"
+
+
+# The sitemap these fixtures resolve against. One definition: a second copy in
+# a test file is the drift this module exists to prevent, and two builders
+# disagreeing about what is published makes both files pass while describing
+# different catalogues.
+PUBLISHED = {"/a/one", "/a/two", "/b/three"}

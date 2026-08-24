@@ -143,7 +143,7 @@ def test_the_limits_of_the_merge_rule_are_admitted():
 
 
 def test_no_document_calls_960_a_course_count():
-    """The tier-1 correction says the course count is 795; a later section still
+    """The tier-1 correction says the course count is 791; a later section still
     said "one district, 960 courses". A page that corrects itself in one place
     and repeats the error in another is worse than one that never corrected it.
 
@@ -156,7 +156,7 @@ def test_no_document_calls_960_a_course_count():
         flat = " ".join(path.read_text(errors="replace").split())
         assert "960 courses" not in flat, (
             f"{path.name} still calls 960 a course count; it is the sitemap "
-            f"page count, and the course count is 795")
+            f"page count, and the course count is 791")
 
 
 def test_the_classification_hole_says_it_was_fixed_not_that_it_stands():
@@ -198,3 +198,73 @@ def test_every_edge_in_the_schema_is_documented():
     documented = documented_edges()
     missing = sorted(edges() - documented)
     assert not missing, f"in the cypher but not in docs/schema.md: {missing}"
+
+
+def test_the_includes_arithmetic_in_the_schema_doc_closes():
+    """The INCLUDES row gives five numbers. A reader adding them up has to get
+    the answer the row states, or the row is teaching a wrong figure.
+
+    It did not close on the first attempt, and the way it failed is the point:
+    the row said "316 edges from 374 published rows" and then "a further 16
+    rows resolve against no loaded course", which reads as either 374 − 58 −
+    16 = 300 or 374 − 58 = 316 depending on whether the 16 are inside the 374
+    or beside them. They are beside them. Prose that supports two readings and
+    only one arithmetic is the same defect as a wrong number.
+
+    Read out of the document rather than asserted here, so the test fails when
+    the page changes rather than when this file does.
+    """
+    row = _includes_row()
+    published = _figure(row, r"publish \*\*([\d,]+) rows\*\*")
+    resolving = _figure(row, r"([\d,]+) resolve to a loaded course")
+    unresolved = _figure(row, r"\*\*([\d,]+) resolve to none\*\*")
+    repeats = _figure(row, r"\*\*([\d,]+) repeat a pathway-course pair")
+    edges = _figure(row, r"([\d,]+) − [\d,]+ = ([\d,]+) edges", group=2)
+
+    assert resolving + unresolved == published, (
+        f"{resolving} resolving + {unresolved} unresolved = "
+        f"{resolving + unresolved}, but the row says {published} rows")
+    assert resolving - repeats == edges, (
+        f"{resolving} − {repeats} = {resolving - repeats}, "
+        f"but the row says {edges} edges")
+
+
+def test_the_hole_seven_arithmetic_closes_too():
+    """`185 → 316` is a claim about what the fix recovered, and the review
+    could not check it from what the page said. It now states the breakdown,
+    so the +131 is arithmetic rather than assertion."""
+    text = " ".join(SCHEMA_DOC.read_text(errors="replace").split())
+    hole = text[text.index("The four pages publish"):]
+    hole = hole[:hole.index("The node total is unchanged")]
+
+    rows = _figure(hole, r"publish \*\*([\d,]+) rows\*\*")
+    resolving = _figure(hole, r"([\d,]+) resolve to a loaded course")
+    unresolved = _figure(hole, r"([\d,]+) resolve to none")
+    repeats = _figure(hole, r"\*\*([\d,]+) repeat a pair already")
+    gained = _figure(hole, r"= ([\d,]+) new edges")
+    before = _figure(hole, r"\*\*([\d,]+) \+ [\d,]+ = [\d,]+\*\*")
+    after = _figure(hole, r"\*\*[\d,]+ \+ [\d,]+ = ([\d,]+)\*\*")
+
+    assert resolving + unresolved == rows, f"{resolving}+{unresolved} != {rows}"
+    assert resolving - repeats == gained, f"{resolving}-{repeats} != {gained}"
+    assert before + gained == after, f"{before}+{gained} != {after}"
+
+
+def _includes_row() -> str:
+    for line in SCHEMA_DOC.read_text(errors="replace").splitlines():
+        if line.startswith("| `INCLUDES`"):
+            return line
+    raise AssertionError("no INCLUDES row in the edge table")
+
+
+def _figure(text: str, pattern: str, group: int = 1) -> int:
+    """One number out of the page, or a failure naming what was looked for.
+
+    Failing rather than returning None matters: a regex that stops matching
+    because the sentence was reworded would otherwise make the arithmetic test
+    pass on nothing at all, which is the vacuous pass this suite keeps finding.
+    """
+    import re
+    found = re.search(pattern, text)
+    assert found, f"no figure matching {pattern!r} — the wording changed"
+    return int(found.group(group).replace(",", ""))

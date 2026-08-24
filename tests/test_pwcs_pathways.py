@@ -14,9 +14,7 @@ what the cached catalogue actually holds.
 from __future__ import annotations
 
 from etl import pwcs_source as reader
-from tests.pwcs_markup import row, section
-
-PUBLISHED = {"/a/one", "/a/two", "/b/three"}
+from tests.pwcs_markup import PUBLISHED, row, section
 
 
 def test_rows_are_read_from_every_section_not_only_the_first():
@@ -76,21 +74,16 @@ def test_a_pathway_with_no_such_field_is_not_a_parse_failure():
     assert got["courses"] == []
 
 
-# --------------------------------------------------------------------------
-# what the catalogue actually holds — read from the cache, not asserted
-
-
 def test_a_credit_value_is_normalised_like_a_section_title():
     """One went through `html.unescape` and whitespace collapsing and the other
     did not, for no reason anyone chose."""
-    markup = section("First", "/a/one").replace(
-        'field__item">1</span>', 'field__item">  1 &amp; a half\n</span>')
+    # Asked of the builder rather than spliced into its output. The previous
+    # form string-replaced `field__item">1</span>` inside built markup, so a
+    # change to the credits element made this test stop exercising credits at
+    # all — silently, since the un-replaced markup still parses.
+    markup = section("First", "/a/one", credits="  1 &amp; a half\n")
     got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
     assert got["courses"][0]["credits"] == "1 & a half"
-
-
-# --------------------------------------------------------------------------
-# classification, driven with synthetic pages so odd depths can exist
 
 
 def test_a_row_under_no_section_is_counted_even_when_it_dangles():
