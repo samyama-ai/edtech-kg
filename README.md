@@ -8,7 +8,7 @@ you can walk — plus eight measured public sources for the college and career s
 
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
 
-> **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 7.9 seconds.**
+> **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
 > The national spine (CIP-SOC, IPEDS, BLS, College Scorecard) is measured but not yet
 > loaded. Counts, licences and known limitations are in [`docs/`](docs/).
 

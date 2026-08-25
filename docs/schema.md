@@ -31,7 +31,7 @@ source holds, not what any graph contains.
 | `District` | `leaid` | A school district, CCD | 19,714 |
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
 | `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key. All 138 sit on course pages; `HAS_REQUIREMENT` accepts a pathway too, and none states one |
-| `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | **42** — 16 CTE career pathways and 26 specialty programs |
+| `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | **42** — 36 under `/career-and-technical-education-cte/` and 6 elsewhere: three specialty programs, the Governor's School, JROTC, and Virtual Prince William. Counted from the loaded urls, not from the section names |
 | `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
 
 **`Pathway` moved here from tier 2**, and its key changed from `ctid` to `url`.
@@ -216,10 +216,11 @@ is why it sits above the list rather than inside it as an item "0".
 
 ## A page is classified by what it publishes, not only by its URL
 
-This was hole 7 in the list above until edtech-kg#87 closed it. Kept here
-rather than deleted, because how a page gets its label is a property of the
-schema and the next source will have the same question — and because a defect
-that is quietly removed once fixed teaches nobody what to look for.
+This was one of the holes listed above until edtech-kg#87 closed it, and it has
+its own heading now because it is no longer a limit this schema carries. Kept
+rather than deleted: how a page gets its label is a property of the schema, the
+next source will raise the same question, and a defect that disappears once
+fixed teaches nobody what to look for.
 
 Four pages render a pathway's course table at course depth. Three sit under
 `/specialty-programs/` — the Center for Biotechnology and Engineering, the

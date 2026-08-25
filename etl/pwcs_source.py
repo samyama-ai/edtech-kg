@@ -11,12 +11,14 @@ lands on a published page or provably does not.
 What the sitemap holds, by path depth — the catalogue's own structure:
 
     /band                                       127  Subject
-    /band/concert-band                          791  Course
-    /career-and-technical-education-cte/...       38  Pathway (by depth)
+    /band/concert-band                          795  Course
+    /career-and-technical-education-cte/...       38  Pathway
 
-Depth is what the URLs say. It is not the final classification: four pages
-publish a pathway's course table at course depth, so the loaded counts are
-127 subjects, 791 courses, 42 pathways. See `classify`.
+Those are DEPTHS, and they sum to 960. The loaded classification is 127
+subjects, 791 courses and 42 pathways, which also sums to 960 — four pages move
+from Course to Pathway because their markup says so.
+
+See `classify`.
 
 **The probe reports all 960 as courses. They are not.** No page at depth 1 or 3
 states a prerequisite and no prerequisite points at one, so the 240 edges are

@@ -161,19 +161,29 @@ def test_no_document_calls_960_a_course_count():
 
 def test_the_classification_hole_says_it_was_fixed_not_that_it_stands():
     """`docs/schema.md` opens its holes list with "written down before anyone
-    finds it". Hole 7 recorded that four pages loaded as courses and 172 rows
-    never became edges — true until edtech-kg#87, and misleading after it.
+    finds it". One of those holes recorded that four pages loaded as courses
+    and 172 rows never became edges — true until edtech-kg#87, misleading after.
 
     A page that states its own limits is only worth reading if the statement
     keeps up with what is known, in both directions: a hole that closes has to
     stop reading as open.
+
+    Targeted at the classification section by its own heading, not by the range
+    the holes list occupies. It used to read the holes range and pass because
+    this section happens to sit inside it — which would have kept passing if
+    the section were moved anywhere else in the file, and stopped passing if
+    the holes list gained a later heading. Neither has anything to do with what
+    this is checking.
     """
     doc = SCHEMA_DOC.read_text()
-    holes = section(doc, "## What this schema does not claim", "## Verified against")
-    assert "#87" in holes, "the classification hole is no longer mentioned at all"
-    assert "Fixed in edtech-kg#87" in holes, (
-        "hole 7 still reads as an open gap; #87 closed it")
-    assert "is short by 172" not in holes, (
+    heading = "## A page is classified by what it publishes, not only by its URL"
+    assert heading in doc, (
+        "the classification section is gone — #87's finding is no longer "
+        "recorded anywhere on the page")
+    body = section(doc, heading, "## Verified against")
+    assert "Fixed in edtech-kg#87" in body, (
+        "the classification section still reads as an open gap; #87 closed it")
+    assert "is short by 172" not in body, (
         "the doc still says INCLUDES is short by 172 edges")
 
     includes_row = [line for line in doc.splitlines()

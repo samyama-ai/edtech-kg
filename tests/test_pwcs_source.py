@@ -50,7 +50,8 @@ needs_cache = pytest.mark.skipif(
             "first; a partial cache would fetch the remainder from the district"))
 
 # --------------------------------------------------------------------------
-# keys
+# keys — the ids everything else is joined on
+# --------------------------------------------------------------------------
 
 
 def test_a_requirement_id_is_stable():
@@ -90,7 +91,8 @@ def catalogue():
 
 
 # --------------------------------------------------------------------------
-# parse_pathway — the parse that got it wrong the first time
+# what the cached catalogue actually holds — read, not asserted
+# --------------------------------------------------------------------------
 
 
 @needs_cache
@@ -161,7 +163,8 @@ def test_the_normalisation_rule_names_every_url_keyed_label():
 
 
 # --------------------------------------------------------------------------
-# parse_pathway, continued — the fields on a row
+# classification — driven with synthetic pages, so odd depths can exist
+# --------------------------------------------------------------------------
 
 
 def test_level_names_each_depth_and_refuses_to_guess():
@@ -399,27 +402,41 @@ def test_a_course_page_that_does_not_parse_is_reported_not_just_missing():
     assert got["unparsed"][0] in got["pathways"][0]["dangling"]
 
 
-def test_pathway_markup_is_not_held_after_it_is_parsed():
-    """The second pass reads each pathway's page out of a dict that the first
-    pass filled. Popping rather than reading keeps it from being a store of
-    every pathway page for the life of the call — 1.2 MB today across 42 pages,
-    which is small, but a dict that only grows is the shape that stops being
-    small without anyone noticing."""
-    import etl.pwcs_source as module
+def test_pathway_markup_is_released_as_each_page_is_parsed():
+    """The second pass reads each pathway's page out of a dict the first pass
+    filled. It pops rather than reads, so the dict shrinks as it goes instead
+    of holding every page for the life of the call — 1.2 MB today across 42
+    pages, which is small, but a dict that only grows is the shape that stops
+    being small without anyone noticing.
 
-    held = {}
-    original = module.parse_pathway
+    The first version of this test asserted only that `parse_pathway` was
+    called with the pathway's url, which is true whether the entry is popped or
+    read and says nothing about the name on the test. This one reads the
+    caller's own dict at the moment it hands over a page: `.pop()` happens
+    before the call, so by then the page being parsed is already gone.
+
+    Two pathways, so the counts distinguish the two implementations — popping
+    gives [1, 0] and reading would give [2, 2].
+    """
+    import sys
+
+    held_during = []
+    original = reader.parse_pathway
 
     def spy(markup, url, course_paths):
-        held[url] = len(markup)
+        held_during.append(len(sys._getframe(1).f_locals["pathway_markup"]))
         return original(markup, url, course_paths)
 
-    module.parse_pathway = spy
+    urls = ["https://catalog.pwcs.edu/cte/career-pathways/music",
+            "https://catalog.pwcs.edu/cte/career-pathways/art"]
+    reader.parse_pathway = spy
     try:
-        got = reader.read(urls=["https://catalog.pwcs.edu/cte/career-pathways/music"],
-                          fetch=lambda u: titled("Music") + section("Only", "/a/one"))
+        got = reader.read(urls=urls,
+                          fetch=lambda u: titled("A pathway") + section("Only", "/a/one"))
     finally:
-        module.parse_pathway = original
+        reader.parse_pathway = original
 
-    assert held, "the pathway was never parsed, so this asserts nothing"
-    assert got["pathways"][0]["url"] in held
+    assert len(got["pathways"]) == 2, "both pages must classify as pathways"
+    assert held_during == [1, 0], (
+        f"the dict held {held_during} pages while parsing; popping leaves "
+        f"[1, 0] and reading would leave [2, 2]")
