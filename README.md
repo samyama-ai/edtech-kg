@@ -1,5 +1,7 @@
 # Education-to-Career Pathways Knowledge Graph
 
+![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
+
 **1,098 nodes. 1,287 edges. One school district's published course catalogue, as a graph
 you can walk — plus eight measured public sources for the college and career side.**
 
@@ -190,7 +192,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 431 tests
+pytest                           # 480 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
