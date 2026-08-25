@@ -355,3 +355,71 @@ def test_a_pathway_row_naming_a_reclassified_page_does_not_resolve_as_a_course()
     assert "https://catalog.pwcs.edu/specialty/it-centre" in pathway["dangling"], (
         "the row naming a reclassified page should be reported, not counted "
         "as a resolved course")
+
+
+def test_a_course_page_that_does_not_parse_is_reported_not_just_missing():
+    """`course_paths` is built from the parsed records, so a course page that
+    fails `parse_course` is not in it — and a pathway row naming that page
+    counts as dangling rather than resolved.
+
+    That is the right call for edge-writing: the page will not become a
+    `Course` node, so a row naming it must not count as resolved or the count
+    and the graph disagree with nothing to say why.
+
+    But it gives `dangling` two causes — no published page at all, and a
+    published page that did not parse — and only one of them is what
+    `docs/schema.md` claims about the 16 dangling rows today. `unparsed` is
+    what separates them, so this drives the case the catalogue does not have
+    and asserts both facts are recoverable rather than one hiding the other.
+    """
+    urls = ["https://catalog.pwcs.edu/band/concert",
+            "https://catalog.pwcs.edu/band/jazz",
+            "https://catalog.pwcs.edu/cte/career-pathways/music"]
+
+    def fetch(url):
+        if url.endswith("career-pathways/music"):
+            return titled("Music") + section("Only", "/band/concert", "/band/jazz")
+        if url.endswith("band/jazz"):
+            return "<html></html>"          # published, but no <h1> to read
+        return titled("Concert Band")
+
+    got = reader.read(urls=urls, fetch=fetch)
+
+    assert got["unparsed"] == ["https://catalog.pwcs.edu/band/jazz"], got["unparsed"]
+    assert [c["url"] for c in got["pathways"][0]["courses"]] == \
+        ["https://catalog.pwcs.edu/band/concert"]
+    # Absolute, the same spelling `courses` uses — so the two lists can be
+    # compared without one caller re-deriving the other's form.
+    assert got["pathways"][0]["dangling"] == \
+        ["https://catalog.pwcs.edu/band/jazz"], got["pathways"][0]
+
+    # The point of the test: the row dangles AND the reason is recoverable.
+    # Reading `dangling` alone would say the catalogue publishes no page for
+    # it, which is false — it publishes one that could not be read.
+    assert got["unparsed"][0] in got["pathways"][0]["dangling"]
+
+
+def test_pathway_markup_is_not_held_after_it_is_parsed():
+    """The second pass reads each pathway's page out of a dict that the first
+    pass filled. Popping rather than reading keeps it from being a store of
+    every pathway page for the life of the call — 1.2 MB today across 42 pages,
+    which is small, but a dict that only grows is the shape that stops being
+    small without anyone noticing."""
+    import etl.pwcs_source as module
+
+    held = {}
+    original = module.parse_pathway
+
+    def spy(markup, url, course_paths):
+        held[url] = len(markup)
+        return original(markup, url, course_paths)
+
+    module.parse_pathway = spy
+    try:
+        got = reader.read(urls=["https://catalog.pwcs.edu/cte/career-pathways/music"],
+                          fetch=lambda u: titled("Music") + section("Only", "/a/one"))
+    finally:
+        module.parse_pathway = original
+
+    assert held, "the pathway was never parsed, so this asserts nothing"
+    assert got["pathways"][0]["url"] in held

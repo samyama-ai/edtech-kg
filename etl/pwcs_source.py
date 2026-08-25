@@ -302,12 +302,23 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
             pathway_markup[url] = markup
         buckets[kind].append(record)
 
+    # Built from the records, so it holds the pages that will become `Course`
+    # nodes — not every page at course depth. The difference is a page that
+    # failed to parse: it is published, and it is at course depth, and it is
+    # NOT going to be a node, so a row naming it must not count as resolved or
+    # the count and the graph disagree with nothing to say why.
+    #
+    # That makes `dangling` carry two causes — no published page at all, and a
+    # published page that did not parse. `unparsed` is what separates them, and
+    # it is returned and printed for exactly this reason. Zero today, which is
+    # the only reason `docs/schema.md` can say every dangling row names a page
+    # the catalogue does not publish.
     course_paths = {source.path_of(r["url"]) for r in buckets["course"]} - {None}
     for record in buckets["pathway"]:
-        # Resolved against the COURSE paths, not every published page: a row
-        # pointing at a subject or pathway page would otherwise count as
-        # resolved and then write no edge.
-        record.update(parse_pathway(pathway_markup[record["url"]],
+        # Popped, not read. The markup is 1.2 MB across 42 pathway pages —
+        # small, but there is no reason to hold a page after it is parsed, and
+        # a dict that only grows is the shape that stops being small quietly.
+        record.update(parse_pathway(pathway_markup.pop(record["url"]),
                                     record["url"], course_paths))
     subjects, courses, pathways = (buckets["subject"], buckets["course"],
                                    buckets["pathway"])

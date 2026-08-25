@@ -190,7 +190,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 484 tests
+pytest                           # 486 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
