@@ -33,9 +33,12 @@ Recording that rather than letting the silence read as absence.
 question in `../questions.md` depends on — the government-published link from a
 degree programme to the occupations it leads to. NCES publishes it as a
 spreadsheet rather than an API, so it has its own probe:
-`python -m etl.probe_cipsoc`. Measured 2026-08-18 at **6,097 mappings**, 2,143
-CIP codes and 868 SOC codes, with 194 programmes mapping to no occupation and
-180 occupations reachable from no programme. Full detail in
+`python -m etl.probe_cipsoc`. Measured at **5,903 mappings** over 2,143 CIP
+codes and **867** SOC codes, with 194 programmes mapping to no occupation and
+180 occupations reachable from no programme. The 194 appear on the CIP-SOC
+sheet as `99-9999 NO MATCH` rows, which is why the earlier figures of 6,097 and
+868 were each inflated — the sentinel is not an occupation and its rows are not
+mappings (edtech-kg#70). Full detail in
 [`cip-soc-crosswalk.md`](cip-soc-crosswalk.md).
 
 O*NET remains a bulk download rather than a queryable count, and is still

@@ -312,3 +312,75 @@ def test_an_absolute_relationship_target_resolves(tmp_path):
         z.writestr("xl/worksheets/sheet1.xml", body)
     with zipfile.ZipFile(p) as z:
         assert probe.sheets(z)["CIP-SOC"] == "xl/worksheets/sheet1.xml"
+
+
+# --------------------------------------------------------------------------
+# the NO MATCH sentinel — edtech-kg#70
+# --------------------------------------------------------------------------
+
+def with_sentinel(path):
+    """A workbook shaped like the real one: two real mappings, and two
+    programmes whose only row carries the crosswalk's NO MATCH sentinel — the
+    same two the "Unmatched CIP Codes" sheet lists, which is how the published
+    file states that fact twice."""
+    return workbook(path / "cw.xlsx", {
+        "File Guide": [["ignore me"]],
+        "CIP-SOC": [
+            ["CIP2020Code", "CIP2020Title", "SOC2018Code", "SOC2018Title"],
+            ["01.0101", "Agriculture", "45-1011", "Supervisor"],
+            ["11.0701", "Computer Science", "15-1252", "Developer"],
+            ["01.0508", "Taxidermy", probe.NO_MATCH_SOC, "NO MATCH"],
+            ["01.0599", "Other Agriculture", probe.NO_MATCH_SOC, "NO MATCH"],
+        ],
+        "Unmatched CIP Codes": [["Unmatched"], ["CIP2020Code"], ["01.0508"], ["01.0599"]],
+        "Unmatched SOC Codes": [["Unmatched"], ["SOC2018Code"], ["55-1011"]],
+    })
+
+
+def test_the_no_match_sentinel_is_not_counted_as_an_occupation(tmp_path):
+    """`99-9999` means "this programme maps to nothing". Counting it inflated
+    the published figure by one — 868 where the real crosswalk holds 867
+    occupations (#70). It surfaced only because it turned up in a list of
+    occupations BLS "fails to carry", which is the shape of this defect: a
+    wrong figure that is only ever one out and so never looks wrong.
+    """
+    r = probe.probe(with_sentinel(tmp_path), quiet=True)
+    assert r["distinct_soc"] == 2, "the sentinel is being counted as an occupation"
+
+
+def test_a_sentinel_row_is_not_counted_as_a_mapping(tmp_path):
+    """The same rows inflated `mappings` too. A row that says NO MATCH is a
+    statement that there is no mapping, so counting it as one overstates the
+    join every answer in this repo traverses."""
+    r = probe.probe(with_sentinel(tmp_path), quiet=True)
+    assert r["mappings"] == 2
+    assert r["rows_on_the_sheet"] == 4
+    assert r["declared_no_match"] == 2
+
+
+def test_a_programme_with_only_a_sentinel_row_is_still_a_programme(tmp_path):
+    """It is listed in the crosswalk, so it counts as a CIP code — dropping it
+    would understate what the file covers. What it is not is a programme that
+    maps to an occupation, and the two are reported separately rather than one
+    number standing in for both."""
+    r = probe.probe(with_sentinel(tmp_path), quiet=True)
+    assert r["distinct_cip"] == 4
+    assert r["cip_with_an_occupation"] == 2
+
+
+def test_the_workbook_states_the_unmatched_count_in_two_places_and_they_agree(tmp_path):
+    """A sentinel row per unmatched programme, and a sheet listing those
+    programmes. Asserted rather than enforced in the probe: a workbook that
+    states it once is odd, not corrupt, and a probe that refused to run would
+    be harder to diagnose than one that reports both figures."""
+    r = probe.probe(with_sentinel(tmp_path), quiet=True)
+    assert r["declared_no_match"] == r["unmatched_cip"]
+
+
+def test_a_crosswalk_with_no_sentinel_at_all_still_reports_zero(tmp_path):
+    """The fields have to be present whether or not the sentinel appears. A
+    key that exists only when the defect does is a key nothing can rely on."""
+    r = probe.probe(complete(tmp_path), quiet=True)
+    assert r["declared_no_match"] == 0
+    assert r["mappings"] == r["rows_on_the_sheet"] == 3
+    assert r["distinct_cip"] == r["cip_with_an_occupation"] == 2

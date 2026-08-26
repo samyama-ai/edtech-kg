@@ -112,7 +112,7 @@ Every figure below is printed by a probe in `etl/`. None is hand-typed.
 | Source | Probe | Measured |
 |---|---|---|
 | PWCS course catalogue | `probe_pwcs` | 960 pages, 240 resolvable prerequisite edges, 0 dangling |
-| CIP-SOC crosswalk | `probe_cipsoc` | 6,097 programme→occupation mappings over 2,143 programmes |
+| CIP-SOC crosswalk | `probe_cipsoc` | **5,903** programme→occupation mappings over 2,143 programmes — 194 of the 6,097 rows say there is no mapping |
 | IPEDS / CCD | `probe_education` | 9,026,310 completion rows, 6,256 institutions, 102,268 schools, 19,714 districts |
 | Credential Registry | `probe_registry` | 47,861 courses, 133,346 credentials, **98** pathways |
 | CTDL vocabulary | `probe_ctdl` | the prerequisite property exists — and is used **0 times in 600 courses** |
@@ -193,7 +193,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 523 tests
+pytest                           # 528 tests
 ```
 
 CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an
