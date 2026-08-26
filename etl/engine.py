@@ -1,8 +1,16 @@
-"""Talking to Samyama-Graph 1.1.0.
+"""Talking to Samyama-Graph.
 
 Separated from any one loader because the next loader needs exactly this, and
 because `etl/load_pwcs.py` reached 616 lines — over the size review will read,
 which meant the file went unexamined.
+
+**The image tag and the engine version are different numbers.** The image this
+repo runs is tagged `1.1.0`, and the engine inside it reports `1.7.0` from
+`/api/status`. Everywhere this repo says "1.1.0" it means the image tag, which
+is what a reader can actually pull; `ENGINE_VERSION` below is what the running
+binary calls itself. Recorded because a figure attributed to "1.1.0" cannot be
+reproduced by anyone who reads that as the engine version and goes looking for
+it (edtech-kg#24).
 
 Two engine facts shape everything here, both measured:
 
@@ -21,6 +29,29 @@ import re
 import time
 import urllib.error
 import urllib.request
+
+# ---------------------------------------------------------------------------
+# What produced the figures in this repo
+# ---------------------------------------------------------------------------
+#
+# Every count in README.md, docs/ and demo/ was measured against THIS build.
+# Pinned to an exact tag rather than a floating one: `:latest` would move the
+# engine under published numbers with no commit to point at, and this repo's
+# figures are its whole argument.
+#
+# `IMAGE_DIGEST` is the part a tag cannot give you. A tag can be repushed —
+# same name, different bytes — so a reader who pulls `1.1.0` a month from now
+# has no way to know whether they got what we measured. The digest is the
+# content, and it cannot be moved.
+#
+# `ENGINE_VERSION` is what the binary reports, and it does NOT match the tag.
+# `tests/test_engine_version.py` asserts a reachable engine still says this, so
+# a bump is a failing test rather than a silent change in what every figure
+# means.
+IMAGE = "public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0"
+IMAGE_DIGEST = ("sha256:458895059c24b8b809f7e9fa42b62a16734254b0cc4"
+                "dc7562a34cca12506f517")
+ENGINE_VERSION = "1.7.0"
 
 
 class Engine:
@@ -107,6 +138,19 @@ class Engine:
         if not records[0]:
             raise RuntimeError(f"a row with no columns from: {query[:160]}")
         return records[0][0]
+
+
+def status(url: str, timeout: float = 5.0) -> dict:
+    """`/api/status` — the only endpoint that names the engine version.
+
+    Tried `/api/version`, `/version`, `/api/info` and `/healthz` first; all four
+    return nothing on this build, so this is not a preference but the one place
+    the number exists. Recorded here so the next person does not repeat the
+    search.
+    """
+    request = urllib.request.Request(f"{url.rstrip('/')}/api/status")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read())
 
 
 def upsert(engine: Engine, label: str, key: str, value: str, props: dict) -> None:

@@ -12,7 +12,8 @@ Two separate things, deliberately kept apart:
     python -m etl.probe_ctdl --json          # machine-readable
     python -m etl.probe_ctdl --courses 600   # sample N courses for prerequisites
 
-The Registry half lives in `etl/probe_registry.py` and is imported here, so the
+The Registry half lives in `etl/probe_registry.py`, and the transport it shares
+is in `etl/registry_read.py` (#86). Both are imported here, so the
 two sources are measured in one place each while this command still prints both
 tables together.
 
@@ -31,9 +32,9 @@ from datetime import datetime, timezone
 # The Registry is a different source with a different licence, so it has its own
 # probe. Imported rather than duplicated — one place measures it. `get` carries
 # the shared User-Agent, which is why this module defines none of its own.
-from etl.probe_registry import (MalformedSource, course_prerequisites, get, parse,
-                                print_prerequisites, print_registry, registry_totals,
-                                run_cli)
+from etl.probe_registry import (course_prerequisites, print_prerequisites,
+                                print_registry, registry_totals, run_cli)
+from etl.registry_read import MalformedSource, get, parse
 
 VOCAB = "https://credreg.net/ctdl/schema/encoding/json"
 
