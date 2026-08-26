@@ -33,7 +33,6 @@ import sys
 import urllib.error
 import urllib.request
 import zipfile
-import xml.etree.ElementTree as ET
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,7 +47,6 @@ ONET_MEMBER = "OccupationalListings/Crosswalks/2019_to_SOC_Crosswalk.xlsx"
 CLUSTERS = "https://careertech.org/career-clusters/"
 
 USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
-NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 # The crosswalk's own NO MATCH sentinel, excluded here for the reason
 # edtech-kg#70 established: it is not an occupation.
@@ -85,26 +83,33 @@ def download(url: str, into: Path) -> bytes:
     return payload
 
 
-def sheet_rows(book: zipfile.ZipFile, part: str) -> list[list[str]]:
-    shared = ["".join(t.text or "" for t in si.iter(f"{{{NS['m']}}}t"))
-              for si in ET.fromstring(book.read("xl/sharedStrings.xml"))]
-    sheet = ET.fromstring(book.read(part))
-    out = []
-    for row in sheet.iter(f"{{{NS['m']}}}row"):
-        cells = []
-        for cell in row.iter(f"{{{NS['m']}}}c"):
-            value = cell.find(f"{{{NS['m']}}}v")
-            if value is None:
-                cells.append("")
-            elif cell.get("t") == "s":
-                cells.append(shared[int(value.text)])
-            else:
-                cells.append(value.text or "")
-        out.append(cells)
-    return out
+def crosswalk_pairs() -> list[tuple[str, str]]:
+    """The CIP-SOC pairs, from a workbook this function makes sure exists.
+
+    `data/` is gitignored, so on a clean checkout the file is absent and
+    `zipfile.ZipFile(crosswalk.LOCAL)` raised `FileNotFoundError` — a
+    traceback, since `main()` catches only `MalformedSource`. That is the
+    first thing anyone reproducing these figures would have hit.
+    """
+    if not crosswalk.LOCAL.exists():
+        try:
+            crosswalk.download()
+        except (RuntimeError, ValueError) as exc:
+            raise MalformedSource(f"could not fetch the CIP-SOC crosswalk: {exc}") from exc
+    with zipfile.ZipFile(crosswalk.LOCAL) as book:
+        rows = crosswalk.rows(book, crosswalk.sheets(book)["CIP-SOC"])
+    mapped, _ = crosswalk.pairs(rows, crosswalk.find_header(rows, "CIP"))
+    return mapped
 
 
-def cip_hierarchy() -> dict:
+def crosswalk_soc(mapped: list[tuple[str, str]] | None = None) -> set[str]:
+    """The SOC codes our crosswalk reaches, minus the NO MATCH sentinel."""
+    if mapped is None:
+        mapped = crosswalk_pairs()
+    return {soc for _, soc in mapped if soc != NO_MATCH}
+
+
+def cip_hierarchy(mapped: list[tuple[str, str]] | None = None) -> dict:
     """What the crosswalk carries above the leaf level — which is not much.
 
     edtech-kg#36 says `probe_cipsoc.py` "sees only leaves". Measured, it is
@@ -112,11 +117,8 @@ def cip_hierarchy() -> dict:
     most do not, so code that looks one up works for a few and returns nothing
     for the rest — which is harder to notice than a uniform absence.
     """
-    with zipfile.ZipFile(crosswalk.LOCAL) as book:
-        rows = crosswalk.rows(book, crosswalk.sheets(book)["CIP-SOC"])
-    head = crosswalk.find_header(rows, "CIP")
-    mapped, _ = crosswalk.pairs(rows, head)
-    codes = sorted({c for c, _ in mapped})
+    mapped = mapped if mapped is not None else crosswalk_pairs()
+    codes = sorted({cip for cip, _ in mapped})
 
     families = sorted({c for c in codes if FAMILY.match(c)})
     series = sorted({c for c in codes if SERIES.match(c) and not FAMILY.match(c)})
@@ -137,17 +139,36 @@ def cip_hierarchy() -> dict:
             "family_names_derivable": not (prefixes - with_row)}
 
 
-def onet_to_soc() -> dict:
-    """Whether O*NET-SOC can be joined to SOC, and what happens if you try."""
-    archive = zipfile.ZipFile(io.BytesIO(download(ONET_URL, ONET_LOCAL)))
-    try:
-        book = zipfile.ZipFile(io.BytesIO(archive.read(ONET_MEMBER)))
-    except KeyError as exc:
-        raise MalformedSource(
-            f"{ONET_MEMBER} is not in the O*NET archive — it holds "
-            f"{archive.namelist()[:6]}. The layout has changed.") from exc
+def onet_to_soc(ours: set[str] | None = None) -> dict:
+    """Whether O*NET-SOC can be joined to SOC, and what happens if you try.
 
-    rows = sheet_rows(book, "xl/worksheets/sheet1.xml")
+    `ours` is the SOC side of the CIP-SOC crosswalk. It is a parameter so that
+    `probe()` can read that workbook once instead of once per function.
+    """
+    with zipfile.ZipFile(io.BytesIO(download(ONET_URL, ONET_LOCAL))) as archive:
+        try:
+            member = archive.read(ONET_MEMBER)
+        except KeyError as exc:
+            raise MalformedSource(
+                f"{ONET_MEMBER} is not in the O*NET archive — it holds "
+                f"{archive.namelist()[:6]}. The layout has changed.") from exc
+
+    with zipfile.ZipFile(io.BytesIO(member)) as book:
+        # The SAME reader `probe_cipsoc` uses, not a second one. It places
+        # cells by their `r` attribute; a reader that appends in document
+        # order puts the 2018 SOC *Title* in the column the header calls
+        # 2018 SOC Code the moment a row omits its title cell, and every
+        # figure below stays plausible and is wrong. Measured on the file as
+        # it stands today: every row is dense and the two readers agree
+        # exactly, so this is a latent defect rather than a live one — which
+        # is precisely why it needs the shared reader and not a comment.
+        parts = crosswalk.sheets(book)
+        if len(parts) != 1:
+            raise MalformedSource(
+                f"the O*NET crosswalk holds {sorted(parts)} — refusing to "
+                f"guess which sheet carries the mapping")
+        rows = crosswalk.rows(book, next(iter(parts.values())))
+
     head = next((i for i, r in enumerate(rows)
                  if any("O*NET-SOC" in c and "Code" in c for c in r)), None)
     if head is None:
@@ -160,10 +181,8 @@ def onet_to_soc() -> dict:
     rolled = {r[2].strip() for r in body}
     fan = Counter(r[2].strip() for r in body)
 
-    with zipfile.ZipFile(crosswalk.LOCAL) as cw:
-        cw_rows = crosswalk.rows(cw, crosswalk.sheets(cw)["CIP-SOC"])
-    mapped, _ = crosswalk.pairs(cw_rows, crosswalk.find_header(cw_rows, "CIP"))
-    ours = {s for _, s in mapped if s != NO_MATCH}
+    if ours is None:
+        ours = crosswalk_soc()
 
     return {"source": ONET_URL,
             "onet_occupations": len(onet_codes),
@@ -185,6 +204,10 @@ def career_clusters() -> dict:
 
     Everything here is quoted from the page as it stood on the retrieval date,
     because a licence position is a fact about a document and not about data.
+
+    Deliberately not cached on disk, unlike the two workbooks: a licence
+    position is exactly the thing that should be re-read rather than served
+    from a copy taken months ago. The cost is one request per run.
     """
     request = urllib.request.Request(CLUSTERS, headers={"User-Agent": USER_AGENT})
     try:
@@ -200,8 +223,14 @@ def career_clusters() -> dict:
     # page that carries one, which is the wrong way round for a licence check.
     notice = re.search(r"(©\s*\d{4}[^©]{0,160}?All rights reserved)", flat)
     structure = re.search(r"(\d+) Clusters and (\d+) Sub-Clusters", flat)
+    # Either quote style, and a query string or fragment allowed after the
+    # extension. The tight pattern (double quotes, extension at the very end)
+    # reported zero for href='/x.xlsx?v=2' — and the zero here feeds a licence
+    # conclusion, so a false negative is the wrong way round, the same way
+    # round as the copyright pattern above.
     machine_readable = sorted(set(re.findall(
-        r'href="([^"]*\.(?:xlsx|xls|csv|json))"', page, re.I)))
+        r"""href=["']([^"']*\.(?:xlsx|xls|csv|json))(?:[?#][^"']*)?["']""",
+        page, re.I)))
 
     return {"source": CLUSTERS,
             "copyright_notice": notice.group(1).strip() if notice else None,
@@ -213,8 +242,11 @@ def career_clusters() -> dict:
 
 def probe(quiet: bool = False) -> dict:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    cip = cip_hierarchy()
-    onet = onet_to_soc()
+    # Read once, used by both: the workbook was being opened and its pairs
+    # recomputed a second time inside onet_to_soc().
+    mapped = crosswalk_pairs()
+    cip = cip_hierarchy(mapped)
+    onet = onet_to_soc(crosswalk_soc(mapped))
     clusters = career_clusters()
 
     if not quiet:

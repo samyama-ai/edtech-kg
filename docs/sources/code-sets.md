@@ -100,6 +100,13 @@ published on the crosswalks page are **PDFs** — a cluster grid, two wheel
 graphics, a legend, and a **Brand Book**. No CIP, SOC or NAICS crosswalk is
 published as data.
 
+The **0** is a count of links on that page matching a data-file extension
+(`.xlsx`, `.xls`, `.csv`, `.json`), not an exhaustive audit of the site. It is
+stated that way because the zero is what the licence conclusion rests on, and a
+pattern too strict would produce the same zero from a link it simply failed to
+match — the wrong way round for a licence check. The prose above is the
+corroboration: the files that *are* published were read, and they are PDFs.
+
 That combination answers edtech-kg#35's question without needing a lawyer:
 a trademarked framework, "all rights reserved", distributed as branded PDFs.
 
