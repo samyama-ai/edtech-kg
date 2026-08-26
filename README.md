@@ -1,5 +1,7 @@
 # Education-to-Career Pathways Knowledge Graph
 
+![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
+
 **1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
 you can walk — plus eight measured public sources for the college and career side.**
 

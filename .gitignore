@@ -2,7 +2,11 @@
 __pycache__/
 *.pyc
 data/
+# A stray recording anywhere else is scratch. The demo's own cast is not: it is
+# the source the README's GIF is rendered from, and without it the GIF is a
+# screenshot nobody can reproduce.
 *.cast
+!demo/*.cast
 site/
 .DS_Store
 .env
