@@ -28,10 +28,11 @@ import pytest
 
 REVIEWABLE_LINES = 500
 
-# Already over the line when this guard was written, tracked as #86. The list
-# may only SHRINK — a test below fails if anything is added to it, so the
-# exception cannot quietly become the rule.
-OVERSIZED_ALREADY = {"etl/probe_registry.py", "tests/test_probe_registry.py"}
+# EMPTY, and that is the point: #86 split the last two files that were over the
+# line when this guard was written. The list may only SHRINK — a test below
+# fails if anything is added to it, so the exception cannot quietly become the
+# rule, and there is now no exception at all to argue from.
+OVERSIZED_ALREADY: set[str] = set()
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -132,10 +133,21 @@ def parse_exceptions(source: str):
     spells it. So the day the list is finally emptied on `main`, the baseline
     would read as "no baseline" and the ratchet would silently degrade to a
     skip: the one moment it most needs to hold.
+
+    The annotation is optional in the pattern for the same reason, and it is
+    not hypothetical: emptying the list arrived with `OVERSIZED_ALREADY:
+    set[str] = set()`, which the `^NAME = ` form could not match at all. The
+    ratchet would have gone quiet on the exact commit that closed #86.
+
+    `test_the_parser_reads_this_file_s_own_spelling` is what keeps this honest
+    going forward — it feeds this module's own source back through here, so a
+    spelling this parser cannot read fails immediately rather than on whatever
+    branch next needs the baseline.
     """
     import ast
     import re
-    found = re.search(r"^OVERSIZED_ALREADY = (set\(\)|\{[^}]*\})", source, re.M)
+    found = re.search(r"^OVERSIZED_ALREADY(?:\s*:[^=\n]+)?\s*=\s*(set\(\)|\{[^}]*\})",
+                      source, re.M)
     if not found:
         return None
     literal = found.group(1)
@@ -330,6 +342,43 @@ def test_the_ratchet_reads_a_baseline_and_notices_growth():
         "a same-size swap must be caught"
 
 
+def test_the_parser_reads_this_file_s_own_spelling():
+    """Whatever spelling this file uses for `OVERSIZED_ALREADY`, the parser has
+    to be able to read it.
+
+    This is the guard the annotation slipped past. `parse_exceptions` matched
+    `^OVERSIZED_ALREADY = `, and emptying the list for #86 wrote
+    `OVERSIZED_ALREADY: set[str] = set()` — a spelling the pattern could not
+    match. Every existing test still passed, because they all fed the parser
+    hand-written blobs in the OLD spelling rather than the live one. The
+    baseline would have read as None the moment it landed on `main`, and the
+    ratchet would have degraded to a skip on the exact commit that closed the
+    issue it exists to protect.
+
+    Reading this module's own source closes that gap permanently: a spelling
+    the parser cannot handle fails here, on the branch that introduces it,
+    instead of going quiet on the next branch that needs a baseline.
+    """
+    live = parse_exceptions(Path(__file__).read_text(encoding="utf-8"))
+    assert live is not None, (
+        "parse_exceptions cannot read the spelling this file uses for "
+        "OVERSIZED_ALREADY — the ratchet would silently degrade to a skip")
+    assert live == OVERSIZED_ALREADY, (
+        f"the parser reads {live} from this file but the value is "
+        f"{OVERSIZED_ALREADY}")
+
+
+def test_the_parser_reads_both_spellings_of_an_empty_and_a_populated_list():
+    """The four forms the file could legally be written in, including the two
+    annotated ones. `test_the_ratchet_reads_a_baseline_and_notices_growth`
+    covers only the un-annotated pair, which is how the annotation got through.
+    """
+    assert parse_exceptions("OVERSIZED_ALREADY = set()\n") == set()
+    assert parse_exceptions("OVERSIZED_ALREADY: set[str] = set()\n") == set()
+    assert parse_exceptions('OVERSIZED_ALREADY = {"a.py"}\n') == {"a.py"}
+    assert parse_exceptions('OVERSIZED_ALREADY: set[str] = {"a.py"}\n') == {"a.py"}
+
+
 def test_the_ratchet_baseline_is_not_read_from_this_file():
     """The property the ratchet rests on, and the one a test cannot observe.
 
@@ -347,7 +396,9 @@ def test_the_ratchet_baseline_is_not_read_from_this_file():
     assert "baseline_exceptions()" in source, (
         "the ratchet is comparing against something other than the baseline "
         "read from main — a second literal in this file is a copy, not a floor")
-    assert "frozenset(" not in source and "OVERSIZED_ALREADY = {" not in source, (
+    import re as _re
+    assert "frozenset(" not in source and not _re.search(
+        r"OVERSIZED_ALREADY(?:\s*:[^=\n]+)?\s*=\s*\{", source), (
         "a literal set has reappeared inside the ratchet test")
 
 

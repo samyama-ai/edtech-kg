@@ -1,6 +1,8 @@
 # Education-to-Career Pathways Knowledge Graph
 
-**1,098 nodes. 1,287 edges. One school district's published course catalogue, as a graph
+![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
+
+**1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
 you can walk — plus eight measured public sources for the college and career side.**
 
 > Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
@@ -8,7 +10,7 @@ you can walk — plus eight measured public sources for the college and career s
 
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
 
-> **One district is loaded and measured — 1,098 nodes, 1,287 edges, in 8.7 seconds.**
+> **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
 > The national spine (CIP-SOC, IPEDS, BLS, College Scorecard) is measured but not yet
 > loaded. Counts, licences and known limitations are in [`docs/`](docs/).
 
@@ -86,16 +88,16 @@ data, nothing that is not already on the internet.
 
 | Label | Count | |
 |---|---:|---|
-| `Course` | 795 | one published course page |
+| `Course` | 791 | one published course page |
 | `Requirement` | 138 | a stated condition that is **not** a course reference |
 | `Subject` | 127 | the catalogue's own grouping |
-| `Pathway` | 38 | 16 CTE career pathways, 22 specialty programs |
+| `Pathway` | 42 | 16 CTE career pathways, 26 specialty programs |
 
 | Edge | Count | |
 |---|---:|---|
-| `IN_SUBJECT` | 724 | course → its subject |
+| `IN_SUBJECT` | 723 | course → its subject |
 | `REQUIRES` | 240 | **the prerequisite edge — 240 of 240 resolve** |
-| `INCLUDES` | 185 | pathway → course, carrying the credit value published |
+| `INCLUDES` | 316 | pathway → course, carrying the credit value published |
 | `HAS_REQUIREMENT` | 138 | course → a condition naming no course |
 
 **The prerequisites resolve because the district publishes them as links, not prose.** That
@@ -151,12 +153,12 @@ preference, and the working is on the page.
 - **One district.** Prince William County publishes on Clean Catalog, a Drupal product, and
   its prerequisites came out as typed links. Whether a second district resolves as cleanly
   is **#19** — open, and untested.
-- **431 of 795 courses stand outside every chain and every pathway.** Over half. Most
+- **395 of 791 courses stand outside every chain and every pathway.** Half. Most
   courses genuinely have no ladder, and that number is on screen in the demo rather than
   behind it.
 - **138 conditions are not course references** — an audition, a teacher recommendation.
   Held as `Requirement` nodes, never turned into edges the district did not publish.
-- **Five of 202 pathway rows** point at an internal Drupal node id with no published alias
+- **16 of 390 pathway rows** point at an internal Drupal node id with no published alias
   and cannot be resolved by URL. Reported, never dropped.
 - **The national spine is measured, not loaded.** No programme, occupation, institution or
   earnings data is in the graph yet.
@@ -174,13 +176,14 @@ preference, and the working is on the page.
 ## Structure
 
 ```
+.github/      ci.yml — the suite on every push and PR, with a real engine
 etl/          probes (one per source) + load_pwcs.py
 schema/       edtech_kg.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
 docs/         scope, questions, schema, ontology-reuse, sources/
 benchmarks/   the traversals behind docs/questions.md — empty, see #22
 mcp_server/   not implemented; mcp_server/README.md says what it should expose
-tests/        pytest, one file per probe
+tests/        pytest, one file per subject
 ```
 
 The same seven directories as every sibling `*-kg` repo, so anyone who has seen one can
@@ -198,10 +201,15 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 498 tests
+pytest                           # 541 tests
 ```
 
-Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
+CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an
+unreachable engine fail the build rather than skip, and `SAMYAMA_CI=1` makes an
+unexpected skip fail it too — a skip is indistinguishable from a pass in every
+summary line.
+
+Locally, engine-backed tests skip unless an engine is reachable. Point them at a **fresh** instance — they
 write and delete:
 
 ```bash
@@ -212,3 +220,42 @@ SAMYAMA_TEST_URL=http://localhost:8201 SAMYAMA_REQUIRE_ENGINE=1 pytest
 `SAMYAMA_REQUIRE_ENGINE=1` turns an unreachable engine into a failure rather than a skip,
 because "verified against the engine" should never reach a README on the strength of a run
 nobody made.
+
+## Which engine produced these figures
+
+Every count on this page and in `docs/` was measured against one build.
+
+| | |
+|---|---|
+| Image | `public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0` |
+| Digest | `sha256:458895059c24b8b809f7e9fa42b62a16734254b0cc4dc7562a34cca12506f517` |
+| Version the engine reports | **1.7.0** |
+
+**The tag and the version are different numbers, and that is not a mistake.** The image is
+tagged `1.1.0`; the binary inside reports `1.7.0` from `/api/status`. Where this repo
+says "1.1.0" it means the tag — the thing you can actually pull. Both are recorded because
+a figure attributed to "1.1.0" is otherwise ambiguous between the two, and the person
+trying to reproduce it has no way to tell which was meant.
+
+The digest is here for the gap a tag cannot close: a tag can be repushed under the same
+name with different bytes, so a reader pulling `1.1.0` next month cannot otherwise tell
+whether they got what was measured. Pull by digest to be certain:
+
+```bash
+docker run --rm -p 8201:8080 public.ecr.aws/f9f6l5u4/samyama-graph@sha256:458895059c24b8b809f7e9fa42b62a16734254b0cc4dc7562a34cca12506f517
+```
+
+**What a version bump means.** Every published figure becomes unverified until it is
+re-measured — not wrong, unverified, which is worse because nothing looks different. The
+figures are not the only thing at stake: this repo works around engine behaviour in about
+sixty places (a constraint that declares a key without enforcing it, an edge `MERGE` that
+ignores its property map, `ORDER BY` on a non-aggregate alias being ignored), and each of
+those workarounds is correct only for the build it was measured against.
+
+So, on a bump: run the suite with `SAMYAMA_REQUIRE_ENGINE=1` first.
+`tests/test_engine_version.py` fails the moment the engine stops reporting the recorded
+version, and the engine-behaviour tests fail if a limitation has been fixed — which is the
+point, because a fixed limitation means a workaround to delete rather than keep. Then
+reload, re-measure, and update the figures in the same commit as the constant in
+`etl/engine.py`.
+

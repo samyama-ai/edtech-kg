@@ -1,0 +1,111 @@
+name: CI
+
+# The lane that makes a green tick mean something.
+#
+# The failure this exists to prevent is not "tests fail and nobody notices". It
+# is the opposite: **tests SKIP and the build goes green.** `regulatory-affairs-kg`
+# shipped a suite that reported success for engine-backed tests nobody had run,
+# because no engine was reachable and a skip reads as success everywhere.
+#
+# So three things here are load-bearing, and each one is asserted by
+# `tests/test_ci_workflow.py` so this file cannot quietly stop doing them:
+#
+#   1. A real engine runs, and `SAMYAMA_REQUIRE_ENGINE=1` turns an unreachable
+#      one into a FAILURE rather than a skip.
+#   2. `-rs` prints every skip with its reason, so they are visible in the log
+#      rather than folded into a count.
+#   3. `SAMYAMA_CI=1` makes `conftest.py` fail the run if anything skipped for a
+#      reason that is not on its allowlist. Visible is not enough — a skip
+#      nobody reads is the same as a skip nobody sees.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  # A new push supersedes an in-flight run for the same ref — on a PR, where
+  # only the latest state matters. NOT on main: cancelling there leaves a
+  # merged commit with no completed run, which is a commit nobody checked.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  # The job reads the repo and nothing else.
+  contents: read
+
+env:
+  # The engine the figures in docs/ and README were measured against. Pinned,
+  # not floating: a tag that moves would change published numbers with no
+  # commit to point at. Raising it is a deliberate edit, and the suite pins the
+  # behaviours we depend on, so an incompatible release fails here.
+  ENGINE_IMAGE: public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The size ratchets compare this branch against `main`, and a shallow
+          # checkout has no `main` to compare with. They would skip — and with
+          # SAMYAMA_CI=1 a skip fails the build, so this is not a silent loss.
+          # But a ratchet that never runs in CI is a ratchet that is not there,
+          # which is this workflow's own subject one layer down.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        # `pip install -e .` is NOT used, and that is deliberate rather than an
+        # oversight. `pyproject.toml` still carries the repo template's
+        # placeholders — `project.name = "{{KG_SLUG}}-kg"` is not a valid
+        # identifier, so the editable install fails before it starts, and the
+        # dependencies it lists are not the ones the code imports. Measured:
+        # outside the standard library the suite needs pytest and nothing else.
+        # Fixing the packaging belongs with the repo-layout work (#17), not
+        # here — CI installing a dependency set nobody uses would be its own
+        # kind of green build that proves nothing.
+        run: python -m pip install --quiet pytest
+
+      - name: Start a fresh engine
+        # A FRESH instance, never a loaded one: the schema tests validate
+        # constraints against existing rows, so leftover nodes surface as a
+        # false failure in a file about the schema.
+        run: |
+          docker run -d --name samyama -p 8201:8080 "$ENGINE_IMAGE"
+
+      - name: Wait for the engine
+        # Polled, not slept. A fixed sleep is a guess that is either wasteful or
+        # too short, and when it is too short the engine tests skip — which is
+        # the exact failure this workflow exists to prevent.
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8201/api/tenants >/dev/null 2>&1; then
+              echo "engine answering after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "engine never answered on :8201 — dumping logs"
+          docker logs samyama
+          exit 1
+
+      - name: Tests
+        env:
+          SAMYAMA_TEST_URL: http://localhost:8201
+          SAMYAMA_URL: http://localhost:8201
+          # Turns "no engine" from a skip into a failure.
+          SAMYAMA_REQUIRE_ENGINE: "1"
+          # Turns an UNEXPECTED skip into a failure. See conftest.py.
+          SAMYAMA_CI: "1"
+        run: python -m pytest -q -rs
+
+      - name: Engine logs
+        # On failure the engine's own log is usually the shortest route to why.
+        if: failure()
+        run: docker logs samyama

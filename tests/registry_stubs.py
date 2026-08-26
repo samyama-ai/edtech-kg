@@ -1,8 +1,14 @@
 """Shared stubs for the Registry probe tests.
 
 Split out when tests/test_probe_registry.py passed 500 lines and the reviewer
-could no longer read it in one pass. Two files, one subject each: the totals
-reconciliation (#59) and the course sampling (#53).
+could no longer read it in one pass. One subject each: the totals
+reconciliation (#59), the course sampling (#53), and — since #86 — how the
+Registry is read at all.
+
+The transport these stubs replace lives in `etl/registry_read.py`, so they
+patch it there. `urllib.request` is one module object shared by every importer,
+so patching it through `read` reaches `probe_registry` too; naming the module
+the function actually lives in is what keeps that true if either file changes.
 """
 
 import io
@@ -10,7 +16,7 @@ import json
 import urllib.error
 import urllib.parse
 
-from etl import probe_registry as probe
+from etl import registry_read as read
 
 
 def stub(monkeypatch, payload: bytes, x_total: int | None = None):
@@ -19,7 +25,7 @@ def stub(monkeypatch, payload: bytes, x_total: int | None = None):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def read(self): return payload
-    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: R())
+    monkeypatch.setattr(read.urllib.request, "urlopen", lambda *a, **k: R())
 
 
 def headers_stub(monkeypatch, table, root=None):
@@ -32,7 +38,7 @@ def headers_stub(monkeypatch, table, root=None):
 
     def urlopen(request, *a, **k):
         url = request.full_url
-        path = url[len(probe.REGISTRY):].split("?")[0]
+        path = url[len(read.REGISTRY):].split("?")[0]
         if request.get_method() == "HEAD":
             value = table.get(url) if url in table else table.get(path)
             if value == 401:
@@ -40,7 +46,7 @@ def headers_stub(monkeypatch, table, root=None):
             return R({"x-total": str(value)} if value is not None else {})
         return R(body=json.dumps(root or {"total_envelopes": 10}).encode())
 
-    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(read.urllib.request, "urlopen", urlopen)
 
 
 def paged(monkeypatch, by_page: dict, x_total: int = 47861):
@@ -61,7 +67,7 @@ def paged(monkeypatch, by_page: dict, x_total: int = 47861):
         query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
         page = int(query.get("page", ["1"])[0])
         return R(json.dumps(by_page.get(page, [])).encode())
-    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(read.urllib.request, "urlopen", urlopen)
 
 
 def course(**extra):

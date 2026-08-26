@@ -54,8 +54,9 @@ def test_no_tracked_file_still_carries_a_template_placeholder():
             body = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for hit in set(placeholder.findall(body)):
-            found.append(f"{name}: {hit}")
+        for line in _prose_stripped(body, name):
+            for hit in set(placeholder.findall(line)):
+                found.append(f"{name}: {hit}")
     assert not found, (
         f"template placeholders still in the repo: {sorted(found)}. This is a "
         f"public repo; a reader sees them before they see anything else.")
@@ -138,3 +139,38 @@ def test_the_contributing_notes_carry_the_rules_that_cost_rounds():
         ("engine", "which engine build the figures were measured against"),
     ):
         assert phrase in flat, f"CONTRIBUTING.md does not cover {why}"
+
+
+def _prose_stripped(body: str, name: str) -> list[str]:
+    """The lines a placeholder would actually ship in.
+
+    A `{{KG_NAME}}` inside a comment or a docstring is prose ABOUT the
+    placeholder, not one — and this repo now carries several such passages,
+    because the removal is the thing being explained. The first version of this
+    guard flagged all of them, including its own docstring, which made it fail
+    on the commit that fixed the defect.
+
+    What it still catches is the case that matters: a placeholder in a value, a
+    heading, or anything that executes or gets read.
+    """
+    import ast
+    lines = body.splitlines()
+    skip = set()
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith(("#", "//")):
+            skip.add(i)
+    if name.endswith(".py"):
+        try:
+            tree = ast.parse(body)
+        except SyntaxError:
+            tree = None
+        if tree is not None:
+            for node in ast.walk(tree):
+                doc = ast.get_docstring(node, clean=False) if isinstance(
+                    node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                           ast.AsyncFunctionDef)) else None
+                if doc is None:
+                    continue
+                first = node.body[0]
+                skip.update(range(first.lineno - 1, (first.end_lineno or first.lineno)))
+    return [l for i, l in enumerate(lines) if i not in skip]
