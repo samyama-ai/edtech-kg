@@ -160,9 +160,23 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
     first_party = {d.name for d in ROOT.iterdir() if (d / "__init__.py").exists()}
     first_party |= {p.stem for p in ROOT.glob("*.py")} | {"__future__"}
     third_party -= set(sys.stdlib_module_names) | first_party
-    assert third_party <= {"pytest"}, (
-        f"the suite imports {sorted(third_party)}, which CI does not install. "
-        f"Either add it to the install step or drop the dependency.")
+
+    # What CI installs is READ from the workflow, not listed here. A literal
+    # `{"pytest"}` meant adding a package to the install step left this test
+    # still failing, and adding an import left it still passing — the drift
+    # this file exists to catch, in the assertion that catches it.
+    installed = set()
+    for line in re.findall(r"pip install([^\n]*)", workflow):
+        for word in line.split():
+            if word.startswith("-"):
+                continue
+            installed.add(re.split(r"[<>=!\[]", word)[0].lower())
+
+    missing = {name for name in third_party if name.lower() not in installed}
+    assert not missing, (
+        f"the suite imports {sorted(missing)}, which CI does not install "
+        f"(it installs {sorted(installed)}). Either add it to the install "
+        f"step or drop the dependency.")
 
 
 # --------------------------------------------------------------------------

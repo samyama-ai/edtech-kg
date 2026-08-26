@@ -18,7 +18,11 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "flake8>=6.0", "pyflakes>=3.0"]
+# `setuptools` is a TEST dependency here, not a build one: the repo-layout
+# suite builds this package's metadata in-process to check it is valid,
+# rather than shelling out to a `pip install --dry-run` that would reach
+# the index on an offline runner.
+dev = ["pytest>=7.0", "flake8>=6.0", "pyflakes>=3.0", "setuptools>=61.0"]
 # For mcp_server/, which is not implemented yet — see mcp_server/README.md.
 mcp = ["fastmcp>=0.1.0"]
 
