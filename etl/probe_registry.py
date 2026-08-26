@@ -26,13 +26,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import urllib.error
-import urllib.request
-import urllib.parse
 from datetime import datetime, timezone
 
-REGISTRY = "https://credentialengineregistry.org"
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
+# Fetching, paging and sampling live in `registry_read` (#86). Imported rather
+# than duplicated: one place carries the User-Agent and one place decides which
+# pages are read.
+from etl.registry_read import (REGISTRY, MalformedSource, describe, get, parse,
+                               sample_pages, total)
+
 
 COMMUNITIES = ["ce-registry", "fdoe", "mytxlibrary", "learning-registry", "chaffeycollege"]
 TYPES = ["course", "credential", "learning_opportunity_profile", "pathway"]
@@ -44,72 +45,8 @@ TYPES = ["course", "credential", "learning_opportunity_profile", "pathway"]
 # page argues about the Course -> Course edge and this list must match it.
 RESOLVABLE = ("ceterms:targetLearningOpportunity", "ceterms:targetCredential")
 
-PER_PAGE = 50
 MAX_EXAMPLES = 6     # enough to check the "free text" claim, not to reproduce the sample
 EXAMPLE_CHARS = 90   # a prerequisite string is short; this is a display bound
-
-
-class HttpStatus(RuntimeError):
-    """A failed request that knows its own status code.
-
-    The code used to be recovered by searching the exception text for "401",
-    which a URL containing those digits would satisfy.
-    """
-
-    def __init__(self, code: int | None, url: str, detail: str = ""):
-        super().__init__(f"{code or 'unreachable'} from {url}{detail}")
-        self.code = code
-
-
-class MalformedSource(Exception):
-    """Reachable, but the body did not parse.
-
-    `json.JSONDecodeError` subclasses `ValueError`, so a corrupt body used to
-    exit under "refused" — the category reserved for figures we decline to
-    report — rather than being flagged as a broken source.
-    """
-
-
-def get(url: str, headers_only: bool = False):
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT},
-                                     method="HEAD" if headers_only else "GET")
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            if headers_only:
-                return response.headers
-            return response.read()
-    except urllib.error.HTTPError as exc:
-        raise HttpStatus(exc.code, url) from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise HttpStatus(None, url, f" ({exc})") from exc
-
-
-def total(path: str, **params) -> int | str | None:
-    """The `x-total` header for a search path.
-
-    Returns the int, or the string `"secured"` when the community refuses an
-    unauthenticated request. A gated community and an empty one are different
-    facts and must not both print as a blank.
-    """
-    query = urllib.parse.urlencode({"per_page": 1, **params})
-    try:
-        headers = get(f"{REGISTRY}{path}?{query}", headers_only=True)
-    except HttpStatus as exc:
-        # Three different facts, three different answers. "secured" is a claim
-        # about the community; anything else is a claim about the request, and
-        # print_registry must not label the remainder "the gated community"
-        # when a community merely failed.
-        if exc.code in (401, 403):
-            return "secured"
-        return f"error {exc.code}" if exc.code else "unreachable"
-    # HTTPMessage looks up case-insensitively; dict() threw that away.
-    raw = headers.get("x-total")
-    if raw and str(raw).isdigit():
-        return int(raw)
-    # Answered, but not with a count. Degrading this to None reads as "unknown
-    # population" and silently widens the sampling caveat instead of saying the
-    # source is broken.
-    return "no x-total header"
 
 
 def is_reference(value) -> bool:
@@ -129,13 +66,6 @@ def is_reference(value) -> bool:
     if isinstance(value, dict):
         return bool(value.get("@id"))
     return isinstance(value, str) and value.strip().lower().startswith(("http", "ce-"))
-
-
-def parse(payload: bytes, what: str):
-    try:
-        return json.loads(payload)
-    except json.JSONDecodeError as exc:
-        raise MalformedSource(f"{what} did not parse as JSON ({exc})") from exc
 
 
 def registry_totals() -> dict:
@@ -193,68 +123,6 @@ def registry_totals() -> dict:
         "unattributed": (everywhere - readable) if isinstance(everywhere, int) else None,
     }
 
-
-def describe(read: list[int], size: int, population: int | None) -> str:
-    """How the sample was actually taken.
-
-    Takes the pages that were *read*, never the pages that were planned. The
-    two differ whenever the per-course cap ends the walk early, and describing
-    the plan let the documents quote a reach the run did not have.
-    """
-    if not read:
-        return "nothing was read"
-    if not isinstance(population, int) or population <= 0:
-        return (f"{len(read)} page(s) of {size} — population unknown, so the pages "
-                f"could not be spread; biased toward whatever sorts first")
-
-    total_pages = max(1, -(-population // PER_PAGE))
-    if len(read) >= total_pages:
-        return f"every page — {population:,} records is the whole population, not a sample"
-    if len(read) == 1:
-        return (f"the first {size} of {population:,} records — a single page, so nothing "
-                f"is spread; biased toward whatever sorts first")
-
-    stride = read[1] - read[0]
-    tail = total_pages - read[-1]
-    return (f"{len(read)} pages of {size} at a stride of {stride}, reaching pages "
-            f"{read[0]}-{read[-1]} of {total_pages:,} ({population:,} records); "
-            f"the last {tail:,} pages are not sampled — deterministic, not random")
-
-
-def sample_pages(wanted: int, population: int | None) -> tuple[list[int], int]:
-    """Which pages to read, and how many records to ask for on each.
-
-    Reading pages 1..N consecutively is not a sample of the Registry — it is a
-    sample of whatever sorts first, which one publisher's bulk upload can
-    dominate. Instead the pages are spread at a fixed stride across the whole
-    result set, which is deterministic (so the figure is reproducible) and not
-    concentrated at the head.
-
-    **This function does not describe the sample.** It used to return a
-    description as well, and that string went on being built and tested after
-    `describe()` took over the live one — so the guards against claiming
-    randomness, and against claiming a reach the walk did not have, were
-    pointed at a string nobody printed. Selecting pages and describing a
-    completed walk are different jobs, and only `describe()` does the second.
-    """
-    # Ceiling, not floor: --courses 130 asked for three pages' worth and got
-    # two, silently sampling 100. The per-course cap trims the overshoot.
-    pages_wanted = max(1, -(-wanted // PER_PAGE))
-    # A request below one page reads one short page, not a full one. This is the
-    # only place the size is decided; the fetch loop uses what it returns.
-    size = min(PER_PAGE, wanted) if pages_wanted == 1 else PER_PAGE
-
-    if not isinstance(population, int) or population <= 0:
-        return list(range(1, pages_wanted + 1)), size
-
-    total_pages = max(1, -(-population // PER_PAGE))
-    if total_pages <= pages_wanted:
-        return list(range(1, total_pages + 1)), size
-    if pages_wanted == 1:
-        return [1], size
-
-    stride = total_pages // pages_wanted
-    return [1 + i * stride for i in range(pages_wanted)], size
 
 def course_prerequisites(sample: int = 600) -> dict:
     """How many published courses state a prerequisite, and how many resolve.
