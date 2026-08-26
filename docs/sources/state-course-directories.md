@@ -133,9 +133,11 @@ evidence that at least one state has already aligned to it. If several have, a
 prerequisites.
 
 **Texas has a `CTE Course` flag and a career-cluster structure.** That touches
-#35 (Career Clusters) — a state-published link from a course to a career area,
-which is a weaker version of what we want but is real, statewide, and
-downloadable today.
+#35 (Career Clusters), now answered in [`code-sets.md`](code-sets.md): the
+framework itself is **"All rights reserved"** and publishes no machine-readable
+crosswalk, so it is recorded as not cleared. Texas's own cluster structure is
+different — a state publishing its own file — and remains a weaker but real and
+downloadable link from a course to a career area.
 
 ---
 

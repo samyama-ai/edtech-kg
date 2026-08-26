@@ -85,8 +85,14 @@ translation.
 
 This mattered enough to check because a vintage mismatch does not raise an
 error — it produces *numbers*, just wrong ones, by matching codes that mean
-different occupations in different editions. #36 owns keeping this true as the
-code sets revise.
+different occupations in different editions. #36 owned keeping this true as the
+code sets revise; [`code-sets.md`](code-sets.md) now records what was measured.
+
+Two findings there bear on this page. **O\*NET-SOC is not SOC** — every O\*NET
+code carries a `.NN` suffix, so a naive join matches nothing at all rather than
+matching some wrong ones, which is the safe failure. And once the suffix is
+stripped the two taxonomies align exactly: the same 867 codes, with none on
+either side. The revision crosswalks themselves are still unmeasured.
 
 ## Openings are national only
 
