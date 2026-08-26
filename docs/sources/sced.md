@@ -24,7 +24,17 @@ this repo has loaded cannot reach SCED at all.**
 | Current version | **SCED 13.0** |
 | Courses | **1,791** |
 | Columns the master file publishes | Course Title · SCED Course Code · Course Description · Change Status |
+| Elements a record may carry | **6** |
+| Attributes it may also carry | **17** |
 | Landing page | <https://nces.ed.gov/forum/sced.asp> |
+
+The standard names far more than the master file publishes, and it draws its
+own line between the two: six **elements** — the code, subject area, level,
+grade span, Carnegie credit, and sequence — and seventeen **attributes**,
+which is where Course Title and Course Description sit. That distinction is
+read from the sheet's own banner rows rather than assembled here, because an
+earlier version of this probe assembled it and got a right-looking total over
+the wrong members.
 
 Note the version: **13.0**, where edtech-kg#34 says 12. The issue was written
 against the page as it stood and NCES has published a version since. The probe

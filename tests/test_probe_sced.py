@@ -21,51 +21,22 @@ from pathlib import Path
 import pytest
 
 from etl import probe_sced as probe
+from tests.test_probe_cipsoc import workbook as cipsoc_workbook
 
 DOC = Path(__file__).resolve().parents[1] / "docs" / "sources" / "sced.md"
 
 
 def workbook(sheets: dict[str, list[list[str]]]) -> bytes:
-    """The smallest valid .xlsx carrying the given sheets."""
-    strings: list[str] = []
+    """The smallest valid .xlsx carrying the given sheets, as bytes.
 
-    def cell(value, col, row):
-        if value not in strings:
-            strings.append(value)
-        return (f'<c r="{chr(65 + col)}{row}" t="s">'
-                f'<v>{strings.index(value)}</v></c>')
-
-    parts, rels, entries = [], [], []
-    for i, (name, rows) in enumerate(sheets.items(), 1):
-        body = "".join(
-            f'<row r="{r}">' + "".join(cell(v, c, r) for c, v in enumerate(cells)) + "</row>"
-            for r, cells in enumerate(rows, 1))
-        entries.append((f"xl/worksheets/sheet{i}.xml",
-                        '<?xml version="1.0"?><worksheet xmlns="http://schemas.'
-                        'openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
-                        + body + "</sheetData></worksheet>"))
-        parts.append(f'<sheet name="{name}" sheetId="{i}" r:id="rId{i}"/>')
-        rels.append(f'<Relationship Id="rId{i}" Target="worksheets/sheet{i}.xml" '
-                    'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
-                    'relationships/worksheet"/>')
-
+    Delegated to `tests.test_probe_cipsoc.workbook` rather than built again
+    here — the same reason the probe now calls that module's reader instead of
+    carrying its own. That builder OMITS a cell whose value is `""`, which is
+    what Excel does for a blank; the builder this file used to carry emitted
+    every cell, so no fixture here could reach the reader's placement rule.
+    """
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as book:
-        book.writestr("xl/workbook.xml",
-                      '<?xml version="1.0"?><workbook xmlns="http://schemas.'
-                      'openxmlformats.org/spreadsheetml/2006/main" xmlns:r='
-                      '"http://schemas.openxmlformats.org/officeDocument/2006/'
-                      'relationships"><sheets>' + "".join(parts) + "</sheets></workbook>")
-        book.writestr("xl/_rels/workbook.xml.rels",
-                      '<?xml version="1.0"?><Relationships xmlns="http://schemas.'
-                      'openxmlformats.org/package/2006/relationships">'
-                      + "".join(rels) + "</Relationships>")
-        book.writestr("xl/sharedStrings.xml",
-                      '<?xml version="1.0"?><sst xmlns="http://schemas.'
-                      'openxmlformats.org/spreadsheetml/2006/main">'
-                      + "".join(f"<si><t>{s}</t></si>" for s in strings) + "</sst>")
-        for path, xml in entries:
-            book.writestr(path, xml)
+    cipsoc_workbook(buffer, sheets)
     return buffer.getvalue()
 
 
@@ -157,13 +128,164 @@ def test_programme_markers_are_stripped_so_the_match_is_a_best_case():
     assert probe.normalise("AP U.S. History") == probe.normalise("U S History")
 
 
+def test_a_row_that_omits_a_cell_does_not_shift_the_columns(monkeypatch):
+    """Excel omits a blank cell rather than writing an empty one, so a course
+    with no title arrives as `<c r="A3">…</c><c r="C3">…</c>`. A reader that
+    appends in document order would put column C's value where column B is
+    read, and `sced_codes`, the extensions list and the title map would all
+    stay plausible and be wrong, with nothing raising.
+
+    This is why the probe uses `probe_cipsoc.rows`, which places cells by
+    their `r` attribute, rather than a reader of its own.
+    """
+    book = workbook({"All courses": [
+        ["Course Code (Course ID)", "Course Code Description", "Course Description"],
+        ["01001", "ELA I", "an English course"],
+        # No title. `01003CC` must still be read as the code, and the long
+        # description must not slide into the title column.
+        ["01003CC", "", "another English course"],
+    ]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    got = probe.new_york()
+    assert got["courses"] == 2
+    assert got["state_extensions"] == ["01003CC"], (
+        "the untitled row's code was misread — the reader is placing cells by "
+        "document order again")
+    assert "another English course" not in got["titles"], (
+        "the long description was read as a course title")
+
+
+def test_a_reordered_export_is_refused_rather_than_read_positionally(monkeypatch):
+    """The code and title are read by position, so the position is checked.
+    New York restructuring its export would otherwise be read in silence and
+    every figure below would be a count of the wrong column."""
+    book = workbook({"All courses": [
+        ["Course Code Description", "Course Code (Course ID)"],
+        ["ELA I", "01001"],
+    ]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    with pytest.raises(probe.MalformedSource, match="has been restructured"):
+        probe.new_york()
+
+
+def test_the_element_split_is_read_from_the_sheets_own_banner_rows(monkeypatch):
+    """What a SCED record may carry — and the failure that hid inside it.
+
+    The previous version matched a hand-written set of prefixes and produced a
+    right-looking count over the wrong members: it filed `Course Description`
+    as an element when the sheet files it under attributes, and it missed
+    `Available Carnegie Unit Credit` entirely. It missed ` Course Title` too,
+    because that cell carries a leading space and the match was an exact
+    equality.
+
+    The fixture reproduces both traps.
+    """
+    book = workbook({
+        "SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
+        "Elements and Attributes": [
+            ["SCED Elements and Attributes"],
+            ["Element Name", "Definition"],
+            ["School Courses for the Exchange of Data Course Code", "The five-digit code."],
+            ["Available Carnegie Unit Credit", "Measured in Carnegie units."],
+            ["School Courses for the Exchange of Data Sequence of Course",
+             "Where a course lies when it is part of a consecutive sequence of courses."],
+            ["Attribute Name", "Definition"],
+            [" Course Title", "The descriptive name given to a course."],
+            ["Course Description", "A description of the course content."],
+        ]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    got = probe.master()
+
+    assert got["elements"] == [
+        "School Courses for the Exchange of Data Course Code",
+        "Available Carnegie Unit Credit",
+        "School Courses for the Exchange of Data Sequence of Course",
+    ], "the element list is not the sheet's own"
+    assert "Available Carnegie Unit Credit" in got["elements"], (
+        "an element with no SCED prefix was dropped")
+    assert "Course Description" in got["attributes"], (
+        "an attribute was counted as an element")
+    assert "Course Title" in got["attributes"], (
+        "the leading space on ' Course Title' lost the row again")
+    assert got["sequence_element"] and "consecutive sequence" in got["sequence_element"]
+
+
+def test_an_elements_sheet_whose_banners_changed_is_refused(monkeypatch):
+    """The split rests on two banner rows. If NCES renames them the answer is
+    not "zero elements" — it is that the layout changed."""
+    book = workbook({
+        "SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
+        "Elements and Attributes": [["Field"], ["Something", "else"]]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    with pytest.raises(probe.MalformedSource, match="banner rows"):
+        probe.master()
+
+
+def test_a_district_with_no_code_field_is_reported_as_carrying_none(monkeypatch):
+    """The figure the whole probe exists for, and it had no test at all.
+
+    The zero is what the schema recommendation rests on, so it has to mean
+    "there is no field for a SCED code" and not "no text happened to be five
+    digits". The earlier version scanned every string value on the record, so
+    a course *titled* `12345` would have counted as a district publishing SCED
+    — the right answer by the wrong route.
+    """
+    catalogue = {"courses": [
+        {"title": "Algebra I", "url": "https://x/algebra-1"},
+        # A title that is five digits. Under the old check this counted as a
+        # published SCED code.
+        {"title": "12345", "url": "https://x/12345"},
+    ]}
+    monkeypatch.setattr("etl.pwcs_source.read", lambda *a, **k: catalogue)
+    got = probe.district_reach({"Algebra I": "02052"})
+
+    assert got["sced_code_fields"] == [], (
+        "a field was treated as a SCED code column when the record has none")
+    assert got["publishes_sced_code"] == 0, (
+        "a five-digit title was counted as a published SCED code")
+    assert got["district_courses"] == 2
+    assert got["reachable_by_name"] == 1
+
+
+def test_two_courses_sharing_a_title_are_counted_once_each_way(monkeypatch):
+    """`reachable_by_name` and `district_courses` must count the same thing.
+    Keying the match on the raw title made the numerator a count of distinct
+    titles and the denominator a count of rows, so the percentage disagreed
+    with itself the moment a catalogue repeated a name."""
+    catalogue = {"courses": [
+        {"title": "Algebra I", "url": "https://x/a"},
+        {"title": "Algebra I", "url": "https://x/b"},
+    ]}
+    monkeypatch.setattr("etl.pwcs_source.read", lambda *a, **k: catalogue)
+    got = probe.district_reach({"Algebra I": "02052"})
+    assert got["district_courses"] == 2
+    assert got["reachable_by_name"] == 2, (
+        "the second course with the same title vanished from the numerator "
+        "while staying in the denominator")
+    assert got["distinct_titles_matched"] == 1
+
+
+def test_an_empty_catalogue_is_refused_rather_than_divided_by(monkeypatch):
+    """The reach is printed as a percentage of the catalogue. An empty one gave
+    a ZeroDivisionError traceback, where every other zero-result path in this
+    file refuses with a message."""
+    monkeypatch.setattr("etl.pwcs_source.read", lambda *a, **k: {"courses": []})
+    with pytest.raises(probe.MalformedSource, match="refusing to report a"):
+        probe.district_reach({"Algebra I": "02052"})
+
+
 def test_the_document_quotes_only_figures_the_probe_produces():
     """Every figure on `docs/sources/sced.md` comes from the probe. The ones
     that would go stale first are the version and the two counts the argument
     rests on, so those are pinned by name rather than by value — a changed
     figure fails here instead of being quoted for another month."""
     page = DOC.read_text(encoding="utf-8")
-    for claim in ("SCED 13.0", "1,791", "2,012", "2,001", "791", "67 — 8%"):
+    for claim in ("SCED 13.0", "1,791", "2,012", "2,001", "791", "67 — 8%",
+                  # The element/attribute split. Pinned because the page now
+                  # quotes the two counts, and a figure on the page that
+                  # nothing guards is the drift this test exists to stop.
+                  "Elements a record may carry | **6**",
+                  "Attributes it may also carry | **17**"):
         assert claim in page, f"the page no longer states {claim!r}"
     assert "Publishing a SCED code | **0**" in page, (
         "the page no longer states that the district publishes no SCED code — "

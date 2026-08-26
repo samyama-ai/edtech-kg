@@ -193,7 +193,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 538 tests
+pytest                           # 545 tests
 ```
 
 CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an
