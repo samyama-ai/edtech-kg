@@ -126,11 +126,17 @@ request to the department might well succeed. What is established is that a
 naive automated fetch fails — not that the data is unreachable. #50 exists to
 find out which.
 
-**New York's catalogue is SCED-based.** That connects directly to #34: SCED is
-the national course taxonomy this graph has no node for, and New York is
-evidence that at least one state has already aligned to it. If several have, a
-`Course` node keyed on SCED becomes portable across states even without
-prerequisites.
+**New York's catalogue is SCED-based.** That was the opening for #34 and #48,
+and both are now answered in [`sced.md`](sced.md) — with a result that closes
+the door rather than opening it. New York does key to SCED: 2,001 of its 2,012
+courses carry a five-digit code. But **Prince William County publishes no SCED
+code for any of its 791 courses**, so there is no join to make. Falling back to
+matching on course titles reaches 8%, and reaches the wrong 8% — the AP and IB
+courses that already had a national identity, not the local CTE programmes a
+family cannot find anywhere else.
+
+SCED is worth an optional `sced_code` property, populated where a district
+publishes one. It is not worth a key.
 
 **Texas has a `CTE Course` flag and a career-cluster structure.** That touches
 #35 (Career Clusters) — a state-published link from a course to a career area,

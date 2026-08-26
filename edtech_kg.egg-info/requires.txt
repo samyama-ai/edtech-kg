@@ -1,0 +1,8 @@
+
+[dev]
+pytest>=7.0
+flake8>=6.0
+pyflakes>=3.0
+
+[mcp]
+fastmcp>=0.1.0
