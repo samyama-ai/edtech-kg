@@ -176,6 +176,7 @@ preference, and the working is on the page.
 ## Structure
 
 ```
+.github/      ci.yml — the suite on every push and PR, with a real engine
 etl/          probes (one per source) + load_pwcs.py
 schema/       edtech_kg.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
@@ -192,10 +193,15 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 504 tests
+pytest                           # 523 tests
 ```
 
-Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they
+CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an
+unreachable engine fail the build rather than skip, and `SAMYAMA_CI=1` makes an
+unexpected skip fail it too — a skip is indistinguishable from a pass in every
+summary line.
+
+Locally, engine-backed tests skip unless an engine is reachable. Point them at a **fresh** instance — they
 write and delete:
 
 ```bash
