@@ -1,2 +1,0 @@
-etl
-mcp_server

@@ -10,3 +10,6 @@ data/
 site/
 .DS_Store
 .env
+
+# `pip install -e .` build metadata
+*.egg-info/
