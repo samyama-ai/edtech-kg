@@ -16,15 +16,31 @@ verify them.
 
 | | Count |
 |---|---:|
-| Programme-to-occupation mappings | **6,097** |
+| Rows on the CIP-SOC sheet | **6,097** |
+| — of those, `99-9999 NO MATCH` rows | **194** |
+| **Programme-to-occupation mappings** | **5,903** |
 | Rows carrying a code on only one side | **0** |
 | Distinct CIP codes (programmes) | **2,143** |
-| Distinct SOC codes (occupations) | **868** |
+| — of those, mapping to an occupation | **1,949** |
+| **Distinct SOC codes (occupations)** | **867** |
 | CIP codes mapping to no occupation | **194** |
 | SOC codes reachable from no programme | **180** |
 
-These reproduce the hand count taken on 2026-08-13 exactly. That is the point of
-the exercise — the numbers were right, but nothing could re-derive them.
+**Two of these were wrong until edtech-kg#70, and both by the same cause.**
+`99-9999` is the crosswalk's own sentinel meaning *this programme maps to
+nothing*, written into the SOC column beside the words NO MATCH. It is not an
+occupation, so counting it gave 868 where the answer is 867; and its rows are
+not mappings, so counting them gave 6,097 where the answer is 5,903.
+
+The 194 sentinel rows are the same 194 programmes the workbook already lists on
+its "Unmatched CIP Codes" sheet — one fact stated twice, in two columns, in
+agreement with itself. That is why the inflation was invisible: the table was
+internally consistent and only ever one out on the occupation count.
+
+The earlier figures reproduced the hand count taken on 2026-08-13 exactly, which
+was the point of the exercise — but reproducing a hand count reproduces its
+assumptions too. The probe reports both halves now, so neither figure can be
+read without the other.
 
 ## What the unmatched counts mean
 

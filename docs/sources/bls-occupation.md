@@ -44,12 +44,13 @@ programme leads to. The denominator that matters is the crosswalk:
 | Carried by BLS directly | **820** — 94.6% |
 | **Answerable one way or another** | **835 — 96.3%** |
 
-**867, not the 868 `docs/sources/cip-soc-crosswalk.md` reports.** That figure
-counts `99-9999`, which is the crosswalk's own explicit *NO MATCH* sentinel —
-the code it uses for a programme that maps to no occupation. It is not an
-occupation and cannot be an answer, so this probe excludes it. The discrepancy
-is real and is **#70**; correcting three merged documents is not this issue's
-job, but the two numbers should not silently disagree in the meantime.
+**867.** The crosswalk once reported 868, because that count included
+`99-9999` — its own explicit *NO MATCH* sentinel, the code it uses for a
+programme that maps to no occupation. It is not an occupation and cannot be an
+answer, so this probe excluded it and the two pages disagreed by one for a
+while. Settled in **edtech-kg#70**: the crosswalk probe now excludes the
+sentinel as well, and reports it separately rather than dropping it. Both pages
+say 867.
 
 ### The 47 not carried are three different facts
 

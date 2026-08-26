@@ -13,8 +13,9 @@ The measurement that decides the issue is **coverage against the crosswalk**:
 for one of them is a question we cannot answer. A national table with 800 rows
 is not the same as coverage of the occupations this graph can reach.
 
-867, not the 868 `docs/sources/cip-soc-crosswalk.md` reports — that figure counts
-`99-9999`, the crosswalk's own NO MATCH sentinel (#70).
+867 rather than 868: the crosswalk once counted `99-9999`, its own NO MATCH
+sentinel, as an occupation. `etl/probe_cipsoc.py` excludes it too since #70, so
+the two probes agree.
 
 **What `www.bls.gov` serves on turns on a contact URL in the User-Agent.** Not
 identification, and not automation: a full browser string is refused, and a bare
