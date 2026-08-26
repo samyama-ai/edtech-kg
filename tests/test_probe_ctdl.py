@@ -12,6 +12,7 @@ import urllib.error
 import pytest
 
 from etl import probe_ctdl as probe
+from etl import registry_read as read
 # The network lives in probe_registry — probe_ctdl imports `get` from it and no
 # longer touches urllib itself. Patching here is what the code actually calls.
 from etl import probe_registry as net
@@ -23,7 +24,7 @@ def stub(monkeypatch, payload: bytes):
         def __exit__(self, *a): return False
         def read(self): return payload
         headers = {}
-    monkeypatch.setattr(net.urllib.request, "urlopen", lambda *a, **k: Response())
+    monkeypatch.setattr(read.urllib.request, "urlopen", lambda *a, **k: Response())
 
 
 GRAPH = {
@@ -76,7 +77,7 @@ def test_a_missing_property_is_none_rather_than_an_invented_blank(monkeypatch):
 def test_an_html_error_page_is_refused(monkeypatch):
     """A 200 carrying an error page would otherwise be reported as zero classes."""
     stub(monkeypatch, b"<html>Service Unavailable</html>")
-    with pytest.raises(net.MalformedSource, match="did not return JSON"):
+    with pytest.raises(read.MalformedSource, match="did not return JSON"):
         probe.vocabulary()
 
 
@@ -87,7 +88,7 @@ def test_an_empty_graph_is_refused(monkeypatch):
 
 
 def test_an_http_error_names_the_status(monkeypatch):
-    monkeypatch.setattr(net.urllib.request, "urlopen",
+    monkeypatch.setattr(read.urllib.request, "urlopen",
                         lambda *a, **k: (_ for _ in ()).throw(
                             urllib.error.HTTPError("u", 503, "no", {}, io.BytesIO(b""))))
     with pytest.raises(RuntimeError, match="503"):
@@ -107,7 +108,7 @@ def test_an_html_error_page_exits_as_malformed_not_refused(monkeypatch, capsys):
 
 
 def test_an_unreachable_source_exits_two(monkeypatch):
-    monkeypatch.setattr(net.urllib.request, "urlopen",
+    monkeypatch.setattr(read.urllib.request, "urlopen",
                         lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("dns")))
     assert probe.main([]) == 2
 
@@ -130,7 +131,7 @@ def test_a_corrupt_vocabulary_body_exits_three_not_as_a_traceback(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def read(self): return b'{"@graph": [{"@id": '
-    monkeypatch.setattr(net.urllib.request, "urlopen", lambda *a, **k: R())
+    monkeypatch.setattr(read.urllib.request, "urlopen", lambda *a, **k: R())
     assert probe.main([]) == 3
 
 
