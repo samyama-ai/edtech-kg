@@ -14,9 +14,15 @@ What the sitemap holds, by path depth — the catalogue's own structure:
     /band/concert-band                          795  Course
     /career-and-technical-education-cte/...       38  Pathway
 
+Those are DEPTHS, and they sum to 960. The loaded classification is 127
+subjects, 791 courses and 42 pathways, which also sums to 960 — four pages move
+from Course to Pathway because their markup says so.
+
+See `classify`.
+
 **The probe reports all 960 as courses. They are not.** No page at depth 1 or 3
 states a prerequisite and no prerequisite points at one, so the 240 edges are
-unaffected — but the rate is 229 of 795, not 229 of 960. Raised as #74.
+unaffected — but the rate is 229 of 791, not 229 of 960. Raised as #74.
 """
 
 from __future__ import annotations
@@ -68,7 +74,45 @@ SECTION_TITLE = re.compile(
 # A pathway page that renders the field but yields no rows is a parse failure,
 # not a pathway with no courses — the same distinction the probe draws for the
 # prerequisite field. Counting it as empty would understate the graph silently.
-PATHWAY_FIELD_PRESENT = re.compile(r'field--name-field-degree-section-courses')
+#
+# **Bound to a class ATTRIBUTE, not to the token anywhere in the document.**
+# The unanchored form matched the name inside an HTML comment, in body prose,
+# in a `<script>` string and in a reflected `<input value=…>` — measured, all
+# four. That was tolerable while this only distinguished "no rows" from "no
+# field"; it is not tolerable now that it decides a node's LABEL. It was also
+# looser than `COURSE_ROW` two definitions up, which already requires the token
+# inside a real `class="…"` — the classifier was weaker than the row parser it
+# gates.
+PATHWAY_FIELD_PRESENT = re.compile(
+    r'class="[^"]*\bfield--name-field-degree-section-courses\b')
+
+# The ceiling on the override. `verify()` structurally cannot catch markup
+# drift: it compares the engine against the loader's own tallies, and both move
+# together. If the CMS ever renders this class in a shared template or footer
+# partial, every page becomes a Pathway, Course drops to zero, and the load
+# reports success — the same "the loader and the engine agreed about a set that
+# was already short" failure #87 is about, one level up.
+#
+# 4 pages today out of 960. A tenth of the catalogue disagreeing with its own
+# URL depth is not a catalogue that changed; it is a parser reading something
+# it should not.
+#
+# BOTH bounds have to be exceeded, and each covers a case the other cannot. The
+# fraction alone fires on any small input — one page of two is 50% — which
+# would make every two-page fixture unloadable. The floor alone fires on a
+# district that legitimately publishes a dozen more specialty programs. A CMS
+# rendering the class in a shared template trips both at once, which is the
+# only case worth refusing.
+RECLASSIFIED_CEILING = 0.10
+RECLASSIFIED_FLOOR = 10
+
+
+class MarkupDrift(Exception):
+    """Too many pages disagree with their own URL depth to be believable.
+
+    Raised rather than returned: a caller that gets a result dict will load it,
+    and the whole point is that this graph must not be written.
+    """
 
 
 def segments(url: str) -> list[str]:
@@ -189,14 +233,48 @@ LEVELS = {1: "subject", 2: "course", 3: "pathway"}
 
 
 def level(url: str) -> str | None:
-    """What the catalogue says a page is, from its depth. `None` for anything
-    else — the root, or something nested deeper than a pathway.
+    """What the catalogue's URL DEPTH says a page is. `None` for anything else
+    — the root, or something nested deeper than a pathway.
 
     A function so it can be checked directly. It was an `if/elif/else` inside
     `read()`, and the `else` swept every unexpected depth into "pathway",
     where it would be parsed for a course table it does not have.
+
+    **Depth alone is not the classifier — see `classify`.** Four pages publish
+    a pathway's course table at course depth, and calling them courses cost
+    172 published edges (#87).
     """
     return LEVELS.get(len(segments(url)))
+
+
+def classify(url: str, markup: str) -> str | None:
+    """What a page IS, from what it publishes and then from its depth.
+
+    Depth is the catalogue's own structure and it holds for 956 of 960 pages.
+    It does not hold for four, which publish the pathway course-table field at
+    COURSE depth — two specialty programmes, International Baccalaureate and
+    Virtual Prince William. Classified by depth they loaded as `Course`, their
+    course tables were never read, and 172 published rows never became edges
+    (#87). Nothing failed: the loader and the engine agreed about a set that
+    was already short.
+
+    So the field wins over the depth. A page that renders a course table IS a
+    pathway whatever its URL says — the district's own markup is the better
+    evidence, and it is the evidence the rows come from.
+
+    Depth still decides everything else, because a subject index and a course
+    are not distinguishable by any field either of them carries.
+
+    **The override is unconditional.** A page rendering that field is a
+    pathway at ANY depth — a depth-1 index or a depth-4 page would be one too,
+    and would appear in `reclassified` rather than in `unclassified`. That is
+    the same evidence argument rather than a special case for depth 2, and it
+    is stated because "depth decides everything else" reads narrower than the
+    code behaves.
+    """
+    if PATHWAY_FIELD_PRESENT.search(markup):
+        return "pathway"
+    return level(url)
 
 
 def read(use_cache: bool = True, urls: list[str] | None = None,
@@ -207,7 +285,7 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
     counted, not guessed at.** The classifier was `if 1 … elif 2 … else
     pathway`, so a depth-0 page — the catalogue root — or a depth-4 page would
     have been read as a pathway and parsed for a course table it does not have.
-    Neither exists today (measured: the sitemap is 127 / 795 / 38 exactly),
+    Neither exists today (measured: 127 subjects, 791 courses, 42 pathways),
     which is the only reason a bare `else` looked harmless.
 
     A pathway's course rows resolve against the COURSE paths, not against every
@@ -216,23 +294,32 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
     count and the graph would disagree with nothing to say why. Zero rows do
     that today; it is a property of this catalogue, not of the parser.
 
-    **Depth is not a reliable classifier, and this now measures by how much.**
-    `unparsed` counts sitemap pages that returned no record — it was a bare
-    `continue`, so a CMS change breaking `parse_course` would shrink the graph
-    with nothing said. `misfiled` counts pages classified as something other
-    than a pathway that nonetheless render the pathway course-table field:
-    4 today, holding 172 resolvable rows that are therefore never written as
-    INCLUDES edges. Raised as #87. Reported rather than reclassified here,
-    because reclassifying changes the node and edge totals three documents
-    quote and that is its own change, not a review fix.
+    **Depth is not the classifier — `classify` is, and this reports where the
+    two disagree.** `unparsed` counts sitemap pages that returned no record —
+    it was a bare `continue`, so a CMS change breaking `parse_course` would
+    shrink the graph with nothing said. `reclassified` counts pages whose
+    markup says something other than their depth does: 4 today, all of them
+    pathways published at course depth. Read by depth alone they loaded as
+    courses and their 172 rows never became edges (#87).
+
+    **Two passes, deliberately.** The course set is an OUTPUT of
+    classification, not an input to it. It was derived from URL depth before
+    the pages were read — the same assumption `classify` corrects — so a page
+    reclassified out of the courses would still have been in the set pathway
+    rows resolve against.
     """
     urls = source.course_urls(use_cache) if urls is None else urls
     fetch = fetch or (lambda u: source.fetch(u, use_cache))
     published = {source.path_of(u) for u in urls} - {None}
-    course_paths = {source.path_of(u) for u in urls if level(u) == "course"} - {None}
 
+    # TWO passes, because the course set is now an OUTPUT of classification
+    # rather than an input to it. It used to be derived from URL depth before
+    # the loop, which is the same assumption `classify` exists to correct — so
+    # deriving it that way would have left pathway rows resolving against a
+    # course set that includes four pages no longer classified as courses.
     buckets = {"subject": [], "course": [], "pathway": []}
-    unclassified, unparsed, misfiled = [], [], []
+    unclassified, unparsed, reclassified = [], [], []
+    pathway_markup = {}
     for url in urls:
         markup = fetch(url)
         record = source.parse_course(markup, url)
@@ -242,24 +329,60 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
             # CMS renames its heading class.
             unparsed.append(url)
             continue
-        kind = level(url)
-        if kind != "pathway" and PATHWAY_FIELD_PRESENT.search(markup):
-            misfiled.append(url)
+        kind = classify(url, markup)
+        if kind != level(url):
+            # What the depth would have said, and what the markup says
+            # instead. Reported so the disagreement stays visible rather than
+            # being silently resolved — it is how #87 was found.
+            reclassified.append(url)
         if kind is None:
             unclassified.append(url)
             continue
         if kind == "pathway":
-            # Resolved against the COURSE paths, not every published page: a
-            # row pointing at a subject or pathway page would otherwise count
-            # as resolved and then write no edge.
-            record.update(parse_pathway(markup, url, course_paths))
+            pathway_markup[url] = markup
         buckets[kind].append(record)
+
+    # Built from the records, so it holds the pages that will become `Course`
+    # nodes — not every page at course depth. The difference is a page that
+    # failed to parse: it is published, and it is at course depth, and it is
+    # NOT going to be a node, so a row naming it must not count as resolved or
+    # the count and the graph disagree with nothing to say why.
+    #
+    # That makes `dangling` carry two causes — no published page at all, and a
+    # published page that did not parse. `unparsed` is what separates them, and
+    # it is returned and printed for exactly this reason. Zero today, which is
+    # the only reason `docs/schema.md` can say every dangling row names a page
+    # the catalogue does not publish.
+    # Refuse rather than load. The override is what makes #87's fix work, and
+    # it is also the one thing `verify()` cannot check — see
+    # RECLASSIFIED_CEILING. A handful of pages disagreeing with their own depth
+    # is a fact about the catalogue; a tenth of it disagreeing is the parser
+    # being wrong, and loading that produces a graph that verifies clean and
+    # says something false.
+    if (len(reclassified) > RECLASSIFIED_FLOOR
+            and len(reclassified) > RECLASSIFIED_CEILING * len(urls)):
+        raise MarkupDrift(
+            f"{len(reclassified)} of {len(urls)} pages classify against their "
+            f"own URL depth — over {RECLASSIFIED_FLOOR} pages AND over the "
+            f"{RECLASSIFIED_CEILING:.0%} ceiling. That "
+            f"is markup drift, not a catalogue that changed — check whether "
+            f"the course-table class now renders in a shared template. "
+            f"Refusing to load rather than writing a graph that verifies "
+            f"clean and is wrong.")
+
+    course_paths = {source.path_of(r["url"]) for r in buckets["course"]} - {None}
+    for record in buckets["pathway"]:
+        # Popped, not read. The markup is 1.2 MB across 42 pathway pages —
+        # small, but there is no reason to hold a page after it is parsed, and
+        # a dict that only grows is the shape that stops being small quietly.
+        record.update(parse_pathway(pathway_markup.pop(record["url"]),
+                                    record["url"], course_paths))
     subjects, courses, pathways = (buckets["subject"], buckets["course"],
                                    buckets["pathway"])
     return {"urls": urls, "published": published, "course_paths": course_paths,
             "subjects": subjects, "courses": courses, "pathways": pathways,
             "unclassified": unclassified, "unparsed": unparsed,
-            "misfiled": misfiled}
+            "reclassified": reclassified}
 
 
 def requirement_id(course_url: str, text: str) -> str:

@@ -133,7 +133,7 @@ def pathway_edges(pathways: list[dict], by_path: dict,
             # exists to prevent, one level up.
             #
             # `resolved - len(grouped)` is independent of section names and
-            # cannot drift. It agrees at 17 on this catalogue only because
+            # cannot drift. It agrees at 58 on this catalogue only because
             # every duplicate happens to fall in a distinct named section,
             # which is a property of the data and not of the code.
             "collapsed": resolved - len(grouped),
