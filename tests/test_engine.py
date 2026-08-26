@@ -180,8 +180,13 @@ def test_a_well_formed_reply_is_decoded_and_the_request_is_shaped_right(replies)
 
 
 def test_scalar_returns_the_one_value(replies):
-    replies(b'{"columns": ["c"], "records": [[795]]}')
-    assert Engine("http://x").scalar("MATCH (n:Course) RETURN count(n)") == 795
+    # 4242, not a real catalogue figure. A stub that answers a Course count
+    # with a number this repo also publishes reads as a stale figure at a
+    # glance, and stale figures have cost this repo three review rounds. The
+    # value here is arbitrary by design — the test is about unwrapping one
+    # cell, not about how many courses exist.
+    replies(b'{"columns": ["c"], "records": [[4242]]}')
+    assert Engine("http://x").scalar("MATCH (n:Course) RETURN count(n)") == 4242
 
 
 def test_a_rejected_statement_is_an_error_even_though_the_status_was_200(replies):
