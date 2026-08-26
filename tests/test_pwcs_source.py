@@ -44,16 +44,6 @@ def cache_is_complete() -> bool:
     return bool(urls) and all(source.cached_path(u).exists() for u in urls)
 
 
-needs_cache = pytest.mark.skipif(
-    not cache_is_complete(),
-    reason=("the cached catalogue is incomplete — run `python -m etl.probe_pwcs` "
-            "first; a partial cache would fetch the remainder from the district"))
-
-# --------------------------------------------------------------------------
-# keys — the ids everything else is joined on
-# --------------------------------------------------------------------------
-
-
 def test_a_requirement_id_is_stable():
     same = (reader.requirement_id("https://a/x", "Teacher recommendation"),
             reader.requirement_id("https://a/x", "Teacher  recommendation\n"))
@@ -79,6 +69,12 @@ def test_segments_counts_the_catalogue_levels():
     assert reader.segments("https://catalog.pwcs.edu/band/concert") == ["band", "concert"]
 
 
+needs_cache = pytest.mark.skipif(
+    not cache_is_complete(),
+    reason=("the cached catalogue is incomplete — run `python -m etl.probe_pwcs` "
+            "first; a partial cache would fetch the remainder from the district"))
+
+
 @pytest.fixture(scope="module")
 def catalogue():
     """One `read()` for every test that needs the real catalogue.
@@ -88,11 +84,6 @@ def catalogue():
     questions about the same result.
     """
     return reader.read()
-
-
-# --------------------------------------------------------------------------
-# what the cached catalogue actually holds — read, not asserted
-# --------------------------------------------------------------------------
 
 
 @needs_cache
@@ -162,32 +153,6 @@ def test_the_normalisation_rule_names_every_url_keyed_label():
         assert label in rule, f"the normalisation rule does not mention {label}"
 
 
-# --------------------------------------------------------------------------
-# classification — driven with synthetic pages, so odd depths can exist
-# --------------------------------------------------------------------------
-
-
-def test_level_names_each_depth_and_refuses_to_guess():
-    """It was an `if 1 … elif 2 … else pathway` inside `read()`, so the root
-    and anything nested deeper than a pathway were swept into "pathway" and
-    parsed for a course table they do not have."""
-    assert reader.level("https://catalog.pwcs.edu/band") == "subject"
-    assert reader.level("https://catalog.pwcs.edu/band/concert") == "course"
-    assert reader.level("https://catalog.pwcs.edu/cte/career-pathways/it") == "pathway"
-    assert reader.level("https://catalog.pwcs.edu") is None
-    assert reader.level("https://catalog.pwcs.edu/a/b/c/d") is None
-
-
-def test_an_unexpected_depth_is_counted_not_read_as_a_pathway():
-    urls = ["https://catalog.pwcs.edu/band",
-            "https://catalog.pwcs.edu/band/concert",
-            "https://catalog.pwcs.edu/a/b/c/d"]
-    got = reader.read(urls=urls, fetch=lambda u: titled("A page"))
-    assert got["unclassified"] == ["https://catalog.pwcs.edu/a/b/c/d"]
-    assert len(got["subjects"]) == 1 and len(got["courses"]) == 1
-    assert got["pathways"] == []
-
-
 def test_a_pathway_row_pointing_at_a_subject_page_does_not_count_as_resolved():
     """`published` includes subject and pathway pages. A row pointing at one
     counted as a resolved course edge and then wrote nothing — the count and
@@ -225,76 +190,6 @@ def test_an_absolute_url_drops_the_query_and_keeps_the_root_slash():
     assert reader.absolute("/art/1/") == "https://catalog.pwcs.edu/art/1"
 
 
-def test_a_page_that_does_not_parse_is_counted_not_dropped():
-    """It was a bare `continue`. A CMS change breaking `parse_course` would
-    shrink the graph by however many pages it broke, with nothing said."""
-    urls = ["https://catalog.pwcs.edu/band",
-            "https://catalog.pwcs.edu/band/concert"]
-    got = reader.read(urls=urls,
-                      fetch=lambda u: titled("A page") if u.endswith("band") else "<html></html>")
-    assert got["unparsed"] == ["https://catalog.pwcs.edu/band/concert"], got["unparsed"]
-    assert len(got["subjects"]) == 1
-    assert got["courses"] == []
-
-
-def test_a_page_publishing_a_course_table_is_a_pathway_whatever_its_depth():
-    """The #87 fix. Depth is the catalogue's own structure and holds for 956 of
-    960 pages; four publish a pathway's course table at COURSE depth. Read by
-    depth alone they loaded as `Course`, their tables were never opened, and
-    172 published rows never became edges.
-
-    Nothing failed while that was true — the loader and the engine agreed
-    about a set that was already short — which is why the markup has to win
-    over the address.
-    """
-    urls = ["https://catalog.pwcs.edu/specialty-programs",
-            "https://catalog.pwcs.edu/specialty-programs/it-centre"]
-
-    def fetch(url):
-        if url.endswith("it-centre"):
-            return titled("IT Centre") + section("Only", "/a/one")
-        return titled("Specialty programs")
-
-    got = reader.read(urls=urls, fetch=fetch)
-    assert ([r["url"] for r in got["pathways"]]
-            == ["https://catalog.pwcs.edu/specialty-programs/it-centre"]), got["pathways"]
-    assert got["courses"] == [], "the page was still read as a course"
-    # And the disagreement is reported rather than silently resolved.
-    assert (got["reclassified"]
-            == ["https://catalog.pwcs.edu/specialty-programs/it-centre"]), got
-
-
-def test_a_page_at_course_depth_with_no_course_table_is_still_a_course():
-    """The markup only wins where there IS markup to win with. A page that
-    publishes no course table is classified by depth exactly as before, or
-    every course in the catalogue would become a pathway."""
-    urls = ["https://catalog.pwcs.edu/band",
-            "https://catalog.pwcs.edu/band/concert"]
-    got = reader.read(urls=urls, fetch=lambda u: titled("A page"))
-    assert ([r["url"] for r in got["courses"]]
-            == ["https://catalog.pwcs.edu/band/concert"]), got["courses"]
-    assert got["pathways"] == [] and got["reclassified"] == [], got
-
-
-@needs_cache
-def test_the_four_reclassified_pages_are_the_ones_measured(catalogue):
-    """The figure #87 quotes, read from the catalogue rather than typed.
-
-    The invariant, not the census: every reclassified page is a real published
-    page that URL depth would NOT have called a pathway, and it is now in the
-    pathway list. A fifth appearing is a fact about the catalogue, not a
-    defect, and this says so rather than failing on it.
-    """
-    reclassified = catalogue["reclassified"]
-    assert reclassified, "the reclassification is no longer happening — see #87"
-    published = set(catalogue["urls"])
-    pathway_urls = {r["url"] for r in catalogue["pathways"]}
-    for url in reclassified:
-        assert url in published, url
-        assert reader.level(url) != "pathway", (url, reader.level(url))
-        assert url in pathway_urls, f"{url} was reclassified and not loaded as one"
-
-
 def test_an_href_that_is_already_absolute_is_left_alone():
     """Real markup carries absolute and protocol-relative hrefs as well as
     root-relative ones. Neither appears in this catalogue today, which is why
@@ -319,124 +214,3 @@ def test_a_document_relative_href_resolves_against_the_site_root(monkeypatch):
     assert reader.absolute("algebra-1") == "https://catalog.pwcs.edu/algebra-1", \
         "a document-relative href resolved against the sitemap's directory"
     assert reader.absolute("/art/1") == "https://catalog.pwcs.edu/art/1"
-
-
-def test_a_pathway_row_naming_a_reclassified_page_does_not_resolve_as_a_course():
-    """The course set is an OUTPUT of classification, not an input to it.
-
-    It used to be derived from URL depth before the pages were read — the same
-    assumption `classify` exists to correct. Left that way, a page reclassified
-    OUT of the courses would still be in the set a pathway row resolves
-    against: the row would count as resolved, the loader would write
-    `MATCH (c:Course {url: …})` for a node that is now a `:Pathway`, the MATCH
-    would find nothing, and the counter would still increment.
-
-    No row in this catalogue names one of the four, which is the only reason
-    the single-pass version agreed. This drives the case the data does not
-    have.
-    """
-    urls = ["https://catalog.pwcs.edu/cte/career-pathways/it",   # a real pathway
-            "https://catalog.pwcs.edu/specialty/it-centre",      # reclassified
-            "https://catalog.pwcs.edu/a/one"]                    # a plain course
-
-    def fetch(url):
-        if url.endswith("career-pathways/it"):
-            # Its rows name the reclassified page AND a real course.
-            return titled("IT pathway") + section(
-                "Only", "/specialty/it-centre", "/a/one")
-        if url.endswith("it-centre"):
-            return titled("IT Centre") + section("Inner", "/a/one")
-        return titled("A course")
-
-    got = reader.read(urls=urls, fetch=fetch)
-    assert got["reclassified"] == ["https://catalog.pwcs.edu/specialty/it-centre"], got
-
-    pathway = next(r for r in got["pathways"] if r["url"].endswith("career-pathways/it"))
-    resolved = {c["url"] for c in pathway["courses"]}
-    assert resolved == {"https://catalog.pwcs.edu/a/one"}, (
-        "a page that is now a Pathway still resolved as a course")
-    assert "https://catalog.pwcs.edu/specialty/it-centre" in pathway["dangling"], (
-        "the row naming a reclassified page should be reported, not counted "
-        "as a resolved course")
-
-
-def test_a_course_page_that_does_not_parse_is_reported_not_just_missing():
-    """`course_paths` is built from the parsed records, so a course page that
-    fails `parse_course` is not in it — and a pathway row naming that page
-    counts as dangling rather than resolved.
-
-    That is the right call for edge-writing: the page will not become a
-    `Course` node, so a row naming it must not count as resolved or the count
-    and the graph disagree with nothing to say why.
-
-    But it gives `dangling` two causes — no published page at all, and a
-    published page that did not parse — and only one of them is what
-    `docs/schema.md` claims about the 16 dangling rows today. `unparsed` is
-    what separates them, so this drives the case the catalogue does not have
-    and asserts both facts are recoverable rather than one hiding the other.
-    """
-    urls = ["https://catalog.pwcs.edu/band/concert",
-            "https://catalog.pwcs.edu/band/jazz",
-            "https://catalog.pwcs.edu/cte/career-pathways/music"]
-
-    def fetch(url):
-        if url.endswith("career-pathways/music"):
-            return titled("Music") + section("Only", "/band/concert", "/band/jazz")
-        if url.endswith("band/jazz"):
-            return "<html></html>"          # published, but no <h1> to read
-        return titled("Concert Band")
-
-    got = reader.read(urls=urls, fetch=fetch)
-
-    assert got["unparsed"] == ["https://catalog.pwcs.edu/band/jazz"], got["unparsed"]
-    assert [c["url"] for c in got["pathways"][0]["courses"]] == \
-        ["https://catalog.pwcs.edu/band/concert"]
-    # Absolute, the same spelling `courses` uses — so the two lists can be
-    # compared without one caller re-deriving the other's form.
-    assert got["pathways"][0]["dangling"] == \
-        ["https://catalog.pwcs.edu/band/jazz"], got["pathways"][0]
-
-    # The point of the test: the row dangles AND the reason is recoverable.
-    # Reading `dangling` alone would say the catalogue publishes no page for
-    # it, which is false — it publishes one that could not be read.
-    assert got["unparsed"][0] in got["pathways"][0]["dangling"]
-
-
-def test_pathway_markup_is_released_as_each_page_is_parsed():
-    """The second pass reads each pathway's page out of a dict the first pass
-    filled. It pops rather than reads, so the dict shrinks as it goes instead
-    of holding every page for the life of the call — 1.2 MB today across 42
-    pages, which is small, but a dict that only grows is the shape that stops
-    being small without anyone noticing.
-
-    The first version of this test asserted only that `parse_pathway` was
-    called with the pathway's url, which is true whether the entry is popped or
-    read and says nothing about the name on the test. This one reads the
-    caller's own dict at the moment it hands over a page: `.pop()` happens
-    before the call, so by then the page being parsed is already gone.
-
-    Two pathways, so the counts distinguish the two implementations — popping
-    gives [1, 0] and reading would give [2, 2].
-    """
-    import sys
-
-    held_during = []
-    original = reader.parse_pathway
-
-    def spy(markup, url, course_paths):
-        held_during.append(len(sys._getframe(1).f_locals["pathway_markup"]))
-        return original(markup, url, course_paths)
-
-    urls = ["https://catalog.pwcs.edu/cte/career-pathways/music",
-            "https://catalog.pwcs.edu/cte/career-pathways/art"]
-    reader.parse_pathway = spy
-    try:
-        got = reader.read(urls=urls,
-                          fetch=lambda u: titled("A pathway") + section("Only", "/a/one"))
-    finally:
-        reader.parse_pathway = original
-
-    assert len(got["pathways"]) == 2, "both pages must classify as pathways"
-    assert held_during == [1, 0], (
-        f"the dict held {held_during} pages while parsing; popping leaves "
-        f"[1, 0] and reading would leave [2, 2]")

@@ -156,7 +156,7 @@ preference, and the working is on the page.
   behind it.
 - **138 conditions are not course references** — an audition, a teacher recommendation.
   Held as `Requirement` nodes, never turned into edges the district did not publish.
-- **Five of 202 pathway rows** point at an internal Drupal node id with no published alias
+- **16 of 390 pathway rows** point at an internal Drupal node id with no published alias
   and cannot be resolved by URL. Reported, never dropped.
 - **The national spine is measured, not loaded.** No programme, occupation, institution or
   earnings data is in the graph yet.
@@ -190,7 +190,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 486 tests
+pytest                           # 498 tests
 ```
 
 Engine-backed tests skip unless one is reachable. Point them at a **fresh** instance — they

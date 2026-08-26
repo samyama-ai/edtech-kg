@@ -48,8 +48,9 @@ def test_a_section_title_is_unescaped():
 
 
 def test_a_row_pointing_outside_the_sitemap_is_reported_not_dropped():
-    """Five of 202 real rows point at a Drupal node id with no published alias.
-    Counting them as absent would understate what the district publishes."""
+    """16 of the catalogue's 390 real rows point at a Drupal node id with no
+    published alias. Counting them as absent would understate what the district
+    publishes."""
     markup = section("First", "/a/one", "/node/1435")
     got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
     # By CONTENT, not by position. `got["courses"][0]` and an ordered

@@ -74,7 +74,45 @@ SECTION_TITLE = re.compile(
 # A pathway page that renders the field but yields no rows is a parse failure,
 # not a pathway with no courses — the same distinction the probe draws for the
 # prerequisite field. Counting it as empty would understate the graph silently.
-PATHWAY_FIELD_PRESENT = re.compile(r'field--name-field-degree-section-courses')
+#
+# **Bound to a class ATTRIBUTE, not to the token anywhere in the document.**
+# The unanchored form matched the name inside an HTML comment, in body prose,
+# in a `<script>` string and in a reflected `<input value=…>` — measured, all
+# four. That was tolerable while this only distinguished "no rows" from "no
+# field"; it is not tolerable now that it decides a node's LABEL. It was also
+# looser than `COURSE_ROW` two definitions up, which already requires the token
+# inside a real `class="…"` — the classifier was weaker than the row parser it
+# gates.
+PATHWAY_FIELD_PRESENT = re.compile(
+    r'class="[^"]*\bfield--name-field-degree-section-courses\b')
+
+# The ceiling on the override. `verify()` structurally cannot catch markup
+# drift: it compares the engine against the loader's own tallies, and both move
+# together. If the CMS ever renders this class in a shared template or footer
+# partial, every page becomes a Pathway, Course drops to zero, and the load
+# reports success — the same "the loader and the engine agreed about a set that
+# was already short" failure #87 is about, one level up.
+#
+# 4 pages today out of 960. A tenth of the catalogue disagreeing with its own
+# URL depth is not a catalogue that changed; it is a parser reading something
+# it should not.
+#
+# BOTH bounds have to be exceeded, and each covers a case the other cannot. The
+# fraction alone fires on any small input — one page of two is 50% — which
+# would make every two-page fixture unloadable. The floor alone fires on a
+# district that legitimately publishes a dozen more specialty programs. A CMS
+# rendering the class in a shared template trips both at once, which is the
+# only case worth refusing.
+RECLASSIFIED_CEILING = 0.10
+RECLASSIFIED_FLOOR = 10
+
+
+class MarkupDrift(Exception):
+    """Too many pages disagree with their own URL depth to be believable.
+
+    Raised rather than returned: a caller that gets a result dict will load it,
+    and the whole point is that this graph must not be written.
+    """
 
 
 def segments(url: str) -> list[str]:
@@ -315,6 +353,23 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
     # it is returned and printed for exactly this reason. Zero today, which is
     # the only reason `docs/schema.md` can say every dangling row names a page
     # the catalogue does not publish.
+    # Refuse rather than load. The override is what makes #87's fix work, and
+    # it is also the one thing `verify()` cannot check — see
+    # RECLASSIFIED_CEILING. A handful of pages disagreeing with their own depth
+    # is a fact about the catalogue; a tenth of it disagreeing is the parser
+    # being wrong, and loading that produces a graph that verifies clean and
+    # says something false.
+    if (len(reclassified) > RECLASSIFIED_FLOOR
+            and len(reclassified) > RECLASSIFIED_CEILING * len(urls)):
+        raise MarkupDrift(
+            f"{len(reclassified)} of {len(urls)} pages classify against their "
+            f"own URL depth — over {RECLASSIFIED_FLOOR} pages AND over the "
+            f"{RECLASSIFIED_CEILING:.0%} ceiling. That "
+            f"is markup drift, not a catalogue that changed — check whether "
+            f"the course-table class now renders in a shared template. "
+            f"Refusing to load rather than writing a graph that verifies "
+            f"clean and is wrong.")
+
     course_paths = {source.path_of(r["url"]) for r in buckets["course"]} - {None}
     for record in buckets["pathway"]:
         # Popped, not read. The markup is 1.2 MB across 42 pathway pages —

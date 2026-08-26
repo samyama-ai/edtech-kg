@@ -31,7 +31,7 @@ Q8 and Q11 are in that set for the same reason: an audience that hears only
 what is broken stops listening. Q8 is what to reach for when someone asks how
 messy data is handled — 138 conditions that are not course references, counted,
 kept, and not pretended into edges. Q11 is the positive counterpart to Q15's
-twenty-eight: one course that opens five different careers.
+twenty-eight: one course that opens six different careers.
 
 Every traversal is bounded at `*1..8`, tier 4 and tier 5 alike. The tier-5
 questions were bounded at 4, which returns the same rows today — the deepest
@@ -270,8 +270,8 @@ QUESTIONS: list[dict] = [
     dict(tier=5, question="What does a CTE pathway require that its own page never says?",
          aside="Two structures at once — the pathway's course list, and "
                "prerequisites of unknown depth reaching outside it. A family "
-               "reads the IT specialty program page, sees nineteen courses, "
-               "and misses five more it never lists.",
+               "reads the IT applied-sciences page, sees twenty-one courses, "
+               "and misses eleven more it never lists.",
          queries=[(["pathway", "requirement it never lists", "reached by"],
                    "MATCH (p:Pathway)-[:INCLUDES]->(c:Course)-[:REQUIRES*1..8]->(need:Course) "
                    "WHERE NOT EXISTS { MATCH (p)-[:INCLUDES]->(need) } "
