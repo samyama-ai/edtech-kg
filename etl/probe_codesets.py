@@ -297,6 +297,36 @@ def career_clusters() -> dict:
     # reported zero for href='/x.xlsx?v=2' — and the zero here feeds a licence
     # conclusion, so a false negative is the wrong way round, the same way
     # round as the copyright pattern above.
+    # REFUSED when the page carries neither landmark.
+    #
+    # Nothing here validated what came back, unlike `download()`, which checks
+    # for the PK magic before believing it has a workbook. A redirect, a cookie
+    # wall or a JavaScript shell returns HTTP 200 and no content: `notice` and
+    # `structure` are both None, `data_files` is empty, and the probe printed
+    # "None clusters, None sub-clusters" and "data files ... 0" without
+    # complaint.
+    #
+    # That zero is what `docs/sources/code-sets.md` rests its "NOT cleared"
+    # licence position on. A genuine absence of machine-readable files and a
+    # failed fetch produce the same zero, and nothing on the page or in the
+    # output tells a reader — or a re-run six months from now — which one it
+    # saw. A licence conclusion is the last thing that should rest on a number
+    # with two meanings.
+    #
+    # BOTH must be missing to refuse, not either. Advance CTE can reword a
+    # copyright line or restate the cluster count without the page having
+    # failed to load, and refusing on one missing landmark would turn an
+    # ordinary edit into a broken probe.
+    if notice is None and structure is None:
+        raise MalformedSource(
+            f"{CLUSTERS} carried neither the copyright notice nor the "
+            f"'N Clusters and M Sub-Clusters' line ({len(flat)} characters of "
+            f"text). Both are on the page this probe reads, so their joint "
+            f"absence means what came back is not that page — a redirect, a "
+            f"cookie wall or a script shell. Refusing rather than reporting "
+            f"the zero it would otherwise produce, because that zero is what "
+            f"the licence position is argued from.")
+
     machine_readable = data_files(page)
     on_crosswalks = data_files(crosswalks)
     return {"source": CLUSTERS,

@@ -389,3 +389,57 @@ def test_a_pdf_link_with_a_mismatched_quote_is_not_counted(monkeypatch):
     assert got["pdfs_on_crosswalks"] == ["good.pdf"], (
         f"a mismatched quote pair was counted as a published PDF: "
         f"{got['pdfs_on_crosswalks']}")
+
+
+def test_a_page_that_did_not_load_is_refused_rather_than_counted_as_a_zero(monkeypatch):
+    """The zero the licence position is argued from must have one meaning.
+
+    `career_clusters()` validated nothing about what came back, unlike
+    `download()`, which checks the PK magic before believing it has a workbook.
+    A redirect, a cookie wall or a JavaScript shell answers 200 with no
+    content: every field comes back `None` or `[]`, and the probe printed
+    "None clusters, None sub-clusters" and "data files ... 0" without
+    complaining.
+
+    `docs/sources/code-sets.md` rests "NOT cleared" on that zero. A genuine
+    absence of machine-readable files and a failed fetch produced the same
+    number, and nothing let a reader — or a re-run months later — tell them
+    apart. A licence conclusion is the last thing that should rest on a figure
+    with two meanings.
+    """
+    shell = b"<html><body><div id=root></div><script src=/app.js></script></body></html>"
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self): return shell
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
+
+    with pytest.raises(probe.MalformedSource) as refused:
+        probe.career_clusters()
+    assert "not that page" in str(refused.value)
+
+
+def test_an_ordinary_edit_to_the_page_does_not_break_the_probe(monkeypatch):
+    """BOTH landmarks must be missing to refuse, not either one.
+
+    Advance CTE can reword a copyright line or restate the cluster count
+    without the page having failed to load. Refusing on one missing landmark
+    would turn an ordinary edit into a broken probe and lose the reading
+    entirely — which is the same failure as reporting a false zero, in the
+    other direction.
+    """
+    reworded = (b"<html><body><p>14 Clusters and 72 Sub-Clusters</p>"
+                b"<p>Copyright Advance CTE, all rights are reserved.</p></body></html>")
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self): return reworded
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
+
+    got = probe.career_clusters()
+    assert (got["clusters"], got["sub_clusters"]) == (14, 72)
+    assert got["copyright_notice"] is None, (
+        "the fixture reworded the notice; the point is that the probe still "
+        "reads the page rather than refusing it")

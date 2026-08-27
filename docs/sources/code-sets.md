@@ -10,8 +10,10 @@ Clusters section is a **reading of a licence**, not a measurement, and says so.
 
 ## The short answers
 
-1. **The crosswalk carries almost no hierarchy** — and what it carries is
-   inconsistent, which is worse than carrying none.
+1. **The crosswalk carries hierarchy for 10 of its 49 families and not the
+   other 39** — a mixture rather than an absence, which is worse than either.
+   A uniform gap is easy to code around; this one answers for a fifth of the
+   families and returns nothing for the rest.
 2. **O\*NET-SOC aligns with SOC perfectly, and a naive join matches nothing.**
    That is the good failure. A partial match would have been the dangerous one.
 3. **Career Clusters is "All rights reserved" and publishes no machine-readable
@@ -97,10 +99,9 @@ the probe output.
 | PDFs published there instead | **6** |
 
 The framework page describes crosswalks "between the modernized Framework, the
-original Framework, and national labor market data". **Both pages are fetched**,
-because the sentence that corroborates the zero is about the crosswalks page and
-an earlier version of this probe read only the framework page — so the strongest
-number here was counted somewhere other than where the prose pointed.
+original Framework, and national labor market data". Both pages are fetched and
+counted separately, because the sentence that corroborates the zero is about the
+crosswalks page and the two are not the same document.
 
 The six files actually published on the crosswalks page are all PDFs, and the
 probe names them rather than describing them: a cluster grid, the Clusters
@@ -108,21 +109,32 @@ Wheel and its key, a Spanish wheel and legend, and a **Brand Book**. No CIP, SOC
 or NAICS crosswalk is published as data on either page.
 
 The **0** is a count of links matching a data-file extension (`.xlsx`, `.xls`,
-`.csv`, `.json`) on the two pages named above, not an exhaustive audit of the
-site. It is
-stated that way because the zero is what the licence conclusion rests on, and a
-pattern too strict would produce the same zero from a link it simply failed to
-match — the wrong way round for a licence check. The prose above is the
-corroboration: the files that *are* published were read, and they are PDFs.
+`.csv`, `.json`) on the two pages named above — not an exhaustive audit of the
+site. It is stated that narrowly because the zero is what the licence position
+rests on, and there are two ways a zero can be wrong. A pattern that is too
+strict misses a link that is there; a page that did not load has no links at
+all. Both would read as "no data files published".
+
+The first is handled by matching either quote style and allowing a query string
+after the extension. The second is refused outright: the probe checks that the
+page carries the copyright notice **and** the "14 Clusters and 72 Sub-Clusters"
+line before believing anything it counted, so a redirect, a cookie wall or a
+script shell stops the run instead of producing a zero that reads like a
+finding. The zero in the table above is a page that loaded and has no data files on it.
+
+The prose is the third corroboration: the files that *are* published were read,
+and they are PDFs.
 
 That combination answers edtech-kg#35's question without needing a lawyer:
 a trademarked framework, "all rights reserved", distributed as branded PDFs.
 
-**Recorded as NOT cleared.** edtech-kg#35 asked for a licence position in
-writing with a date, and this is it: nothing on the site grants reuse, and the
-copyright notice withholds it. Using Career Clusters requires asking Advance
+**Recorded as NOT cleared, read 2026-08-27.** edtech-kg#35 asked for a licence
+position in writing with a date, and this is it: nothing on the site grants
+reuse, and the copyright notice withholds it. The date is the reading's, not the
+notice's — the notice says 2023 — and it is here rather than only in the probe
+output because a position taken in writing has to carry the day it was taken. Using Career Clusters requires asking Advance
 CTE — the same route as the Urban Institute and O\*NET licence questions in
-edtech-kg#13 and #14.
+edtech-kg#13 and edtech-kg#14.
 
 **This matters more than it looks.** CIP is not the language a high school
 speaks; Career Clusters is. A course-planning product that cannot say "Health
