@@ -147,6 +147,25 @@ def cip_hierarchy(mapped: list[tuple[str, str]] | None = None) -> dict:
             "every_family_has_a_row": not (prefixes - with_row)}
 
 
+def column_named(header: list[str], *must_contain: str, avoid: str = "") -> int:
+    """The index of the column whose heading names these things.
+
+    Named rather than positional, and it refuses rather than guessing: a
+    heading that has moved is a layout change, and reading the old index would
+    keep working while counting the wrong column.
+    """
+    for i, cell in enumerate(header):
+        if all(token in cell for token in must_contain):
+            if avoid and avoid in cell:
+                continue
+            return i
+    raise MalformedSource(
+        f"no column headed {' + '.join(must_contain)}"
+        f"{f' (excluding {avoid})' if avoid else ''} in {header} — the "
+        f"crosswalk layout has changed and the figures need re-checking "
+        f"rather than re-reading")
+
+
 def onet_to_soc(ours: set[str] | None = None) -> dict:
     """Whether O*NET-SOC can be joined to SOC, and what happens if you try.
 
@@ -181,13 +200,32 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
                  if any("O*NET-SOC" in c and "Code" in c for c in r)), None)
     if head is None:
         raise MalformedSource("no header row in the O*NET crosswalk")
-    body = [r for r in rows[head + 1:] if len(r) > 2 and r[0].strip()]
+
+    # BOTH columns found by name. The O*NET column was looked up by heading
+    # while the SOC column was read at a hardcoded `r[2]` — so the file was
+    # half-trusted to keep its layout, and the half that was trusted is the
+    # one carrying the codes every figure below rests on. This file has four
+    # columns today, and reading the third by index keeps working, wrongly, if
+    # a fifth arrives.
+    onet_at = column_named(rows[head], "O*NET-SOC", "Code")
+    soc_at = column_named(rows[head], "SOC", "Code", avoid="O*NET")
+
+    body = [r for r in rows[head + 1:]
+            if len(r) > max(onet_at, soc_at) and r[onet_at].strip()]
     if not body:
         raise MalformedSource("the O*NET crosswalk parsed to zero rows")
 
-    onet_codes = {r[0].strip() for r in body}
-    rolled = {r[2].strip() for r in body}
-    fan = Counter(r[2].strip() for r in body)
+    # The SOC title too, so the example the page gives is printed rather than
+    # written down. The page named `15-1299 Computer Occupations, All Other`
+    # and the probe emitted only the count — so the one concrete illustration
+    # of the fan-out was the one figure on the page nobody could reproduce.
+    title_at = column_named(rows[head], "SOC", "Title", avoid="O*NET")
+    titles = {r[soc_at].strip(): r[title_at].strip() for r in body
+              if len(r) > title_at}
+
+    onet_codes = {r[onet_at].strip() for r in body}
+    rolled = {r[soc_at].strip() for r in body}
+    fan = Counter(r[soc_at].strip() for r in body)
 
     if ours is None:
         ours = crosswalk_soc()
@@ -204,7 +242,9 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
             "naive_string_matches": len(onet_codes & ours),
             "soc_with_one_occupation": sum(1 for v in fan.values() if v == 1),
             "soc_with_several": sum(1 for v in fan.values() if v > 1),
-            "largest_fan_out": max(fan.values()) if fan else 0}
+            "largest_fan_out": max(fan.values()) if fan else 0,
+        "widest_soc": max(fan, key=fan.get) if fan else None,
+        "widest_soc_title": titles.get(max(fan, key=fan.get)) if fan else None}
 
 
 def page_text(url: str) -> str:
@@ -271,9 +311,13 @@ def career_clusters() -> dict:
             # What IS published there, which is the corroboration: the
             # document says PDFs, so the PDFs are counted rather than
             # described.
+            # Backreferenced like `data_files`, so `href="a.pdf'` does not
+            # match. That fix reached one regex and not this one, three lines
+            # away — and the test written to prevent it only covered the
+            # regex that already had it.
             "pdfs_on_crosswalks": sorted({
-                name.rsplit("/", 1)[-1] for name in re.findall(
-                    r"""href=["']([^"']*\.pdf)["']""", crosswalks, re.I)}),
+                match[1].rsplit("/", 1)[-1] for match in re.findall(
+                    r"""href=(["'])([^"']*\.pdf)\1""", crosswalks, re.I)}),
             "measured_or_read": "read"}
 
 
@@ -307,8 +351,9 @@ def probe(quiet: bool = False) -> dict:
         print(f"  in ours and not O*NET            {len(onet['in_ours_not_onet']):>8}")
         print(f"  naive string-equality matches    {onet['naive_string_matches']:>8}"
               f"   of {onet['onet_occupations']:,}")
-        print(f"  SOC codes with several O*NET occupations {onet['soc_with_several']:>3}"
-              f"   (largest fan-out {onet['largest_fan_out']})")
+        print(f"  SOC codes with several O*NET occupations {onet['soc_with_several']:>3}")
+        print(f"  widest: {onet['widest_soc']} {str(onet['widest_soc_title'])[:38]}"
+              f" -> {onet['largest_fan_out']} O*NET occupations")
 
         print("\nCareer Clusters — read, not measured\n")
         print(f"  structure                        {clusters['clusters']} clusters, "

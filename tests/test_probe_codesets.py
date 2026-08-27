@@ -317,3 +317,75 @@ def test_a_data_link_with_a_mismatched_quote_is_not_counted():
     assert probe.data_files("""<a href='b.xlsx?v=2'>""") == ["b.xlsx"]
     assert probe.data_files('''<a href="c.csv\'>''') == [], (
         "a mismatched quote pair was counted as a published data file")
+
+
+def test_the_soc_column_is_found_by_name_not_by_position(monkeypatch):
+    """Half the file was trusted to keep its layout, and it was the half
+    carrying the codes.
+
+    The O*NET column was looked up by heading while the SOC column was read at
+    a hardcoded `r[2]`. Four columns today, so reading the third by index keeps
+    working — wrongly — the moment a fifth arrives.
+    """
+    moved = ["O*NET-SOC 2019 Code", "2018 SOC Code",
+             "O*NET-SOC 2019 Title", "2018 SOC Title"]
+    book = workbook([moved,
+                     ["11-1011.00", "11-1011", "Chief Executives", "Chief Executives"]])
+    monkeypatch.setattr(probe, "download", lambda url, into: archived(probe.ONET_MEMBER, book))
+
+    got = probe.onet_to_soc(ours={"11-1011"})
+    assert got["soc_codes_they_roll_up_to"] == 1
+    assert got["apprentice_soc_missing_from_ours"] == [] if "apprentice_soc_missing_from_ours" in got \
+        else got["in_onet_not_ours"] == [], (
+        "the SOC column was read by position, so a reordered file yielded "
+        "something that is not a SOC code")
+    assert got["widest_soc"] == "11-1011"
+
+
+def test_a_renamed_soc_column_is_refused_rather_than_guessed(monkeypatch):
+    """A heading that has moved is a layout change. Reading the old index
+    would keep working while counting the wrong column."""
+    book = workbook([["O*NET-SOC 2019 Code", "O*NET-SOC 2019 Title", "Something Else"],
+                     ["11-1011.00", "Chief Executives", "x"]])
+    monkeypatch.setattr(probe, "download", lambda url, into: archived(probe.ONET_MEMBER, book))
+    with pytest.raises(probe.MalformedSource, match="no column headed"):
+        probe.onet_to_soc(ours=set())
+
+
+def test_the_widest_fan_out_names_itself(monkeypatch):
+    """The page's one concrete illustration of the fan-out — `15-1299
+    Computer Occupations, All Other -> 10` — was written down while the probe
+    emitted only the count. The illustration is printed now."""
+    book = workbook([
+        ["O*NET-SOC 2019 Code", "O*NET-SOC 2019 Title", "2018 SOC Code", "2018 SOC Title"],
+        ["15-1299.01", "Web Administrators", "15-1299", "Computer Occupations, All Other"],
+        ["15-1299.02", "GIS Technologists", "15-1299", "Computer Occupations, All Other"],
+        ["11-1011.00", "Chief Executives", "11-1011", "Chief Executives"],
+    ])
+    monkeypatch.setattr(probe, "download", lambda url, into: archived(probe.ONET_MEMBER, book))
+
+    got = probe.onet_to_soc(ours=set())
+    assert got["largest_fan_out"] == 2
+    assert got["widest_soc"] == "15-1299"
+    assert got["widest_soc_title"] == "Computer Occupations, All Other", (
+        "the widest fan-out does not name itself, so the page's example is "
+        "again a figure the probe cannot produce")
+
+
+def test_a_pdf_link_with_a_mismatched_quote_is_not_counted(monkeypatch):
+    """The same bug as `data_files`, three lines away.
+
+    The fix backreferenced one regex and not the other, and the test written
+    to prevent it only covered the one that already had it. The PDF count
+    feeds the licence conclusion too.
+    """
+    pages = {
+        probe.CLUSTERS: "<html><p>14 Clusters and 72 Sub-Clusters</p></html>",
+        probe.CLUSTER_CROSSWALKS: ("<html><a href='/good.pdf'>a</a>"
+                                   "<a href=\"/bad.pdf'>b</a></html>"),
+    }
+    monkeypatch.setattr(probe, "page_text", lambda url: pages[url])
+    got = probe.career_clusters()
+    assert got["pdfs_on_crosswalks"] == ["good.pdf"], (
+        f"a mismatched quote pair was counted as a published PDF: "
+        f"{got['pdfs_on_crosswalks']}")
