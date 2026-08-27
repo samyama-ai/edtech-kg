@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ast
 import os
-import tomllib
 import re
 import subprocess
 import sys
@@ -93,9 +92,19 @@ def test_a_placeholder_in_a_markdown_heading_is_not_stripped_as_a_comment():
 #: Read from `pyproject.toml`, never restated. A second copy of this list is
 #: how the packaging test comes to agree with itself rather than with the file
 #: that decides what ships.
-CONFIGURED_PACKAGES = tomllib.loads(
-    (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-)["tool"]["setuptools"]["packages"]["find"]["include"]
+def configured_packages() -> list[str]:
+    """`include` from pyproject, read at CALL time.
+
+    Read at import it made a malformed or absent `pyproject.toml` a COLLECTION
+    error — the whole suite fails to start, and the message is a KeyError from
+    a test module rather than the packaging failure it is. Read here, one test
+    fails and says what is wrong with the file.
+    """
+    import tomllib
+
+    return tomllib.loads(
+        (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["tool"]["setuptools"]["packages"]["find"]["include"]
 
 
 def test_the_package_metadata_is_valid_enough_to_install():
@@ -117,11 +126,18 @@ def test_the_package_metadata_is_valid_enough_to_install():
     from setuptools import build_meta
 
     with tempfile.TemporaryDirectory() as out:
-        # `os.chdir` is process-global, so it changes the working directory for
-        # every other test in the run. The restore is in a `finally` for that
-        # reason — a raise here would otherwise leave the whole suite pointed
-        # at a different directory, and the failures that followed would be in
-        # tests that have nothing to do with packaging.
+        # `os.chdir` is process-global and this is the only way to point the
+        # build backend at a directory — it takes no path argument. The
+        # restore is in a `finally` because a raise here would otherwise leave
+        # the whole suite pointed elsewhere, and the failures that followed
+        # would be in tests that have nothing to do with packaging.
+        #
+        # It is NOT safe under `pytest-xdist`: workers are separate processes
+        # but a worker runs its own tests in one, so a concurrent test in the
+        # same worker sees the changed directory. The repo does not use xdist
+        # today — nothing in pyproject or CI passes `-n` — and the fix if it
+        # ever does is a subprocess rather than a lock, because the backend
+        # cannot be told where to look.
         cwd = os.getcwd()
         os.chdir(ROOT)
         try:
@@ -176,7 +192,18 @@ def test_the_declared_dependencies_are_ones_something_imports():
     # `the` into the set. That was invisible while the set was only ever
     # subtracted FROM, and became six phantom dependencies the moment it was
     # used in the other direction.
-    imported = set()
+    # RUNTIME and TEST imports kept apart.
+    #
+    # One set meant `pytest` and `setuptools` — imported only by tests —
+    # counted as things the package needs to run, so they had to be excused by
+    # the extras exemption. That exemption then excused a runtime import too:
+    # `import requests` in an `etl` module plus `requests` in the dev group
+    # passed, producing exactly the install-succeeds-then-import-fails case
+    # this test exists to prevent.
+    #
+    # A runtime module may import only what `dependencies` declares. A test
+    # may also import a dev extra. Neither borrows the other's list.
+    imported, test_only = set(), set()
     for name in tracked():
         if not name.endswith(".py"):
             continue
@@ -184,13 +211,18 @@ def test_the_declared_dependencies_are_ones_something_imports():
             tree = ast.parse((ROOT / name).read_text(errors="replace"))
         except SyntaxError:
             continue
+        found = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                imported.update(a.name.split(".")[0].lower() for a in node.names)
+                found.update(a.name.split(".")[0].lower() for a in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                imported.add(node.module.split(".")[0].lower())
+                found.add(node.module.split(".")[0].lower())
+        if name.startswith("tests/") or name == "conftest.py":
+            test_only |= found
+        else:
+            imported |= found
 
-    unused = declared - imported
+    unused = declared - imported - test_only
     assert not unused, (
         f"declared but imported by nothing: {sorted(unused)}. Move it to an "
         f"optional extra or drop it.")
@@ -204,11 +236,11 @@ def test_the_declared_dependencies_are_ones_something_imports():
     # `include`, and anything added below it — so an unrelated entry silently
     # counted as a declared extra and excused an undeclared import.
     tail = pyproject.split("[project.optional-dependencies]")
-    extras = set()
+    extras, dev_only = set(), set()
     if len(tail) > 1:
         # Up to the next table header, wherever that is.
         block = re.split(r"^\[", tail[1], maxsplit=1, flags=re.M)[0]
-        for group in re.findall(r"^\w[\w-]* = \[(.*?)\]", block, re.M | re.S):
+        for name, group in re.findall(r"^(\w[\w-]*) = \[(.*?)\]", block, re.M | re.S):
             for item in group.split(","):
                 item = item.strip().strip('"\'')
                 # `.group(0)` on a miss is an AttributeError, from inside the
@@ -216,12 +248,25 @@ def test_the_declared_dependencies_are_ones_something_imports():
                 found = re.match(r"[A-Za-z0-9_.-]+", item)
                 if found:
                     extras.add(found.group(0).lower())
+                    if name == "dev":
+                        dev_only.add(found.group(0).lower())
 
+    stdlib = set(sys.stdlib_module_names)
+    # Runtime modules get `dependencies` and the extras, and NOT the dev
+    # group: a package that installs without `[dev]` must still import.
     undeclared = sorted(
-        imported - set(sys.stdlib_module_names) - first_party - declared - extras)
+        imported - stdlib - first_party - declared - (extras - dev_only))
     assert not undeclared, (
         f"imported but declared nowhere: {undeclared}. An install that "
         f"succeeds and then fails on import is worse than one that refuses.")
+
+    # Tests may reach for a dev extra as well, and for nothing else.
+    undeclared_in_tests = sorted(
+        test_only - stdlib - first_party - declared - extras)
+    assert not undeclared_in_tests, (
+        f"the tests import {undeclared_in_tests}, declared nowhere. A "
+        f"contributor following CONTRIBUTING.md installs `[dev]` and the "
+        f"suite fails to collect.")
 
 
 @pytest.mark.parametrize("name", EXPECTED_DIRS)
@@ -349,12 +394,25 @@ def test_the_short_meeting_set_runs_the_question_its_pitch_depends_on():
     """The pitch is "fail Algebra 1 and courses close off — and they are not
     the subjects anyone expects". The second half is Q16, and the set ran the
     first half and stopped."""
-    from demo.demo import QUESTIONS
+    from demo.demo import QUESTIONS, chosen as parse_only
 
     text = (ROOT / "demo" / "README.md").read_text(encoding="utf-8")
     lines = [line for line in text.splitlines()
              if "--only" in line and "--auto" not in line]
-    chosen = [int(n) for n in re.findall(r"--only ([\d,]+)", lines[0])[0].split(",")]
+    assert lines, (
+        "demo/README.md no longer shows a non-`--auto` `--only` line, so this "
+        "check read nothing — `lines[0]` was an IndexError where a message "
+        "belongs")
+    quoted = re.findall(r"--only ([\d,]+)", lines[0])
+    assert quoted, f"no `--only` numbers on {lines[0]!r}"
+
+    # Parsed by the DEMO'S OWN function, not by indexing QUESTIONS directly.
+    # `--only` is 0-based — `chosen()` refuses anything outside
+    # `0..len(QUESTIONS)-1` and the CLI help says so — but a test that indexes
+    # the list itself is asserting that convention rather than reading it, and
+    # would go quietly wrong the day the numbering changed. This way the test
+    # and the CLI cannot disagree.
+    chosen = parse_only(quoted[0])
 
     assert 16 in chosen, (
         "Q16 is missing, so the demo makes a claim about subjects and never "
@@ -377,7 +435,6 @@ def test_every_module_the_readme_tells_you_to_run_is_packaged():
     added to the quick start later is covered the day it is added, and a list
     in this file would agree with itself instead.
     """
-    import re
     import setuptools
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -386,7 +443,7 @@ def test_every_module_the_readme_tells_you_to_run_is_packaged():
     assert invoked, "no `python -m` line found in the README to check"
 
     packaged = set(setuptools.find_packages(
-        where=str(ROOT), include=CONFIGURED_PACKAGES))
+        where=str(ROOT), include=configured_packages()))
 
     missing = sorted(name for name in invoked
                      if (ROOT / name / "__init__.py").is_file()

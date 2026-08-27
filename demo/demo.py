@@ -27,13 +27,18 @@ Running it short — the nine that carry a meeting:
 
     python -m demo.demo --only 0,5,8,11,13,15,16,17,19
 
-Q8, Q11 and Q16 are in that set for the same reason: an audience that hears
-only what is broken stops listening. Q16 is the one that answers "so what do I
-do with this?" — the shortest path from a course a student is already taking to
-a career, which is the question a parent in the room is actually holding. Q8 is what to reach for when someone asks how
-messy data is handled — 138 conditions that are not course references, counted,
-kept, and not pretended into edges. Q11 is the positive counterpart to Q15's
-twenty-eight: one course that opens six different careers.
+Q16 finishes Q15 rather than standing on its own: Q15 counts what closes off
+when a student does not pass Algebra 1, and Q16 breaks that number down by
+subject, which is the form a head of department can act on. Shown together or
+not at all — the count without the subjects invites "which ones?" from the
+room, and the answer is one query away.
+
+Q8 and Q11 are in the set for the same reason as each other: an audience that
+hears only what is broken stops listening. Q8 is what to reach for when
+someone asks how messy data is handled — 138 conditions that are not course
+references, counted, kept, and not pretended into edges. Q11 is the positive
+counterpart to Q15's twenty-eight: one course that opens six different
+careers.
 
 Every traversal is bounded at `*1..8`, tier 4 and tier 5 alike. The tier-5
 questions were bounded at 4, which returns the same rows today — the deepest
