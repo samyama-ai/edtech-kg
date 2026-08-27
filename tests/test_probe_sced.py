@@ -77,7 +77,11 @@ def test_a_sheet_that_parses_to_zero_rows_is_refused(monkeypatch):
     """An empty taxonomy is not a measurement."""
     book = workbook({"SCED 13.0": [["Course Title", "SCED Course Code"]]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
-    with pytest.raises(probe.MalformedSource, match="zero rows"):
+    # "no data rows" rather than "zero rows": a header-only sheet is caught by
+    # the length guard now, which fires first and says what is missing. The
+    # zero-rows message still covers a sheet with rows that all fail the
+    # non-empty check.
+    with pytest.raises(probe.MalformedSource, match="no data rows|zero rows"):
         probe.master()
 
 
@@ -280,7 +284,16 @@ def test_the_document_quotes_only_figures_the_probe_produces():
     rests on, so those are pinned by name rather than by value — a changed
     figure fails here instead of being quoted for another month."""
     page = DOC.read_text(encoding="utf-8")
-    for claim in ("SCED 13.0", "1,791", "2,012", "2,001", "791", "67 — 8%",
+    # ANCHORED. `"791"` matched `**1,791**` on the version row, so the figure
+    # it meant to guard — `PWCS courses loaded | **791**` — was unpinned: the
+    # assertion passed on a different number entirely. Same for the bare
+    # `2,012` and `2,001`, which the rows below now pin in place.
+    for claim in ("SCED 13.0",
+                  "| Courses | **1,791** |",
+                  "| Rows in the sheet | **2,012** |",
+                  "| Five-digit SCED codes | **2,001** |",
+                  "| PWCS courses loaded | **791** |",
+                  "67 — 8%",
                   # The element/attribute split. Pinned because the page now
                   # quotes the two counts, and a figure on the page that
                   # nothing guards is the drift this test exists to stop.
@@ -370,3 +383,55 @@ def test_a_course_with_two_code_fields_is_counted_once(monkeypatch):
     assert got["publishes_sced_code"] == 1, (
         f"a course carrying two code fields was counted "
         f"{got['publishes_sced_code']} times in a figure reported as courses")
+
+
+def test_the_master_sheet_gets_the_same_blank_header_guard_as_new_york(monkeypatch):
+    """The guard reached one function and not its neighbour.
+
+    `new_york()` was given a blank-header check last round; `master()` reads
+    `header[0]` the same way, in the same file, and did not get one — so a
+    sheet whose first column is empty raised IndexError from inside the check
+    meant to report a layout change.
+    """
+    book = workbook({"SCED 13.0": [["", "SCED Course Code", "Notes"],
+                                   ["Algebra I", "02052", "x"]]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    with pytest.raises(probe.MalformedSource, match="blank first column"):
+        probe.master()
+
+
+def test_the_document_pins_are_anchored_to_their_own_rows():
+    """The pins were bare substrings, and one of them matched the wrong row.
+
+    `"791"` matched `**1,791**` on the version row, so `PWCS courses loaded |
+    **791**` — the figure the assertion existed to guard — was never checked.
+    A guard that passes on a different number is worse than no guard, because
+    it reads as coverage.
+    """
+    page = DOC.read_text(encoding="utf-8")
+
+    # The trap, made explicit: the SCED total contains the PWCS figure.
+    assert "1,791" in page and "**791**" in page
+    assert page.count("791") >= 2, "the two figures no longer coexist on the page"
+
+    # So each pin names its row.
+    for row in ("| Courses | **1,791** |",
+                "| PWCS courses loaded | **791** |"):
+        assert row in page, f"the page no longer carries the row {row!r}"
+
+
+def test_the_new_york_table_is_a_table_and_not_prose():
+    """A paragraph inserted mid-table orphaned the last row.
+
+    `| Publishes a sequence column | **No** |` ended up after an intervening
+    paragraph, so it rendered as literal text — and it is the section's
+    headline answer. A broken table is invisible in a diff and obvious on the
+    page.
+    """
+    page = DOC.read_text(encoding="utf-8")
+    lines = page.splitlines()
+    sequence = next(i for i, l in enumerate(lines)
+                    if l.startswith("| Publishes a sequence column"))
+    assert lines[sequence - 1].startswith("|"), (
+        f"the sequence row is orphaned — the line above it is prose "
+        f"({lines[sequence - 1][:60]!r}), so the row renders as literal text")

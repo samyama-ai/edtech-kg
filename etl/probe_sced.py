@@ -104,9 +104,21 @@ def master() -> dict:
             f"NCES has changed the layout; check {LANDING} before trusting anything.")
 
     body = rows(book, parts[catalogue])
+    if len(body) < 2:
+        raise MalformedSource(
+            f"the SCED sheet {catalogue!r} has no data rows — refusing to "
+            f"report a taxonomy of nothing")
     header, courses = body[0], [r for r in body[1:] if r and r[0].strip()]
     if not courses:
         raise MalformedSource("the SCED course sheet parsed to zero rows")
+    # The same guard `new_york()` got, on the same shape in the same file. It
+    # reached one function and not the other: `header[0]` is read below, and
+    # a sheet whose first row is empty in column 0 raised IndexError from
+    # inside the check meant to report a layout change.
+    if not header or not header[0].strip():
+        raise MalformedSource(
+            f"the SCED sheet {catalogue!r} opens with a blank first column, so "
+            f"its layout cannot be checked — NCES has restructured the file")
 
     named = elements_and_attributes(book, parts)
 
