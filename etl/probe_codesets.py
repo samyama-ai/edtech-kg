@@ -100,11 +100,45 @@ def crosswalk_pairs() -> list[tuple[str, str]]:
     if not crosswalk.LOCAL.exists():
         try:
             crosswalk.download()
-        except (RuntimeError, ValueError) as exc:
-            raise MalformedSource(f"could not fetch the CIP-SOC crosswalk: {exc}") from exc
-    with zipfile.ZipFile(crosswalk.LOCAL) as book:
-        rows = crosswalk.rows(book, crosswalk.sheets(book)["CIP-SOC"])
-    mapped, _ = crosswalk.pairs(rows, crosswalk.find_header(rows, "CIP"))
+        except MalformedSource:
+            raise
+        except Exception as exc:  # noqa: BLE001 - see below
+            # EVERYTHING, not `RuntimeError`/`ValueError`. This function exists
+            # because a `FileNotFoundError` reached `main()`, which catches only
+            # `MalformedSource`, and came out as a traceback — and the two types
+            # it named are not the ones a download raises. `URLError`, `OSError`,
+            # `TimeoutError` and `BadZipFile` are all reachable here and none is
+            # either of them, so the guard covered the case that could not
+            # happen and missed the ones that do.
+            raise MalformedSource(
+                f"could not fetch the CIP-SOC crosswalk "
+                f"({type(exc).__name__}): {exc}") from exc
+    # The READ is wrapped too, not only the fetch. Wrapping the download alone
+    # left the case that actually happens: a fetch that returns without
+    # writing a usable file — a truncated download, a 200 carrying HTML, a
+    # cached partial from an interrupted run. `zipfile.ZipFile` then raises
+    # `FileNotFoundError` or `BadZipFile`, and `main()` catches neither, so the
+    # traceback this function exists to prevent came back through the door
+    # next to the one that was closed.
+    #
+    # `KeyError` as well: `sheets(book)["CIP-SOC"]` is how a renamed sheet
+    # arrives, and a bare `KeyError: 'CIP-SOC'` is the least readable of the
+    # three.
+    try:
+        with zipfile.ZipFile(crosswalk.LOCAL) as book:
+            rows = crosswalk.rows(book, crosswalk.sheets(book)["CIP-SOC"])
+        mapped, _ = crosswalk.pairs(rows, crosswalk.find_header(rows, "CIP"))
+    except MalformedSource:
+        raise
+    except KeyError as exc:
+        raise MalformedSource(
+            f"the CIP-SOC workbook has no {exc} sheet — NCES has renamed or "
+            f"restructured it, and every figure below reads that sheet.") from exc
+    except Exception as exc:  # noqa: BLE001 - main() catches MalformedSource only
+        raise MalformedSource(
+            f"the CIP-SOC workbook at {crosswalk.LOCAL} could not be read "
+            f"({type(exc).__name__}): {exc}. Delete it and re-run to fetch a "
+            f"fresh copy.") from exc
     return mapped
 
 
@@ -230,6 +264,8 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
     if ours is None:
         ours = crosswalk_soc()
 
+    widest = max(fan, key=fan.get) if fan else None
+
     return {"source": ONET_URL,
             "onet_occupations": len(onet_codes),
             "soc_codes_they_roll_up_to": len(rolled),
@@ -240,11 +276,13 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
             # equality against a SOC code matches nothing — which is the SAFE
             # failure. A partial match would have been the dangerous one.
             "naive_string_matches": len(onet_codes & ours),
+            # Computed once. It was `max(fan, key=fan.get)` three times over,
+            # and two of those were on the same line as each other.
             "soc_with_one_occupation": sum(1 for v in fan.values() if v == 1),
             "soc_with_several": sum(1 for v in fan.values() if v > 1),
             "largest_fan_out": max(fan.values()) if fan else 0,
-        "widest_soc": max(fan, key=fan.get) if fan else None,
-        "widest_soc_title": titles.get(max(fan, key=fan.get)) if fan else None}
+            "widest_soc": widest,
+            "widest_soc_title": titles.get(widest) if widest else None}
 
 
 def page_text(url: str) -> str:
@@ -317,6 +355,28 @@ def career_clusters() -> dict:
     # copyright line or restate the cluster count without the page having
     # failed to load, and refusing on one missing landmark would turn an
     # ordinary edit into a broken probe.
+    # BOTH pages, not just the framework one.
+    #
+    # The guard below covered `CLUSTERS` and nothing checked `CLUSTER_CROSSWALKS`
+    # — and the crosswalks page is where the two corroborating figures come
+    # from. A failed load there returned `machine_readable_on_crosswalks: []`
+    # and `pdfs_on_crosswalks: []`, so the zero the licence position rests on
+    # was still reachable from a page that never loaded, and the "6 PDFs" that
+    # corroborate it vanished silently. Guarding one of the two pages that feed
+    # a conclusion is not guarding the conclusion.
+    #
+    # The crosswalks page has no cluster count and no copyright line of its
+    # own, so it is checked on what it does carry: a page of links to published
+    # files. Nothing to link at all is the same failed-fetch signal.
+    if not re.search(r"""href=["'][^"']+\.(?:pdf|xlsx|xls|csv|json|docx?)["']""",
+                     crosswalks, re.I):
+        raise MalformedSource(
+            f"{CLUSTER_CROSSWALKS} carried no links to published files at all "
+            f"({len(crosswalks)} characters). That page is where the PDF count "
+            f"and the crosswalks-page zero both come from, so a failed load "
+            f"there produces the same numbers as a genuine absence — and the "
+            f"licence position is argued from exactly those numbers.")
+
     if notice is None and structure is None:
         raise MalformedSource(
             f"{CLUSTERS} carried neither the copyright notice nor the "
@@ -341,13 +401,17 @@ def career_clusters() -> dict:
             # What IS published there, which is the corroboration: the
             # document says PDFs, so the PDFs are counted rather than
             # described.
-            # Backreferenced like `data_files`, so `href="a.pdf'` does not
-            # match. That fix reached one regex and not this one, three lines
-            # away — and the test written to prevent it only covered the
-            # regex that already had it.
+            # Backreferenced, and a query string or fragment allowed after
+            # the extension — the same two rules as `data_files`, which this
+            # regex is the corroborating half of. It carried a comment
+            # claiming parity with `data_files` while missing the query-string
+            # allowance, so `/wheel.pdf?ver=3` was not counted and the "6 PDFs"
+            # could under-report the thing that corroborates the zero.
             "pdfs_on_crosswalks": sorted({
-                match[1].rsplit("/", 1)[-1] for match in re.findall(
-                    r"""href=(["'])([^"']*\.pdf)\1""", crosswalks, re.I)}),
+                match[1].rsplit("/", 1)[-1].split("?")[0].split("#")[0]
+                for match in re.findall(
+                    r"""href=(["'])([^"']*\.pdf(?:[?#][^"']*)?)\1""",
+                    crosswalks, re.I)}),
             "measured_or_read": "read"}
 
 

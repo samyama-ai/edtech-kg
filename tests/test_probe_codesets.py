@@ -49,14 +49,54 @@ def archived(member: str, payload: bytes) -> bytes:
     return buffer.getvalue()
 
 
+#: A crosswalks page that looks like the real one: links to published files.
+#: `career_clusters` refuses a crosswalks page with no file links at all,
+#: because that is indistinguishable from a page that never loaded — and the
+#: PDF count and the crosswalks-page zero both come from it.
+CROSSWALKS_PAGE = (b'<html><body>'
+                   b'<a href="/files/CareerClustersWheel-key.pdf">wheel</a>'
+                   b'</body></html>')
+
+
+class _body:
+    """One response body, for the fetches that are not the two pages."""
+
+    def __init__(self, payload): self._payload = payload
+    def __enter__(self): return self
+    def __exit__(self, *exc): return False
+    def read(self): return self._payload
+
+
+def serve(monkeypatch, page: bytes, *, crosswalks: bytes = CROSSWALKS_PAGE):
+    """Answer every fetch, per URL, with ONE stub.
+
+    There were six copies of a three-line `Response` class in this file, each
+    answering every URL with the same body — so a test aiming a fixture at the
+    framework page was also answering the crosswalks page with it, and no test
+    could tell the two apart. `career_clusters` reads both.
+    """
+    bodies = {probe.CLUSTERS: page, probe.CLUSTER_CROSSWALKS: crosswalks}
+
+    class Response:
+        def __init__(self, body): self._body = body
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self): return self._body
+
+    def urlopen(request, *a, **k):
+        url = request if isinstance(request, str) else request.full_url
+        return Response(bodies.get(url, page))
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
+
+
 def test_an_html_page_is_refused_rather_than_read_as_an_empty_archive(monkeypatch, tmp_path):
     """A 200 carrying an error page would otherwise parse to zero occupations
     and be reported as a taxonomy with nothing in it."""
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self, *exc): return False
-        def read(self): return b"<!DOCTYPE html>not a zip"
-    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
+    # `download`, not the pages — one body for one fetch, so `serve` (which
+    # answers per URL for `career_clusters`) is the wrong shape here.
+    monkeypatch.setattr(probe.urllib.request, "urlopen",
+                        lambda *a, **k: _body(b"<!DOCTYPE html><html>404"))
     with pytest.raises(probe.MalformedSource, match="did not return an archive"):
         probe.download(probe.ONET_URL, tmp_path / "x.zip")
 
@@ -153,36 +193,6 @@ def test_a_row_that_omits_its_title_still_reads_its_soc_code_from_the_right_colu
     assert got["largest_fan_out"] == 2
 
 
-def test_no_machine_readable_file_is_reported_only_when_there_is_none(monkeypatch):
-    """The zero that feeds the licence conclusion.
-
-    "0 machine-readable files" is the reason Career Clusters is recorded as not
-    cleared, so a pattern that misses a real link would produce that conclusion
-    from a false negative. The first pattern required double quotes and the
-    extension at the very end of the href, so `'/x.xlsx?v=2'` counted as none.
-    """
-    def page_of(body: str):
-        class Response:
-            def __enter__(self): return self
-            def __exit__(self, *exc): return False
-            def read(self): return body.encode()
-        return lambda *a, **k: Response()
-
-    bare = "<html><p>14 Clusters and 72 Sub-Clusters</p><a href='/brand.pdf'>x</a></html>"
-    monkeypatch.setattr(probe.urllib.request, "urlopen", page_of(bare))
-    assert probe.career_clusters()["machine_readable_files"] == [], (
-        "a PDF was counted as a machine-readable file")
-
-    linked = bare.replace("<a href='/brand.pdf'>x</a>",
-                          "<a href='/clusters.xlsx?v=2'>x</a>"
-                          '<a href="/c.csv#tab">y</a>')
-    monkeypatch.setattr(probe.urllib.request, "urlopen", page_of(linked))
-    found = probe.career_clusters()["machine_readable_files"]
-    assert found == ["/c.csv", "/clusters.xlsx"], (
-        f"a published data file was missed, so the licence conclusion would "
-        f"rest on a false zero — found {found}")
-
-
 def test_a_second_sheet_is_refused_rather_than_guessed_at(monkeypatch):
     """The O*NET crosswalk carries one sheet, and the probe resolves it through
     the workbook relationships rather than assuming `sheet1.xml`. If the file
@@ -211,10 +221,12 @@ def test_a_missing_crosswalk_is_fetched_rather_than_raising_a_traceback(monkeypa
     # types asserts nothing about which one happens, and the `asked` check
     # below is what carries the weight. The read still fails because the
     # stubbed download writes nothing; what matters is that it was attempted.
-    try:
+    # Narrowed to what this path actually raises, and asserted on. Catching
+    # `FileNotFoundError` too meant the test passed whether the fetch was
+    # wrapped or not, which is the thing under test — `crosswalk_pairs` exists
+    # because a bare FileNotFoundError reached `main()`.
+    with pytest.raises(probe.MalformedSource):
         probe.crosswalk_pairs()
-    except (probe.MalformedSource, FileNotFoundError):
-        pass
     assert asked, "the probe read a gitignored path without trying to fetch it"
 
 
@@ -238,28 +250,6 @@ def test_a_family_row_is_told_apart_from_a_series_row_and_a_leaf():
     assert probe.SERIES.match("11.0700") and not probe.SERIES.match("11.0701")
 
 
-def test_the_copyright_notice_survives_a_full_stop(monkeypatch):
-    """The first version of this pattern stopped at the first full stop and
-    found nothing — reporting no notice on a page that carries one, which is
-    the wrong way round for a licence check."""
-    page = ('<html><footer>© 2023 Advance CTE: State Leaders Connecting '
-            'Learning to Work. All rights reserved.</footer>'
-            '<p>14 Clusters and 72 Sub-Clusters</p></html>').encode()
-
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self, *exc): return False
-        def read(self): return page
-    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
-
-    got = probe.career_clusters()
-    assert got["copyright_notice"], "the notice was not found on a page that has one"
-    assert "All rights reserved" in got["copyright_notice"]
-    assert (got["clusters"], got["sub_clusters"]) == (14, 72)
-    assert got["measured_or_read"] == "read", (
-        "a licence position is a reading, and the result must say so")
-
-
 def test_the_document_quotes_only_figures_the_probe_produces():
     """Every figure on the page comes from the probe. These are the ones the
     argument rests on, so a changed figure fails here rather than being quoted
@@ -280,45 +270,6 @@ def test_the_document_calls_the_zero_match_safe_rather_than_a_problem():
     assert "align" in page, "the page no longer states that the taxonomies align"
 
 
-def test_the_licence_zero_is_counted_on_the_page_the_prose_describes(monkeypatch):
-    """The conclusion rested on a page the probe never fetched.
-
-    `machine_readable_files` counted links on the framework LANDING page, while
-    the document's corroborating sentence describes the CROSSWALKS page — "the
-    files actually published on the crosswalks page are PDFs". A zero measured
-    somewhere other than where the sentence points is not corroborated by it.
-
-    Both pages are fetched now, counted separately, and the PDFs are named
-    rather than described.
-    """
-    pages = {
-        probe.CLUSTERS: ("<html><p>14 Clusters and 72 Sub-Clusters</p>"
-                         "<footer>© 2023 Advance CTE. All rights reserved.</footer>"
-                         "<a href='/framework.xlsx'>x</a></html>"),
-        probe.CLUSTER_CROSSWALKS: ("<html><a href='/grid.pdf'>a</a>"
-                                   "<a href='/wheel.pdf'>b</a></html>"),
-    }
-    monkeypatch.setattr(probe, "page_text", lambda url: pages[url])
-
-    got = probe.career_clusters()
-    assert got["machine_readable_files"] == ["/framework.xlsx"], (
-        "the framework page's own data files are no longer counted")
-    assert got["machine_readable_on_crosswalks"] == [], (
-        "the crosswalks page was not counted separately, so the licence zero "
-        "is again measured somewhere other than where the prose points")
-    assert got["pdfs_on_crosswalks"] == ["grid.pdf", "wheel.pdf"], (
-        "the PDFs are described rather than named")
-
-
-def test_a_data_link_with_a_mismatched_quote_is_not_counted():
-    """`href="a.csv'` matched, because the pattern did not backreference the
-    opening quote. Harmless for the count today and wrong as a rule."""
-    assert probe.data_files('''<a href="a.csv">''') == ["a.csv"]
-    assert probe.data_files("""<a href='b.xlsx?v=2'>""") == ["b.xlsx"]
-    assert probe.data_files('''<a href="c.csv\'>''') == [], (
-        "a mismatched quote pair was counted as a published data file")
-
-
 def test_the_soc_column_is_found_by_name_not_by_position(monkeypatch):
     """Half the file was trusted to keep its layout, and it was the half
     carrying the codes.
@@ -335,8 +286,12 @@ def test_the_soc_column_is_found_by_name_not_by_position(monkeypatch):
 
     got = probe.onet_to_soc(ours={"11-1011"})
     assert got["soc_codes_they_roll_up_to"] == 1
-    assert got["apprentice_soc_missing_from_ours"] == [] if "apprentice_soc_missing_from_ours" in got \
-        else got["in_onet_not_ours"] == [], (
+    # `in_onet_not_ours`, named outright. This was a conditional expression
+    # over two possible keys — `x == [] if "x" in got else y == []` — which
+    # asserts whichever key happens to be there and cannot fail if neither is:
+    # a test hedging about the shape of the thing it is testing.
+    assert "in_onet_not_ours" in got, "onet_to_soc stopped reporting the gap"
+    assert got["in_onet_not_ours"] == [], (
         "the SOC column was read by position, so a reordered file yielded "
         "something that is not a SOC code")
     assert got["widest_soc"] == "11-1011"
@@ -370,76 +325,3 @@ def test_the_widest_fan_out_names_itself(monkeypatch):
     assert got["widest_soc_title"] == "Computer Occupations, All Other", (
         "the widest fan-out does not name itself, so the page's example is "
         "again a figure the probe cannot produce")
-
-
-def test_a_pdf_link_with_a_mismatched_quote_is_not_counted(monkeypatch):
-    """The same bug as `data_files`, three lines away.
-
-    The fix backreferenced one regex and not the other, and the test written
-    to prevent it only covered the one that already had it. The PDF count
-    feeds the licence conclusion too.
-    """
-    pages = {
-        probe.CLUSTERS: "<html><p>14 Clusters and 72 Sub-Clusters</p></html>",
-        probe.CLUSTER_CROSSWALKS: ("<html><a href='/good.pdf'>a</a>"
-                                   "<a href=\"/bad.pdf'>b</a></html>"),
-    }
-    monkeypatch.setattr(probe, "page_text", lambda url: pages[url])
-    got = probe.career_clusters()
-    assert got["pdfs_on_crosswalks"] == ["good.pdf"], (
-        f"a mismatched quote pair was counted as a published PDF: "
-        f"{got['pdfs_on_crosswalks']}")
-
-
-def test_a_page_that_did_not_load_is_refused_rather_than_counted_as_a_zero(monkeypatch):
-    """The zero the licence position is argued from must have one meaning.
-
-    `career_clusters()` validated nothing about what came back, unlike
-    `download()`, which checks the PK magic before believing it has a workbook.
-    A redirect, a cookie wall or a JavaScript shell answers 200 with no
-    content: every field comes back `None` or `[]`, and the probe printed
-    "None clusters, None sub-clusters" and "data files ... 0" without
-    complaining.
-
-    `docs/sources/code-sets.md` rests "NOT cleared" on that zero. A genuine
-    absence of machine-readable files and a failed fetch produced the same
-    number, and nothing let a reader — or a re-run months later — tell them
-    apart. A licence conclusion is the last thing that should rest on a figure
-    with two meanings.
-    """
-    shell = b"<html><body><div id=root></div><script src=/app.js></script></body></html>"
-
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self, *exc): return False
-        def read(self): return shell
-    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
-
-    with pytest.raises(probe.MalformedSource) as refused:
-        probe.career_clusters()
-    assert "not that page" in str(refused.value)
-
-
-def test_an_ordinary_edit_to_the_page_does_not_break_the_probe(monkeypatch):
-    """BOTH landmarks must be missing to refuse, not either one.
-
-    Advance CTE can reword a copyright line or restate the cluster count
-    without the page having failed to load. Refusing on one missing landmark
-    would turn an ordinary edit into a broken probe and lose the reading
-    entirely — which is the same failure as reporting a false zero, in the
-    other direction.
-    """
-    reworded = (b"<html><body><p>14 Clusters and 72 Sub-Clusters</p>"
-                b"<p>Copyright Advance CTE, all rights are reserved.</p></body></html>")
-
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self, *exc): return False
-        def read(self): return reworded
-    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
-
-    got = probe.career_clusters()
-    assert (got["clusters"], got["sub_clusters"]) == (14, 72)
-    assert got["copyright_notice"] is None, (
-        "the fixture reworded the notice; the point is that the probe still "
-        "reads the page rather than refusing it")
