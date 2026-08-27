@@ -274,7 +274,7 @@ def test_the_document_quotes_only_figures_the_probe_produces():
     # headline is not quietly counting a state extension.
     for claim in ("without the parenthetical rule it is **58** rather than 67",
                   "| Matches resolving to a New York **state extension** | **0** |",
-                  "| Titles New York publishes under more than one code | **31** |"):
+                  "| Titles New York publishes under more than one code | **203** |"):
         assert claim in page, f"the page no longer states {claim!r}"
 
 
@@ -434,3 +434,64 @@ def test_a_restructured_landing_page_stops_the_run(monkeypatch):
     monkeypatch.setattr(probe, "fetch_text", lambda url: "<html>redesigned</html>")
     with pytest.raises(probe.MalformedSource, match="no SCEDv"):
         probe.master_file()
+
+
+def test_two_current_sced_sheets_are_refused_rather_than_guessed_at(monkeypatch):
+    """`next(...)` took the first of however many matched.
+
+    A workbook carrying `SCED 13.0` and `SCED 14.0` — which is how NCES would
+    ship a transition — silently picked whichever the archive listed first, so
+    every figure on the page could describe a version the page does not name.
+    """
+    book = workbook({"SCED 13.0": [["Course Title", "SCED Course Code"],
+                                   ["Algebra I", "02052"]],
+                     "SCED 14.0": [["Course Title", "SCED Course Code"],
+                                   ["Algebra I", "02052"]]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
+    with pytest.raises(probe.MalformedSource, match="current SCED sheets"):
+        probe.master()
+
+
+def test_the_json_payload_still_carries_the_new_york_titles(monkeypatch):
+    """`state.pop("titles")` mutated the dict the caller is also given.
+
+    So `--json` reported a New York block with its titles missing, and which
+    fields the payload carried depended on whether the reach measurement had
+    run — a payload whose shape is a side effect of an unrelated step.
+    """
+    import inspect
+
+    source = inspect.getsource(probe.probe)
+    assert 'state.pop("titles")' not in source, (
+        "the probe pops from the dict it returns, so the JSON payload loses a "
+        "field depending on which measurements ran")
+
+
+def test_no_published_code_is_dropped_before_the_resolver_sees_it():
+    """`new_york()["titles"]` was `{title: code}` and lost the duplicates.
+
+    New York's 2,012 rows collapsed to 1,839 entries, so 173 codes were gone
+    before `resolve_titles` — the function whose whole job is choosing between
+    the codes behind one title — could see any of them. The rule was applied
+    downstream of the step that made it unnecessary, which is why the fix
+    looked complete and was not.
+
+    Asserted on the count of CODES, not of titles: a title map that keeps one
+    code per title has the same number of titles and is exactly the defect.
+    """
+    rows = [["02072", "Geometry"],
+            ["02072CC", "Geometry"],
+            ["02052", "Algebra I"],
+            ["", "No code"],
+            ["03051", ""]]
+
+    titles = probe._titles(rows)
+    assert set(titles) == {"Geometry", "Algebra I", "No code"}, (
+        "a row with no title must be dropped; one with no code must not")
+    assert sum(len(codes) for codes in titles.values()) == 4, (
+        "a published code was discarded before anything could choose between "
+        "them — the title map is keyed by title and keeping only one")
+    assert titles["Geometry"] == ["02072", "02072CC"], (
+        "both codes for one title must survive, sorted so the value does not "
+        "depend on the order of the sheet")

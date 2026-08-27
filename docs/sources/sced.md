@@ -126,15 +126,21 @@ counting something the page argues against:
 | | |
 |---|---:|
 | Matches resolving to a New York **state extension** | **0** |
-| Titles New York publishes under more than one code | **31** |
+| Titles New York publishes under more than one code | **203** |
 
 New York's eleven `CC` and `L` codes are the state adding to the taxonomy, not
 using it — this page says so below, and counting one as SCED alignment would
 overstate the reach. Normalising a title also collapses `Geometry` and
 `Geometry (Common Core)` onto the same key, so a title can have several codes
-behind it. A five-digit SCED code beats an extension, the lowest code breaks a
-remaining tie, and the 31 titles where a tie survives both rules are reported
-rather than quietly resolved.
+behind it. A five-digit SCED code beats an extension, the lowest code breaks a remaining
+tie, and the 203 titles where a tie survives both rules are reported rather
+than quietly resolved.
+
+That count was 31 while the title map was itself keyed by title — it collapsed
+2,012 published codes to 1,839 before anything could choose between them, so
+173 codes were gone before the rule that exists to choose between them ever
+ran. The map carries every code per title now, which is why the number is
+larger: it is the first time all of them have been counted.
 
 ### And the 8% is the wrong 8%
 

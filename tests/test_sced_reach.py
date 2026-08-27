@@ -157,3 +157,71 @@ def test_the_strict_comparison_is_printed_rather_than_typed_into_the_page(monkey
     assert got["reachable_without_the_parenthetical_rule"] == 1, (
         "the strict comparison is not measured, so the page's claim that the "
         "headline is deliberately generous rests on nothing it prints")
+
+
+def test_every_code_published_under_a_title_reaches_the_resolver():
+    """The fix used to sit downstream of the thing that broke it.
+
+    `new_york()["titles"]` was `{title: code}`, so New York's 2,012 rows
+    collapsed to 1,839 entries and 173 codes were discarded before
+    `resolve_titles` — the function whose whole job is choosing between the
+    codes behind one title — could see any of them. A rule cannot be applied
+    to a value the dict feeding it already threw away.
+    """
+    resolved, ambiguous = probe.resolve_titles(
+        {"Geometry": ["02072", "02072CC"], "Algebra": ["02052"]}, {"02072CC"})
+
+    assert resolved["geometry"] == "02072", (
+        "the extension won, so the list of codes is not reaching the rule")
+    assert resolved["algebra"] == "02052"
+    assert ambiguous == [], "one SCED code and one extension is not a tie"
+
+
+def test_a_title_that_normalises_to_nothing_is_dropped_not_bucketed():
+    """`normalise` can return `""` — a title that is only a parenthetical or
+    only programme markers, like `(Common Core)` or `AP`.
+
+    An empty key matches every other title that normalises to empty, so it
+    becomes a bucket that anything shaped like it falls into, and the code the
+    bucket happens to hold is reported as the match.
+    """
+    resolved, _ = probe.resolve_titles(
+        {"(Common Core)": ["01003CC"], "AP": ["99999"], "Biology": ["03051"]},
+        set())
+
+    assert "" not in resolved, (
+        "an empty normalised title became a key, so any other title that "
+        "normalises to empty now matches whatever code it holds")
+    assert resolved == {"biology": "03051"}
+
+
+def test_a_camelcase_code_field_is_not_missed():
+    """The zero the schema recommendation rests on.
+
+    Markers were matched against `f.lower()`, so `scedCode` matched via
+    "sced" and `courseCode` did not — `"coursecode"` is not `"course_code"`.
+    A district publishing its codes under a camelCase field would have been
+    reported as publishing none, which is the finding the whole page turns on.
+    """
+    from etl import pwcs_source
+
+    for field in ("courseCode", "course_code", "state-code", "SCED Code"):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(pwcs_source, "read", lambda f=field: {"courses": [
+                {"title": "Algebra I", f: "02052"}]})
+            got = probe.district_reach({"Algebra I": ["02052"]}, set())
+            assert got["sced_code_fields"] == [field], (
+                f"{field!r} was not recognised as a code field, so a district "
+                f"publishing SCED codes would report as publishing none")
+            assert got["publishes_sced_code"] == 1
+
+
+def test_a_catalogue_without_titles_is_refused_not_a_traceback():
+    """`c["title"]` raised KeyError from inside a comprehension. Every other
+    failure in this module is a MalformedSource with a message."""
+    from etl import pwcs_source
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(pwcs_source, "read", lambda: {"courses": [{"url": "x"}]})
+        with pytest.raises(probe.MalformedSource, match="no `title` field"):
+            probe.district_reach({"Algebra I": ["02052"]}, set())

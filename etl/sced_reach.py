@@ -71,9 +71,21 @@ def resolve_titles(ny_titles: dict[str, str],
     rules it is REPORTED rather than resolved: the page can say which titles
     are ambiguous instead of quietly picking one.
     """
+    # The value is now a LIST of every code published under that title, not
+    # one code. `new_york()["titles"]` used to collapse duplicates itself, so
+    # 173 of New York's codes never arrived here at all — this function chose
+    # between candidates a dict upstream had already narrowed to one.
     candidates: dict[str, set[str]] = {}
-    for raw, code in ny_titles.items():
-        candidates.setdefault(normalise(raw), set()).add(code)
+    for raw, codes in ny_titles.items():
+        key = normalise(raw)
+        if not key:
+            # `normalise` can return "" — a title that is only a parenthetical
+            # or only programme markers ("(Common Core)", "AP"). An empty key
+            # matches every other title that normalises to empty, so it is
+            # dropped rather than made a bucket everything falls into.
+            continue
+        candidates.setdefault(key, set()).update(
+            [codes] if isinstance(codes, str) else codes)
 
     resolved, ambiguous = {}, []
     for key, codes in candidates.items():
@@ -96,6 +108,16 @@ def district_reach(ny_titles: dict[str, str],
     from etl import pwcs_source as source
 
     loaded = source.read()
+    # `.get`, with a refusal naming the shape. `c["title"]` raised KeyError
+    # from inside a comprehension if the loader ever stops publishing that
+    # field — a traceback where every other failure in this module is a
+    # MalformedSource with a message.
+    if any("title" not in c for c in loaded["courses"]):
+        raise MalformedSource(
+            f"{sum(1 for c in loaded['courses'] if 'title' not in c)} of "
+            f"{len(loaded['courses'])} loaded courses carry no `title` field, "
+            f"so there is nothing to match a SCED code against. The catalogue "
+            f"loader has changed shape.")
     titles = [c["title"] for c in loaded["courses"]]
     if not titles:
         raise MalformedSource(
@@ -108,16 +130,20 @@ def district_reach(ny_titles: dict[str, str],
     # a count of distinct titles while `district_courses` counted rows, and
     # two courses sharing a name would have made the percentage disagree with
     # itself.
-    matched = {normalise(t): by_name[normalise(t)]
-               for t in titles if normalise(t) in by_name}
-    reachable = sum(1 for t in titles if normalise(t) in by_name)
+    # Normalised ONCE per title. It was recomputed up to four times each —
+    # in the dict key, the lookup, the membership test and the count — over
+    # 791 titles, and it is a chain of four regex substitutions.
+    keys = [normalise(t) for t in titles]
+    matched = {k: by_name[k] for k in keys if k in by_name}
+    reachable = sum(1 for k in keys if k in by_name)
 
     # The same count with the parenthetical rule OFF, so the page's claim that
     # the figure is "generous, deliberately" carries a number the probe
     # printed. It quoted "58 rather than 67" as typed text on a page whose
     # first line says nothing on it is typed.
-    strict_key = {normalise(t, drop_parentheticals=False): code
-                  for t, code in ny_titles.items()}
+    strict_key = {normalise(t, drop_parentheticals=False)
+                  for t in ny_titles}
+    strict_key.discard("")
     strict = sum(1 for t in titles
                  if normalise(t, drop_parentheticals=False) in strict_key)
 
@@ -130,9 +156,17 @@ def district_reach(ny_titles: dict[str, str],
     # counted — it returned 0 for the right answer by the wrong route, and the
     # zero is what the schema recommendation rests on.
     fields = sorted({key for c in loaded["courses"] for key in c})
-    code_fields = [f for f in fields
-                   if any(marker in f.lower()
-                          for marker in ("sced", "course_code", "state_code"))]
+    # Separators stripped, so `courseCode`, `course-code` and `course code`
+    # all reduce to the same thing as `course_code`. Lower-casing alone
+    # matched `scedCode` (via "sced") and missed `courseCode`, because
+    # `"coursecode"` is not `"course_code"` — and the field it missed is one
+    # of the two that would carry a district's SCED code. The zero this
+    # produces is what the schema recommendation rests on, so a marker that
+    # silently fails to match is a false zero.
+    flattened = {f: re.sub(r"[^a-z0-9]", "", f.lower()) for f in fields}
+    code_fields = [f for f, flat in flattened.items()
+                   if any(marker in flat
+                          for marker in ("sced", "coursecode", "statecode"))]
     # Per COURSE, not per (course × field) pair. The sum ran over both loops,
     # so a record carrying two code fields counted twice while being reported
     # as a count of courses — the units problem one line down from the one this

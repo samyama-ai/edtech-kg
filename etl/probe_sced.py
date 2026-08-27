@@ -154,7 +154,19 @@ def master() -> dict:
     url, version = master_file()
     book = zipfile.ZipFile(io.BytesIO(fetch(url)))
     parts = sheets(book)
-    catalogue = next((n for n in parts if n.startswith("SCED ") and "Archived" not in n), None)
+    # ALL matches, then exactly one. `next(...)` took the first of however
+    # many matched, so a workbook carrying `SCED 13.0` and `SCED 14.0` — which
+    # is how NCES would ship a transition — silently picked whichever came
+    # first in the archive, and every figure below would describe a version
+    # the page does not name.
+    named = [n for n in parts if n.startswith("SCED ") and "Archived" not in n]
+    if len(named) > 1:
+        raise MalformedSource(
+            f"the workbook holds {len(named)} current SCED sheets {sorted(named)}; "
+            f"this reads one and cannot choose between them. NCES has shipped a "
+            f"transition, and which version the figures describe has to be a "
+            f"decision rather than an archive ordering.")
+    catalogue = named[0] if named else None
     if catalogue is None:
         raise MalformedSource(
             f"no course sheet in the SCED master file — it has {sorted(parts)}. "
@@ -210,7 +222,18 @@ def elements_and_attributes(book: zipfile.ZipFile, parts: dict[str, str]) -> dic
     did not strip. A right-looking total over the wrong members is the failure
     this repo keeps finding, so the split is read from the sheet now.
     """
-    sheet = next((n for n in parts if "Element" in n), None)
+    # Same rule as the course sheet: all matches, then exactly one. `"Element"
+    # in n` is a loose substring — `Elements`, `Element Definitions` and
+    # `Data Elements` all match — and `next(...)` took whichever the archive
+    # listed first, so the 6/17 split could be read off a different sheet than
+    # the one the page names with nothing saying so.
+    candidates = [n for n in parts if "Element" in n]
+    if len(candidates) > 1:
+        raise MalformedSource(
+            f"{len(candidates)} sheets match 'Element' {sorted(candidates)}; "
+            f"the element/attribute split is read from one of them and this "
+            f"cannot choose. NCES has restructured the workbook.")
+    sheet = candidates[0] if candidates else None
     if sheet is None:
         raise MalformedSource(
             f"no elements sheet in the SCED master file — it has {sorted(parts)}. "
@@ -241,6 +264,26 @@ def elements_and_attributes(book: zipfile.ZipFile, parts: dict[str, str]) -> dic
 
     return {"elements": elements, "attributes": attributes,
             "sequence_element": sequence}
+
+
+def _titles(courses) -> dict:
+    """Course title to EVERY code published under it.
+
+    A dict keyed by title loses duplicates silently, and this file's whole
+    finding is about which of several codes a title resolves to. It was
+    `{title: code}`, so New York's 2,012 rows collapsed to 1,839 entries and
+    173 codes were gone before `resolve_titles` — which exists to decide
+    between exactly those — could see them. A rule cannot be applied to a
+    value the dict feeding it already discarded.
+
+    Sorted, so the value does not depend on the order of the sheet. That
+    dependence was the defect one layer down.
+    """
+    out: dict[str, set] = {}
+    for row in courses:
+        if len(row) > 1 and row[1].strip():
+            out.setdefault(row[1].strip(), set()).add(row[0].strip())
+    return {title: sorted(codes) for title, codes in out.items()}
 
 
 def new_york() -> dict:
@@ -298,16 +341,28 @@ def new_york() -> dict:
             # The question #34 asks, answered against a real published file
             # rather than against the standard.
             "publishes_sequence": any("sequence" in h.lower() for h in header),
-            "titles": {r[1].strip(): r[0].strip()
-                       for r in courses if len(r) > 1 and r[1].strip()}}
+            # EVERY code per title, not the last one to appear.
+            #
+            # This was `{title: code}`, so New York's 2,012 rows collapsed to
+            # 1,839 entries and 173 codes were gone before anything downstream
+            # could see them — including `resolve_titles`, which exists to
+            # decide between exactly those. The rule it applies (a five-digit
+            # SCED code beats a state extension) cannot run on a value that was
+            # already thrown away by the dict that fed it.
+            "titles": _titles(courses)}
 
 
 def probe(quiet: bool = False) -> dict:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     taxonomy = master()
     state = new_york()
-    reach = district_reach(state.pop("titles"),
-                           set(state["state_extensions"]))
+    # Copied, not popped. `state` is returned in the JSON payload, and
+    # `pop` mutated the same dict the caller gets — so `--json` reported a
+    # New York block with its titles missing, and which fields a payload
+    # carries depended on whether the reach measurement had run.
+    titles = state["titles"]
+    state = {k: v for k, v in state.items() if k != "titles"}
+    reach = district_reach(titles, set(state["state_extensions"]))
 
     if not quiet:
         print("\nSCED — the national course taxonomy\n")
@@ -338,8 +393,13 @@ def probe(quiet: bool = False) -> dict:
         print(f"  of those, SCED code fields       {len(reach['sced_code_fields']):>8}"
               "   <- the finding: there is no field to carry one")
         print(f"  publishing a SCED code           {reach['publishes_sced_code']:>8}")
+        # Guarded. `district_reach` refuses an empty catalogue, so this cannot
+        # divide by zero today — but the two are in different modules and the
+        # print is where a reader looks, so it does not rely on that.
+        share = (f"{reach['reachable_by_name'] / reach['district_courses']:.0%}"
+                 if reach["district_courses"] else "no courses")
         print(f"  reachable by name alone          {reach['reachable_by_name']:>8}"
-              f"   ({reach['reachable_by_name'] / reach['district_courses']:.0%})")
+              f"   ({share})")
         print(f"  ... without the parenthetical rule "
               f"{reach['reachable_without_the_parenthetical_rule']:>6}"
               "   <- the strict comparison")
