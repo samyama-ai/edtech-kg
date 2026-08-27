@@ -6,11 +6,11 @@ National Forum on Education Statistics. US government, public domain.
 Every figure on this page comes from `python -m etl.probe_sced`. Nothing is
 typed in.
 
-Two issues asked about it and they are one question. **edtech-kg#34** asked what
-SCED is and whether it carries a sequence field. **edtech-kg#48** asked whether
-enough states align to it that a `Course` keyed on SCED would be portable. SCED
-is only worth a node if a real district's catalogue can reach it, so both are
-answered by the same measurement.
+Two issues asked about it and they are one question. **edtech-kg#34** asked
+what SCED is and whether it carries a sequence field. **edtech-kg#48** asked
+whether enough states align to it that a `Course` keyed on SCED would be
+portable. SCED is only worth a node if a real district's catalogue can reach
+it, so both are answered by the same measurement.
 
 ## The short answer
 
@@ -65,8 +65,8 @@ courses, and it says nothing about what a student must pass first.
 
 So a reader who hears "SCED has a sequence field" and concludes it solves the
 prerequisite problem has been misled by the name. It does not. `docs/scope.md`
-§3's conclusion — that no national machine-readable source carries prerequisites
-— survives SCED intact.
+§3's conclusion — that no national machine-readable source carries
+prerequisites — survives SCED intact.
 
 And the master file does not publish the element at all. Its four columns are
 above; sequence is not among them. It is a thing a district *may* record when
@@ -129,18 +129,13 @@ counting something the page argues against:
 | Titles New York publishes under more than one code | **203** |
 
 New York's eleven `CC` and `L` codes are the state adding to the taxonomy, not
-using it — this page says so below, and counting one as SCED alignment would
+using it — as §2 above sets out — and counting one as SCED alignment would
 overstate the reach. Normalising a title also collapses `Geometry` and
 `Geometry (Common Core)` onto the same key, so a title can have several codes
-behind it. A five-digit SCED code beats an extension, the lowest code breaks a remaining
-tie, and the 203 titles where a tie survives both rules are reported rather
-than quietly resolved.
-
-That count was 31 while the title map was itself keyed by title — it collapsed
-2,012 published codes to 1,839 before anything could choose between them, so
-173 codes were gone before the rule that exists to choose between them ever
-ran. The map carries every code per title now, which is why the number is
-larger: it is the first time all of them have been counted.
+behind it. A five-digit SCED code beats an extension, the lowest code breaks a
+remaining tie, and the **203** titles where a tie survives both rules are
+reported rather than quietly resolved — that is the count in the table above,
+and it counts titles, not codes.
 
 ### And the 8% is the wrong 8%
 
@@ -164,10 +159,10 @@ cannot find anywhere else.
 **Do not key `Course` on SCED.** The key would be null for every course in the
 only catalogue currently loaded.
 
-What SCED is worth is a **second, optional identifier** — a `sced_code` property
-that is populated where a district publishes one, and absent where it does not.
-That makes a future join possible without pretending one exists today, and it
-keeps `url` as the key that actually resolves.
+What SCED is worth is a **second, optional identifier** — a `sced_code`
+property that is populated where a district publishes one, and absent where it
+does not. That makes a future join possible without pretending one exists
+today, and it keeps `url` as the key that actually resolves.
 
 The honest summary for `docs/scope.md`: SCED gives a national vocabulary for
 naming a course. It does not give prerequisites, it does not give a usable

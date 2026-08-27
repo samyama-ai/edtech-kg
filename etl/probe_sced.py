@@ -73,6 +73,11 @@ PINNED_WAS = ("https://nces.ed.gov/sites/default/files/"
 MASTER_LINK = re.compile(r"""href=["']([^"']*SCEDv(\d+)File[^"']*\.xlsx)["']""",
                          re.IGNORECASE)
 
+#: The course sheet, named for the version it carries — `SCED 13.0`. Matched
+#: by SHAPE so it cannot collide with the elements sheet, which is selected by
+#: a substring: a sheet called `SCED Elements` would satisfy both.
+SCED_SHEET = re.compile(r"\ASCED\s+\d+(?:\.\d+)*\Z")
+
 NEW_YORK = ("https://www.p12.nysed.gov/irs/courseCatalog/"
             "sced-course-codes-2024-25.xlsx")
 
@@ -152,14 +157,27 @@ def fetch_text(url: str) -> str:
 def master() -> dict:
     """The taxonomy itself, and what a SCED record is allowed to carry."""
     url, version = master_file()
-    book = zipfile.ZipFile(io.BytesIO(fetch(url)))
+    # In a `with`. An unclosed `ZipFile` holds its buffer until the garbage
+    # collector gets to it, and `probe()` opens two of them per run.
+    with zipfile.ZipFile(io.BytesIO(fetch(url))) as book:
+        return _master(book, url, version)
+
+
+def _master(book: zipfile.ZipFile, url: str, version: int) -> dict:
     parts = sheets(book)
     # ALL matches, then exactly one. `next(...)` took the first of however
     # many matched, so a workbook carrying `SCED 13.0` and `SCED 14.0` — which
     # is how NCES would ship a transition — silently picked whichever came
     # first in the archive, and every figure below would describe a version
     # the page does not name.
-    named = [n for n in parts if n.startswith("SCED ") and "Archived" not in n]
+    # `SCED <version>`, matched by SHAPE. `startswith("SCED ")` also matches
+    # anything else beginning with the word — and the sibling filter below
+    # takes any sheet with "Element" in it, so a sheet called "SCED Elements"
+    # would satisfy both: the course-sheet check would see two candidates and
+    # refuse the whole run over a name that is not a second version at all.
+    # Today's names do not collide ("SCED 13.0" and "Elements and
+    # Attributes"), so this is a false refusal waiting on a rename.
+    named = [n for n in parts if SCED_SHEET.match(n)]
     if len(named) > 1:
         raise MalformedSource(
             f"the workbook holds {len(named)} current SCED sheets {sorted(named)}; "
@@ -189,7 +207,11 @@ def master() -> dict:
             f"the SCED sheet {catalogue!r} opens with a blank first column, so "
             f"its layout cannot be checked — NCES has restructured the file")
 
-    named = elements_and_attributes(book, parts)
+    # `split`, not `named` — that name already held the list of candidate
+    # course sheets forty lines up, and rebinding it to an unrelated dict in
+    # the same function is how a reader loses track of which one a later line
+    # means.
+    split = elements_and_attributes(book, parts)
 
     return {"source": url, "landing_page": LANDING,
             # The version in the FILENAME the landing page pointed at, beside
@@ -198,7 +220,7 @@ def master() -> dict:
             "version": version, "version_sheet": catalogue,
             "columns": header, "courses": len(courses),
             "sheets": sorted(parts),
-            **named}
+            **split}
 
 
 def elements_and_attributes(book: zipfile.ZipFile, parts: dict[str, str]) -> dict:
@@ -239,7 +261,7 @@ def elements_and_attributes(book: zipfile.ZipFile, parts: dict[str, str]) -> dic
             f"no elements sheet in the SCED master file — it has {sorted(parts)}. "
             f"That sheet is what answers what a record may carry; check {LANDING}.")
 
-    elements, attributes, bucket, sequence = [], [], None, None
+    elements, attributes, bucket, sequence = [], [], None, []
     for row in rows(book, parts[sheet]):
         if not row:
             continue
@@ -255,7 +277,12 @@ def elements_and_attributes(book: zipfile.ZipFile, parts: dict[str, str]) -> dic
             continue
         bucket.append(key)
         if "consecutive sequence of courses" in definition:
-            sequence = definition
+            # COLLECTED, not overwritten. This was `sequence = definition`, so
+            # a workbook defining the phrase twice kept whichever came last
+            # and said nothing — and the page quotes this definition as the
+            # answer to edtech-kg#48. Which of two definitions it quoted would
+            # have been an artefact of row order.
+            sequence.append(definition)
 
     if not elements:
         raise MalformedSource(
@@ -263,7 +290,10 @@ def elements_and_attributes(book: zipfile.ZipFile, parts: dict[str, str]) -> dic
             f"('Element Name' / 'Attribute Name') have changed. Check {LANDING}.")
 
     return {"elements": elements, "attributes": attributes,
-            "sequence_element": sequence}
+            "sequence_element": sequence[0] if sequence else None,
+            # Reported so a second definition is visible rather than resolved
+            # by row order. One today.
+            "sequence_definitions": len(sequence)}
 
 
 def _titles(courses) -> dict:
@@ -288,7 +318,11 @@ def _titles(courses) -> dict:
 
 def new_york() -> dict:
     """The one state directory this repo has found that is SCED-keyed."""
-    book = zipfile.ZipFile(io.BytesIO(fetch(NEW_YORK)))
+    with zipfile.ZipFile(io.BytesIO(fetch(NEW_YORK))) as book:
+        return _new_york(book)
+
+
+def _new_york(book: zipfile.ZipFile) -> dict:
     parts = sheets(book)
     name = next((n for n in parts if "all courses" in n.lower()), None)
     if name is None:
@@ -356,17 +390,22 @@ def probe(quiet: bool = False) -> dict:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     taxonomy = master()
     state = new_york()
-    # Copied, not popped. `state` is returned in the JSON payload, and
-    # `pop` mutated the same dict the caller gets — so `--json` reported a
-    # New York block with its titles missing, and which fields a payload
-    # carries depended on whether the reach measurement had run.
-    titles = state["titles"]
-    state = {k: v for k, v in state.items() if k != "titles"}
-    reach = district_reach(titles, set(state["state_extensions"]))
+    # `titles` STAYS in the payload. `pop` removed it from the dict the caller
+    # is handed, and building a copy without it did the same thing more
+    # quietly — the mutation went and the omission stayed, so `--json` still
+    # reported a New York block missing the one field the reach measurement
+    # is computed from. A machine-readable payload that drops its own input
+    # cannot be re-checked, which is the only reason to emit one.
+    reach = district_reach(state["titles"], set(state["state_extensions"]))
 
     if not quiet:
         print("\nSCED — the national course taxonomy\n")
         print(f"  master file                        {taxonomy['version_sheet']}")
+        # The version from the FILENAME the landing page pointed at. Reading
+        # it is the whole reason that page is fetched, and it was in the JSON
+        # and nowhere a human looks — so the change that stopped the version
+        # being a stale constant was invisible in the output people read.
+        print(f"  version on the landing page        v{taxonomy['version']}")
         print(f"  courses in it                    {taxonomy['courses']:>8,}")
         print(f"  columns it publishes               {', '.join(taxonomy['columns'])}")
         print(f"  elements a record MAY carry      {len(taxonomy['elements']):>8}")

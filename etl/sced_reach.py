@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-# Defined HERE, in the module that has no imports of its own, and re-exported
+# Defined HERE, in the module that does not import `probe_sced`, and re-exported
 # by `probe_sced`. Both halves raise the one exception and both read the one
 # code shape, and putting them in the half that imports this one would be a
 # cycle.
@@ -47,7 +47,7 @@ def normalise(title: str, drop_parentheticals: bool = True) -> str:
     return " ".join(text.split())
 
 
-def resolve_titles(ny_titles: dict[str, str],
+def resolve_titles(ny_titles: dict[str, list[str]],
                    extensions: set[str]) -> tuple[dict[str, str], list[str]]:
     """Normalised title to the ONE code it should resolve to, and the ties.
 
@@ -97,7 +97,7 @@ def resolve_titles(ny_titles: dict[str, str],
     return resolved, sorted(ambiguous)
 
 
-def district_reach(ny_titles: dict[str, str],
+def district_reach(ny_titles: dict[str, list[str]],
                    extensions: set[str] | None = None) -> dict:
     """How much of a real district's catalogue can reach a SCED code.
 
@@ -112,6 +112,18 @@ def district_reach(ny_titles: dict[str, str],
     # from inside a comprehension if the loader ever stops publishing that
     # field — a traceback where every other failure in this module is a
     # MalformedSource with a message.
+    if "courses" not in loaded:
+        raise MalformedSource(
+            f"the loaded catalogue has no `courses` key — it carries "
+            f"{sorted(loaded)}. The district loader has changed shape.")
+    blank = sum(1 for c in loaded["courses"]
+                if not str(c.get("title") or "").strip())
+    if blank:
+        raise MalformedSource(
+            f"{blank} of {len(loaded['courses'])} loaded courses have an "
+            f"empty or missing `title`, so there is nothing to match a SCED "
+            f"code against. A blank title normalises to the empty string and "
+            f"would match every other blank one.")
     if any("title" not in c for c in loaded["courses"]):
         raise MalformedSource(
             f"{sum(1 for c in loaded['courses'] if 'title' not in c)} of "
@@ -163,20 +175,38 @@ def district_reach(ny_titles: dict[str, str],
     # of the two that would carry a district's SCED code. The zero this
     # produces is what the schema recommendation rests on, so a marker that
     # silently fails to match is a false zero.
+    # ENDS with the marker, not merely contains it. `"coursecode" in flat`
+    # also matches `coursecodedescription` and `state_code_note` — fields that
+    # describe a code rather than carry one — and a description landing in
+    # `code_fields` makes `publishes_sced_code` count a course as publishing a
+    # code it does not have. `sced` stays a containment test because
+    # `scedCourseCode` and `SCED Code` are both real shapes and both carry one.
     flattened = {f: re.sub(r"[^a-z0-9]", "", f.lower()) for f in fields}
     code_fields = [f for f, flat in flattened.items()
-                   if any(marker in flat
-                          for marker in ("sced", "coursecode", "statecode"))]
+                   if "sced" in flat
+                   or flat.endswith(("coursecode", "statecode"))]
     # Per COURSE, not per (course × field) pair. The sum ran over both loops,
     # so a record carrying two code fields counted twice while being reported
     # as a count of courses — the units problem one line down from the one this
     # figure was introduced to fix.
+    # Guarded like `title` is. `loaded["courses"]` raised KeyError while the
+    # field inside it got a message — the outer shape is the one more likely
+    # to change, and it was the one unguarded.
     published = sum(1 for c in loaded["courses"]
                     if any(SCED_CODE.match(str(c.get(f, "")).strip())
                            for f in code_fields))
 
     return {"district_courses": len(titles),
             "fields_published": fields,
+            # `publishes_sced_code: 0` has TWO meanings and the schema
+            # recommendation rests on one of them: no field exists that could
+            # carry a code, versus a field exists and every value in it fails
+            # to be one. The first says the district has no concept of a SCED
+            # code; the second says it has one and leaves it blank, which is a
+            # different argument. `sced_code_fields` tells them apart — empty
+            # means the first — and this states it rather than leaving a
+            # reader to infer it from two keys.
+            "no_field_to_carry_one": not code_fields,
             "sced_code_fields": code_fields,
             "publishes_sced_code": published,
             "reachable_by_name": reachable,

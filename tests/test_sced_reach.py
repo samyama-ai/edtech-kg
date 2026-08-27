@@ -216,12 +216,67 @@ def test_a_camelcase_code_field_is_not_missed():
             assert got["publishes_sced_code"] == 1
 
 
-def test_a_catalogue_without_titles_is_refused_not_a_traceback():
+def test_a_catalogue_this_module_cannot_read_is_refused_at_every_level():
     """`c["title"]` raised KeyError from inside a comprehension. Every other
-    failure in this module is a MalformedSource with a message."""
+    failure in this module is a MalformedSource with a message.
+
+    Three shapes, because the guard covered the innermost one only: a missing
+    `courses` key, a course with no `title`, and a course whose title is
+    blank. The last is the quiet one — a blank title normalises to the empty
+    string, which matches every other blank title, so it does not fail, it
+    over-matches.
+    """
+    from etl import pwcs_source
+
+    for catalogue, expected in (
+            ({"rows": []}, "no `courses` key"),
+            ({"courses": [{"url": "x"}]}, "empty or missing `title`"),
+            ({"courses": [{"title": "   "}]}, "empty or missing `title`"),
+            ({"courses": [{"title": None}]}, "empty or missing `title`")):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(pwcs_source, "read", lambda c=catalogue: c)
+            with pytest.raises(probe.MalformedSource, match=expected):
+                probe.district_reach({"Algebra I": ["02052"]}, set())
+
+
+def test_the_two_meanings_of_a_zero_are_told_apart():
+    """`publishes_sced_code: 0` means two different things and the schema
+    recommendation rests on one of them.
+
+    No field exists that could carry a code — the district has no concept of
+    one — versus a field exists and every value in it fails to be a code,
+    which is a district that has the concept and leaves it blank. Those are
+    different arguments and the page makes only the first.
+    """
     from etl import pwcs_source
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(pwcs_source, "read", lambda: {"courses": [{"url": "x"}]})
-        with pytest.raises(probe.MalformedSource, match="no `title` field"):
-            probe.district_reach({"Algebra I": ["02052"]}, set())
+        mp.setattr(pwcs_source, "read",
+                   lambda: {"courses": [{"title": "Algebra I"}]})
+        got = probe.district_reach({"Algebra I": ["02052"]}, set())
+    assert got["publishes_sced_code"] == 0 and got["no_field_to_carry_one"]
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(pwcs_source, "read", lambda: {"courses": [
+            {"title": "Algebra I", "sced_code": ""}]})
+        got = probe.district_reach({"Algebra I": ["02052"]}, set())
+    assert got["publishes_sced_code"] == 0, "an empty value is not a code"
+    assert not got["no_field_to_carry_one"], (
+        "a district with a SCED field it leaves blank was reported the same "
+        "as one with no such field — a different finding entirely")
+
+
+def test_a_field_that_describes_a_code_is_not_one():
+    """`"coursecode" in flat` also matched `coursecodedescription` and
+    `state_code_note`. A description landing in `code_fields` makes the count
+    report a course as publishing a code it does not have."""
+    from etl import pwcs_source
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(pwcs_source, "read", lambda: {"courses": [
+            {"title": "Algebra I", "coursecodedescription": "02052",
+             "state_code_note": "02052"}]})
+        got = probe.district_reach({"Algebra I": ["02052"]}, set())
+    assert got["sced_code_fields"] == [], (
+        f"{got['sced_code_fields']} describe a code rather than carrying one")
+    assert got["publishes_sced_code"] == 0

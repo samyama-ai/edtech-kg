@@ -87,7 +87,10 @@ def test_a_sheet_that_parses_to_zero_rows_is_refused(monkeypatch):
     # the length guard now, which fires first and says what is missing. The
     # zero-rows message still covers a sheet with rows that all fail the
     # non-empty check.
-    with pytest.raises(probe.MalformedSource, match="no data rows|zero rows"):
+    # One phrase, not an alternation. `"no data rows|zero rows"` passes on
+    # either message, so it asserts that the refusal happened and not which
+    # refusal — and the two come from different guards.
+    with pytest.raises(probe.MalformedSource, match="no data rows"):
         probe.master()
 
 
@@ -112,9 +115,6 @@ def test_a_state_suffix_is_not_counted_as_a_sced_code(monkeypatch):
         ["01003CC", "ELA III (Common Core)"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
-    # `master()` reads the landing page for the workbook URL now, so a test
-    # that fakes the workbook must fake that too or it makes a real request.
-    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     got = probe.new_york()
     assert got["courses"] == 2
     assert got["sced_codes"] == 1, "the state extension was counted as a SCED code"
@@ -130,9 +130,6 @@ def test_a_sequence_column_would_be_reported_if_a_state_published_one(monkeypatc
         ["01001", "ELA I", "1 of 2"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
-    # `master()` reads the landing page for the workbook URL now, so a test
-    # that fakes the workbook must fake that too or it makes a real request.
-    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     assert probe.new_york()["publishes_sequence"] is True
 
 
@@ -154,9 +151,6 @@ def test_a_row_that_omits_a_cell_does_not_shift_the_columns(monkeypatch):
         ["01003CC", "", "another English course"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
-    # `master()` reads the landing page for the workbook URL now, so a test
-    # that fakes the workbook must fake that too or it makes a real request.
-    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     got = probe.new_york()
     assert got["courses"] == 2
     assert got["state_extensions"] == ["01003CC"], (
@@ -175,9 +169,6 @@ def test_a_reordered_export_is_refused_rather_than_read_positionally(monkeypatch
         ["ELA I", "01001"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
-    # `master()` reads the landing page for the workbook URL now, so a test
-    # that fakes the workbook must fake that too or it makes a real request.
-    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="has been restructured"):
         probe.new_york()
 
@@ -242,7 +233,15 @@ def test_an_elements_sheet_whose_banners_changed_is_refused(monkeypatch):
 
 
 def test_the_document_quotes_only_figures_the_probe_produces():
-    """Every figure on `docs/sources/sced.md` comes from the probe. The ones
+    """Every figure on `docs/sources/sced.md` comes from the probe, and each
+    pin names its own ROW.
+
+    The two halves were separate tests and the reviewer was right that they
+    overlapped. Anchoring is the point of both: `"791"` matched `**1,791**` on
+    the version row, so the figure the pin existed to guard was never checked
+    — a guard that passes on a different number reads as coverage. The other
+    test's `page.count("791") >= 2` asserted only that both figures were
+    somewhere, which the anchored rows already prove. The ones
     that would go stale first are the version and the two counts the argument
     rests on, so those are pinned by name rather than by value — a changed
     figure fails here instead of being quoted for another month."""
@@ -304,9 +303,6 @@ def test_a_repeated_course_code_does_not_make_the_table_stop_adding_up(monkeypat
         ["01003CC", "ELA III (Common Core), second listing"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
-    # `master()` reads the landing page for the workbook URL now, so a test
-    # that fakes the workbook must fake that too or it makes a real request.
-    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     got = probe.new_york()
 
     assert got["rows"] == 3, "the row count no longer reports rows"
@@ -336,9 +332,6 @@ def test_a_sheet_whose_header_row_starts_blank_is_refused(monkeypatch):
         ["01001", "ELA I", "x"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
-    # `master()` reads the landing page for the workbook URL now, so a test
-    # that fakes the workbook must fake that too or it makes a real request.
-    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="opens with a blank row"):
         probe.new_york()
 
@@ -359,26 +352,6 @@ def test_the_master_sheet_gets_the_same_blank_header_guard_as_new_york(monkeypat
     monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="blank first column"):
         probe.master()
-
-
-def test_the_document_pins_are_anchored_to_their_own_rows():
-    """The pins were bare substrings, and one of them matched the wrong row.
-
-    `"791"` matched `**1,791**` on the version row, so `PWCS courses loaded |
-    **791**` — the figure the assertion existed to guard — was never checked.
-    A guard that passes on a different number is worse than no guard, because
-    it reads as coverage.
-    """
-    page = DOC.read_text(encoding="utf-8")
-
-    # The trap, made explicit: the SCED total contains the PWCS figure.
-    assert "1,791" in page and "**791**" in page
-    assert page.count("791") >= 2, "the two figures no longer coexist on the page"
-
-    # So each pin names its row.
-    for row in ("| Courses | **1,791** |",
-                "| PWCS courses loaded | **791** |"):
-        assert row in page, f"the page no longer carries the row {row!r}"
 
 
 def test_the_new_york_table_is_a_table_and_not_prose():
@@ -436,62 +409,87 @@ def test_a_restructured_landing_page_stops_the_run(monkeypatch):
         probe.master_file()
 
 
-def test_two_current_sced_sheets_are_refused_rather_than_guessed_at(monkeypatch):
-    """`next(...)` took the first of however many matched.
+def test_the_json_payload_still_carries_the_new_york_titles(monkeypatch):
+    """RUN the probe and look at what comes out.
 
-    A workbook carrying `SCED 13.0` and `SCED 14.0` — which is how NCES would
-    ship a transition — silently picked whichever the archive listed first, so
-    every figure on the page could describe a version the page does not name.
+    This grepped `inspect.getsource` for `state.pop("titles")`, so it passed
+    the moment the pop became a comprehension omitting the same key — while
+    the payload it is named for was still missing it. A test that reads the
+    source cannot see what the source does. `titles` is the input the reach
+    figures are computed from; a payload that drops its own input cannot be
+    re-checked, which is the only reason to emit one.
     """
-    book = workbook({"SCED 13.0": [["Course Title", "SCED Course Code"],
-                                   ["Algebra I", "02052"]],
-                     "SCED 14.0": [["Course Title", "SCED Course Code"],
-                                   ["Algebra I", "02052"]]})
+    from etl import pwcs_source
+
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
+    monkeypatch.setattr(probe, "fetch", lambda url: workbook(
+        {"SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
+         "Elements and Attributes": [["Element Name"], ["Course Title"],
+                                     ["Attribute Name"], ["Course Level"]]}))
+    monkeypatch.setattr(probe, "new_york", lambda: {
+        "source": "x", "columns": ["a"], "rows": 1, "courses": 1,
+        "sced_codes": 1, "state_extensions": [], "subject_prefixes": 1,
+        "publishes_sequence": False, "titles": {"Algebra I": ["02052"]}})
+    monkeypatch.setattr(pwcs_source, "read",
+                        lambda: {"courses": [{"title": "Algebra I"}]})
+
+    payload = probe.probe(quiet=True)
+
+    assert "titles" in payload["new_york"], (
+        "the JSON payload dropped the New York titles, so the input the reach "
+        "figures are computed from is not in the machine-readable output")
+    assert payload["new_york"]["titles"] == {"Algebra I": ["02052"]}
+    assert payload["district"]["reachable_by_name"] == 1, (
+        "the reach measurement did not run, so this asserted the payload "
+        "shape of something that was never computed")
+
+
+def test_an_elements_sheet_named_sced_does_not_trip_the_version_guard(monkeypatch):
+    """`startswith("SCED ")` and `"Element" in n` could both match one name.
+
+    A sheet called `SCED Elements` satisfied both, so the course-sheet check
+    saw two candidates and refused the whole run over a name that is not a
+    second version. Today's names do not collide — a false refusal waiting on
+    a rename. The course sheet is matched by shape now.
+    """
+    book = workbook({
+        "SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
+        "SCED Elements": [["Element Name"], ["Course Title"],
+                          ["Attribute Name"], ["Course Level"]]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
     monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
+
+    got = probe.master()
+    assert got["version_sheet"] == "SCED 13.0", (
+        "a sheet named `SCED Elements` was taken as a second version")
+    assert got["elements"] == ["Course Title"]
+
+    # And a real second version is still refused.
+    two = workbook({
+        "SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
+        "SCED 14.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
+        "Elements and Attributes": [["Element Name"], ["Course Title"],
+                                    ["Attribute Name"], ["Course Level"]]})
+    monkeypatch.setattr(probe, "fetch", lambda url: two)
     with pytest.raises(probe.MalformedSource, match="current SCED sheets"):
         probe.master()
 
 
-def test_the_json_payload_still_carries_the_new_york_titles(monkeypatch):
-    """`state.pop("titles")` mutated the dict the caller is also given.
+def test_a_second_sequence_definition_is_visible_rather_than_last_wins(monkeypatch):
+    """`sequence = definition` kept whichever row came last, silently — and
+    the page quotes that definition as its answer to edtech-kg#48."""
+    book = workbook({
+        "SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
+        "Elements and Attributes": [
+            ["Element Name"],
+            ["Sequence", "a consecutive sequence of courses, first"],
+            ["Attribute Name"],
+            ["Other", "a consecutive sequence of courses, second"]]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
 
-    So `--json` reported a New York block with its titles missing, and which
-    fields the payload carried depended on whether the reach measurement had
-    run — a payload whose shape is a side effect of an unrelated step.
-    """
-    import inspect
-
-    source = inspect.getsource(probe.probe)
-    assert 'state.pop("titles")' not in source, (
-        "the probe pops from the dict it returns, so the JSON payload loses a "
-        "field depending on which measurements ran")
-
-
-def test_no_published_code_is_dropped_before_the_resolver_sees_it():
-    """`new_york()["titles"]` was `{title: code}` and lost the duplicates.
-
-    New York's 2,012 rows collapsed to 1,839 entries, so 173 codes were gone
-    before `resolve_titles` — the function whose whole job is choosing between
-    the codes behind one title — could see any of them. The rule was applied
-    downstream of the step that made it unnecessary, which is why the fix
-    looked complete and was not.
-
-    Asserted on the count of CODES, not of titles: a title map that keeps one
-    code per title has the same number of titles and is exactly the defect.
-    """
-    rows = [["02072", "Geometry"],
-            ["02072CC", "Geometry"],
-            ["02052", "Algebra I"],
-            ["", "No code"],
-            ["03051", ""]]
-
-    titles = probe._titles(rows)
-    assert set(titles) == {"Geometry", "Algebra I", "No code"}, (
-        "a row with no title must be dropped; one with no code must not")
-    assert sum(len(codes) for codes in titles.values()) == 4, (
-        "a published code was discarded before anything could choose between "
-        "them — the title map is keyed by title and keeping only one")
-    assert titles["Geometry"] == ["02072", "02072CC"], (
-        "both codes for one title must survive, sorted so the value does not "
-        "depend on the order of the sheet")
+    got = probe.master()
+    assert got["sequence_definitions"] == 2, (
+        "a second definition of the sequence element was silently discarded")
+    assert got["sequence_element"].endswith("first"), (
+        "the definition reported depends on the order of the rows")
