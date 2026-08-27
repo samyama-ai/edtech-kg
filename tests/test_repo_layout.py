@@ -2,7 +2,7 @@
 
 This repo shipped for a week with `name = "{{KG_SLUG}}-kg"` in `pyproject.toml`,
 which made `pip install -e .` fail before it started — step two of the README's
-own quick start. Six more files carried template placeholders, `LICENSE` among
+own quick start. More files carried template placeholders, `LICENSE` among
 them, in a public repo.
 
 None of it was caught because nothing looked at the repo as a thing someone
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ast
 import os
-import pathlib
 import re
 import subprocess
 import sys
@@ -121,7 +120,7 @@ def test_the_package_metadata_is_valid_enough_to_install():
         finally:
             os.chdir(cwd)
 
-        metadata = (pathlib.Path(out) / written / "METADATA").read_text(errors="replace")
+        metadata = (Path(out) / written / "METADATA").read_text(errors="replace")
 
     name = next((line.split(":", 1)[1].strip() for line in metadata.splitlines()
                  if line.lower().startswith("name:")), None)

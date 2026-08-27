@@ -1,3 +1,13 @@
+# Declared, so the backend this project builds with is a decision rather than
+# a default. Without it pip falls back to `setuptools.build_meta:__legacy__`
+# and, under build isolation, fetches setuptools and wheel from the index — so
+# `test_the_package_metadata_is_valid_enough_to_install`, which builds with
+# `setuptools.build_meta` directly, was asserting a backend the real install
+# path did not take.
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "edtech-kg"
 version = "0.1.0"

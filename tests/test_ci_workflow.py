@@ -116,6 +116,30 @@ def test_the_engine_image_is_pinned_to_a_version(workflow):
         f"{image} is not pinned to an exact version")
 
 
+def packages_installed(workflow: str) -> set[str]:
+    """What the workflow's `run:` commands actually install.
+
+    Anchored to the `run:` COMMAND, not to any line mentioning `pip install`.
+    `ci.yml` discusses `pip install -e .` and `pip install --dry-run` in the
+    comment block above the step, so matching the phrase anywhere absorbed
+    English from those comments — `and`, `but`, `deliberate`, `is`, `not`,
+    `still`, `that` — and the guard could then be satisfied by a word in prose
+    rather than by a package in the install step. A vacuous pass in the check
+    written to close one.
+
+    A named function because the test below drives THIS, not a copy of it. The
+    first version of that test re-implemented the regex inline, so reverting
+    this one left it green — it was verifying a duplicate parser.
+    """
+    found = set()
+    for line in re.findall(r"^\s*run:.*?pip install([^\n]*)$", workflow, re.M):
+        for word in line.split():
+            if word.startswith("-"):
+                continue
+            found.add(re.split(r"[<>=!\[]", word)[0].lower())
+    return found
+
+
 def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
     """The suite needs pytest and the standard library, measured — so that is
     what CI installs.
@@ -165,12 +189,7 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
     # `{"pytest"}` meant adding a package to the install step left this test
     # still failing, and adding an import left it still passing — the drift
     # this file exists to catch, in the assertion that catches it.
-    installed = set()
-    for line in re.findall(r"pip install([^\n]*)", workflow):
-        for word in line.split():
-            if word.startswith("-"):
-                continue
-            installed.add(re.split(r"[<>=!\[]", word)[0].lower())
+    installed = packages_installed(workflow)
 
     missing = {name for name in third_party if name.lower() not in installed}
     assert not missing, (
@@ -240,3 +259,25 @@ def test_a_real_skip_is_recorded_with_its_reason(guard):
 def test_a_passing_test_is_not_recorded(guard):
     guard.pytest_runtest_logreport(_Report("tests/t.py::p", None, skipped=False))
     assert guard._skipped == []
+
+
+def test_a_package_named_only_in_a_comment_does_not_count_as_installed():
+    """The guard reads what the step RUNS, not what the file mentions.
+
+    `ci.yml` explains at length why `pip install -e .` is not used, so a guard
+    matching any line containing `pip install` treated the words of that
+    explanation as installed packages.
+    """
+    workflow = """
+jobs:
+  test:
+    steps:
+      # We deliberately do not run `pip install -e . numpy` here, and that is
+      # explained above.
+      - name: Install
+        run: python -m pip install --quiet pytest
+"""
+    installed = packages_installed(workflow)
+    assert installed == {"pytest"}, (
+        f"the guard read {sorted(installed)} as installed — anything beyond "
+        f"pytest came from the comment, not from the command")
