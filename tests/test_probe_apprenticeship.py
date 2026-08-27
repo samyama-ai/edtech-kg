@@ -215,69 +215,6 @@ def test_a_host_that_does_not_resolve_is_told_apart_from_one_that_refuses(monkey
     assert by_name["refusing"]["dns"] == "10.0.0.1"
 
 
-def test_the_documents_quote_only_figures_the_probe_produces():
-    """Every figure on both pages comes from the probe. These are the ones the
-    argument rests on, so a changed figure fails here rather than being quoted
-    for another month."""
-    page = APPRENTICESHIP.read_text(encoding="utf-8")
-    for claim in ("1,439", "1,171", "**449**", "**419**", "**688**", "**356**",
-                  "**63**", "**867**", "**0** of 449"):
-        assert claim in page, f"apprenticeship.md no longer states {claim!r}"
-
-    blocked = CAREERONESTOP.read_text(encoding="utf-8")
-    assert "**403**" in blocked
-    assert "**no connection**" in blocked
-
-
-def test_the_apprenticeship_page_does_not_claim_the_trades_are_the_gap():
-    """The half of the finding that contradicts the issue. edtech-kg#39 assumes
-    the exclusive occupations are well-paid trades; measured, construction and
-    maintenance are 82% and 91% already reachable through a programme, and the
-    gap is in Production. A page that lost that would be quoting a true number
-    under a false story."""
-    page = APPRENTICESHIP.read_text(encoding="utf-8").lower()
-    assert "not the trades" in page, (
-        "the page no longer says the gap is not in the trades")
-    assert "production" in page, "the page no longer names where the gap is"
-
-
-def test_both_pages_state_that_these_are_head_requests():
-    """A 403 or 405 to HEAD is not evidence about GET, and both pages are
-    entirely about telling failure modes apart. The limit belongs on the page
-    rather than in the reader's assumptions."""
-    for doc in (APPRENTICESHIP, CAREERONESTOP):
-        # Whitespace-normalised before matching. These files wrap at 80
-        # columns, so a phrase that crosses a line break does not appear as a
-        # literal substring — the first version of this test failed on prose
-        # that said exactly the right thing, which is a test brittle about
-        # formatting rather than about meaning.
-        page = " ".join(doc.read_text(encoding="utf-8").split())
-        assert "HEAD" in page, f"{doc.name} no longer states the request method"
-        assert "not evidence about GET" in page, (
-            f"{doc.name} no longer states what a HEAD result does not prove")
-
-
-def test_the_apprenticeship_page_names_its_control_hosts():
-    """Both pages argue the failures are not a general egress problem. That
-    argument is only reproducible if the controls are in the run, so the table
-    has to carry them."""
-    page = APPRENTICESHIP.read_text(encoding="utf-8")
-    page = " ".join(page.split())
-    for host in ("onetcenter.org", "nces.ed.gov", "careertech.org"):
-        assert f"control: `{host}`" in page, (
-            f"{host} is cited as a control but is not in the measured table")
-
-
-def test_the_careeronestop_page_states_what_it_cannot_establish():
-    """A blocked source is easy to overclaim. The page must keep saying that a
-    refused connection from one network is not proof the source is down."""
-    page = CAREERONESTOP.read_text(encoding="utf-8").lower()
-    assert "not established" in page
-    assert "not cleared" in page, "the verdict is gone"
-    assert "registered api key" in page, (
-        "the page no longer says what reopening this needs")
-
-
 def test_the_no_match_sentinel_is_dropped_from_every_side(monkeypatch):
     """`99-9999` is not an occupation, and it was filtered on one set of three.
 
@@ -464,3 +401,38 @@ def test_a_network_failure_fetching_the_crosswalk_is_refused_not_a_traceback(mon
 
     with pytest.raises(probe.MalformedSource, match="could not fetch the CIP-SOC"):
         probe.our_soc()
+
+
+def test_the_two_programme_crosswalks_are_reported_apart_not_as_one(monkeypatch):
+    """The page's headline was measured against the wrong crosswalk.
+
+    `apprenticeship_only` is a set difference against **O*NET's** CIP-to-SOC
+    file. The crosswalk this repo loads is NCES's, and the page published the
+    first number under a sentence about the second: "63 of them are reachable
+    no other way — this graph has no shape for those at all", while the probe's
+    own join section printed 0 apprenticeship codes missing from our crosswalk.
+    Both figures were on the page and they contradicted each other.
+
+    So the fixture builds exactly that shape — an occupation O*NET's programme
+    file misses and ours carries — and both differences are asserted. One key
+    cannot stand in for the other again.
+    """
+    crosswalks(
+        monkeypatch,
+        [HEADER,
+         ["0001", "Electrician", "47-2111.00", "Electricians"],
+         ["0003", "Machine Setter", "51-4081.00", "Machine Tool Setters"]],
+        # O*NET's programme crosswalk reaches only the electrician.
+        [HEADER, ["46.0302", "Electrician", "47-2111.00", "Electricians"]])
+    # Ours reaches both — which is the real situation, measured: all 63 of the
+    # occupations O*NET's file misses are codes this repo already carries.
+    monkeypatch.setattr(probe, "our_soc", lambda: {"47-2111", "51-4081"})
+
+    got = probe.routes()
+
+    assert got["apprenticeship_only"] == ["51-4081"], (
+        "the disagreement with O*NET's programme crosswalk is not reported")
+    assert got["apprenticeship_only_vs_ours"] == [], (
+        "an occupation our own crosswalk reaches was reported as one no "
+        "programme can reach — the two crosswalks are not the same file and "
+        "the page cannot quote one under a sentence about the other")

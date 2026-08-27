@@ -119,7 +119,7 @@ Every figure below is printed by a probe in `etl/`. None is hand-typed.
 | schema.org | `probe_schemaorg` | 14 of the 14 terms this graph needs are present |
 | State course directories | `probe_state_courses` | statewide directories publish **no** prerequisites |
 | College Scorecard | `probe_scorecard` | median earnings for **25.5%** of programme rows — 58,112 of 169,868 |
-| Registered Apprenticeship | `probe_apprenticeship` | **419** occupations reachable by apprenticeship, **63** of them reachable no other way |
+| Registered Apprenticeship | `probe_apprenticeship` | **419** occupations reachable by apprenticeship, **0** of them missing from the crosswalk this repo loads — the two published CIP-SOC crosswalks disagree by **63** |
 
 ---
 

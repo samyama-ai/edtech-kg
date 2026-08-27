@@ -5,19 +5,29 @@ None is typed.
 
 **edtech-kg#39** asks whether apprenticeship is reachable as data, and how many
 occupations it reaches that a CIP programme does not. The answer is yes, and
-**63** — but the 63 are not the occupations the question expected, and that is
-the more useful half of the finding.
+**it depends entirely on which programme crosswalk you ask** — which is the
+finding, and it is not the one the question expected.
 
 ## The headline
 
 1. **Apprenticeship data is public and record-level** — but not by the routes
    the issue names. DOL's own endpoints do not answer; O\*NET publishes the
    crosswalk.
-2. **419 SOC occupations are reachable by apprenticeship**, and **63 of them
-   are reachable no other way** — this graph has no shape for those at all.
-3. **The 63 are not the trades.** Construction and maintenance — the
-   occupations everyone associates with apprenticeship — are almost entirely
-   visible through CIP already. The gap is in **Production**.
+2. **419 SOC occupations are reachable by apprenticeship**, and against the
+   crosswalk **this graph actually loads, 0 of them are reachable no other
+   way.** Every apprenticeable occupation is already a code this repo carries.
+3. **63 is the disagreement between two published crosswalks, not a gap in
+   coverage.** O\*NET's own CIP-to-SOC file misses 63 occupations that the
+   NCES CIP-to-SOC file this repo loads does reach. Both are official and both answer the
+   same question.
+4. **Those 63 are not the trades.** Construction and maintenance — the
+   occupations everyone associates with apprenticeship — are visible through
+   CIP in either file. The disagreement concentrates in **Production**.
+
+The practical consequence is the opposite of the issue's premise: an
+apprenticeship route needs **no new occupation vocabulary**, only a new edge
+into codes that already exist. What it does need is a decision about which
+CIP-to-SOC crosswalk is authoritative, because they do not agree.
 
 ## Where it actually comes from
 
@@ -85,11 +95,19 @@ same vocabulary rather than one being converted into the other.
 |---|---:|
 | SOC reachable by a CIP programme | **688** |
 | Reachable **both** ways | **356** |
-| Reachable **only** by apprenticeship | **63** |
+| Reachable **only** by apprenticeship — vs O\*NET's crosswalk | **63** |
+| Reachable **only** by apprenticeship — vs the crosswalk this repo loads | **0** |
 | Reachable only by a programme | **332** |
 
-The 63 is the number edtech-kg#39 asked for. A course-planning product built
-only on programmes cannot see a public, funded route into any of them.
+**The two rows in the middle are the finding, and only the second one is about
+this graph.** The programme figures above come from O\*NET's own CIP-to-SOC
+file. The crosswalk this repo loads is NCES's, and against that one the answer
+to edtech-kg#39 is zero: there is no occupation an apprenticeship reaches that
+a programme in this graph's vocabulary cannot.
+
+What 63 measures is how far two official CIP-to-SOC crosswalks disagree about
+the same occupations. That is worth knowing before either is treated as
+authoritative, and it is a different question from the one #39 asked.
 
 ## But they are not the trades
 
@@ -102,7 +120,18 @@ occupations where that is *exclusively* true are somewhere else:
 | Production | 81 | 52 | **29** | 64% |
 | Transportation & Material Moving | 21 | 13 | **8** | 62% |
 | Construction & Extraction | 39 | 32 | **7** | 82% |
+| Building & Grounds Cleaning | 8 | 3 | **5** | 38% |
+| Office & Administrative Support | 22 | 18 | **4** | 82% |
 | Installation, Maintenance & Repair | 46 | 42 | **4** | 91% |
+| Food Preparation & Serving | 7 | 4 | **3** | 57% |
+| Education | 7 | 6 | **1** | 86% |
+| Arts, Design & Media | 22 | 21 | **1** | 95% |
+| Farming, Fishing & Forestry | 5 | 4 | **1** | 80% |
+| **Total** | | | **63** | |
+
+**Every group with a non-zero count is listed here**, and they sum to the 63.
+The probe prints these rows; the remaining major groups contribute none, so a
+reader can add the column up and get the headline.
 
 The probe prints this table. It did not when this section was first written —
 the figures were measured in a shell and typed in, under the heading at the top
@@ -115,9 +144,11 @@ occupations the word "apprenticeship" calls to mind — are **already visible**
 through CIP, at 82% and 91% coverage. Building the apprenticeship route to
 reach them would add almost nothing.
 
-The 63 are dominated by **Production** (29) and **Transportation** (8): machine
-setters, operators and manufacturing roles that no CIP programme maps to. That
-is the gap, and it is a narrower and more specific one than the issue assumed.
+The disagreement is dominated by **Production** (29) and **Transportation**
+(8): machine setters, operators and manufacturing roles that O\*NET's CIP file
+does not map and NCES's does. It is narrower and more specific than the issue
+assumed — and it is a disagreement between two crosswalks, not an occupation
+this graph cannot see.
 
 ## The join
 
@@ -150,9 +181,14 @@ files, same rule.
   feed RAPIDS unevenly and this file cannot show that.
 - **No wage or quality signal.** "Well paid" is not tested here; that would come
   from `docs/sources/bls-occupation.md`, and pairing the two is worth doing
-  before anyone builds on the 63.
+  before anyone builds on the crosswalk disagreement.
 - The RAPIDS codes are the **approved occupation list**, not active programmes.
   An occupation can be approved with no live programme in it.
+- **Which CIP-to-SOC crosswalk is authoritative is not settled here.** This
+  page measures that O\*NET's and NCES's disagree by 63 occupations and says
+  which side of the disagreement this repo currently sits on. It does not
+  establish that NCES is right; the 63 could as easily be codes NCES maps too
+  loosely as codes O\*NET misses. Nothing on this page tests which.
 
 ## Licence
 
@@ -167,5 +203,6 @@ licence question.
 ```bash
 python -m etl.probe_apprenticeship            # the tables
 python -m etl.probe_apprenticeship --reach    # re-check what answers
-python -m etl.probe_apprenticeship --json     # both, machine-readable
+python -m etl.probe_apprenticeship --json           # the tables, machine-readable
+python -m etl.probe_apprenticeship --reach --json  # and the reach checks with them
 ```

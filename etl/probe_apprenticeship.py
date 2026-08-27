@@ -246,9 +246,19 @@ def routes() -> dict:
         "programme_onet": len(p_onet),
         "programme_soc": len(p_soc),
         "both_ways": len(a_soc & p_soc),
-        # The finding. These occupations have a public, funded route into them
-        # that this graph has no shape for.
+        # **Against O*NET's programme crosswalk, which is NOT the one this
+        # graph loads.** That distinction is the whole finding and it was
+        # missing: this key was published as "occupations a programme cannot
+        # reach, and this graph has no shape for them", and every one of them
+        # is in `ours` — measured below as `apprenticeship_only_vs_ours`, which
+        # is 0. The two CIP-to-SOC crosswalks disagree; apprenticeship does not
+        # reach an occupation the loaded crosswalk misses.
         "apprenticeship_only": sorted(a_soc - p_soc),
+        # The same question asked of the crosswalk this repo actually loads.
+        # Reported beside the other one so a reader cannot take either for the
+        # other, and so the page cannot quote one under a sentence about the
+        # other again.
+        "apprenticeship_only_vs_ours": sorted(a_soc - ours),
         "programme_only": len(p_soc - a_soc),
         "our_crosswalk_soc": len(ours),
         "apprenticeable_in_ours": len(a_soc & ours),
@@ -393,7 +403,10 @@ def probe(quiet: bool = False, with_reach: bool = False) -> dict:
         print(f"  SOC reachable by a CIP programme {found['programme_soc']:>8,}")
         print(f"  reachable BOTH ways              {found['both_ways']:>8,}")
         print(f"  reachable ONLY by apprenticeship {len(found['apprenticeship_only']):>8}"
-              "   <- this graph has no shape for these")
+              "   <- vs O*NET's programme crosswalk")
+        print(f"  ... and not in OUR crosswalk     "
+              f"{len(found['apprenticeship_only_vs_ours']):>8}"
+              "   <- the one this graph loads")
         print(f"  reachable ONLY by a programme    {found['programme_only']:>8,}")
 
         print("\nWhere the apprenticeship-only occupations sit\n")
