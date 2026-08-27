@@ -242,3 +242,19 @@ def test_a_pdf_link_with_a_query_string_is_still_counted(monkeypatch):
     assert found == ["grid.pdf", "plain.pdf", "wheel.pdf"], (
         f"a published PDF was missed because of its query string or fragment, "
         f"so the count that corroborates the zero under-reports — found {found}")
+
+
+def test_a_crosswalks_page_whose_links_carry_query_strings_is_not_refused(monkeypatch):
+    """The load guard was written one commit after the query-string fix and
+    did not carry it.
+
+    A crosswalks page whose links all look like `/wheel.pdf?ver=3` would be
+    refused as "carried no links to published files" — a false refusal of a
+    page that loaded perfectly well, which loses the reading entirely.
+    """
+    good = (b"<html><footer>\xc2\xa9 2023 Advance CTE. All rights reserved.</footer>"
+            b"<p>14 Clusters and 72 Sub-Clusters</p></html>")
+
+    serve(monkeypatch, good,
+          crosswalks=b'<html><a href="/files/wheel.pdf?ver=3">a</a></html>')
+    assert probe.career_clusters()["pdfs_on_crosswalks"] == ["wheel.pdf"]

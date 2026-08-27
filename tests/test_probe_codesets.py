@@ -49,15 +49,6 @@ def archived(member: str, payload: bytes) -> bytes:
     return buffer.getvalue()
 
 
-#: A crosswalks page that looks like the real one: links to published files.
-#: `career_clusters` refuses a crosswalks page with no file links at all,
-#: because that is indistinguishable from a page that never loaded — and the
-#: PDF count and the crosswalks-page zero both come from it.
-CROSSWALKS_PAGE = (b'<html><body>'
-                   b'<a href="/files/CareerClustersWheel-key.pdf">wheel</a>'
-                   b'</body></html>')
-
-
 class _body:
     """One response body, for the fetches that are not the two pages."""
 
@@ -65,29 +56,6 @@ class _body:
     def __enter__(self): return self
     def __exit__(self, *exc): return False
     def read(self): return self._payload
-
-
-def serve(monkeypatch, page: bytes, *, crosswalks: bytes = CROSSWALKS_PAGE):
-    """Answer every fetch, per URL, with ONE stub.
-
-    There were six copies of a three-line `Response` class in this file, each
-    answering every URL with the same body — so a test aiming a fixture at the
-    framework page was also answering the crosswalks page with it, and no test
-    could tell the two apart. `career_clusters` reads both.
-    """
-    bodies = {probe.CLUSTERS: page, probe.CLUSTER_CROSSWALKS: crosswalks}
-
-    class Response:
-        def __init__(self, body): self._body = body
-        def __enter__(self): return self
-        def __exit__(self, *exc): return False
-        def read(self): return self._body
-
-    def urlopen(request, *a, **k):
-        url = request if isinstance(request, str) else request.full_url
-        return Response(bodies.get(url, page))
-
-    monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
 
 
 def test_an_html_page_is_refused_rather_than_read_as_an_empty_archive(monkeypatch, tmp_path):
@@ -217,10 +185,6 @@ def test_a_missing_crosswalk_is_fetched_rather_than_raising_a_traceback(monkeypa
     asked = []
     monkeypatch.setattr(probe.crosswalk, "download",
                         lambda *a, **k: asked.append(True))
-    # No `pytest.raises` accepting either outcome: accepting two exception
-    # types asserts nothing about which one happens, and the `asked` check
-    # below is what carries the weight. The read still fails because the
-    # stubbed download writes nothing; what matters is that it was attempted.
     # Narrowed to what this path actually raises, and asserted on. Catching
     # `FileNotFoundError` too meant the test passed whether the fetch was
     # wrapped or not, which is the thing under test — `crosswalk_pairs` exists
@@ -245,9 +209,27 @@ def test_a_crosswalk_that_cannot_be_fetched_is_refused_with_a_message(monkeypatc
 def test_a_family_row_is_told_apart_from_a_series_row_and_a_leaf():
     """`11.0000` names a whole family, `11.0700` a series, `11.0701` a
     programme. Counting them together would report the crosswalk as carrying a
-    hierarchy it does not."""
+    hierarchy it does not.
+
+    **The two patterns OVERLAP** and the test did not say so: `11.0000`
+    matches `SERIES` as well as `FAMILY`, and the code disambiguates with
+    `SERIES.match(c) and not FAMILY.match(c)`. Asserting the patterns alone
+    left that disambiguation untested — drop it and every family row is
+    counted as a series as well, inflating the hierarchy figure the section
+    argues from.
+    """
     assert probe.FAMILY.match("11.0000") and not probe.FAMILY.match("11.0700")
     assert probe.SERIES.match("11.0700") and not probe.SERIES.match("11.0701")
+    assert probe.SERIES.match("11.0000"), (
+        "the patterns no longer overlap, so the disambiguation below is "
+        "asserting something that cannot happen")
+
+    got = probe.cip_hierarchy([(c, "11-1011") for c in ("11.0000", "11.0700", "11.0701", "13.0000")])
+    assert got["family_rows"] == 2, "a family row was not counted as one"
+    assert got["series_rows"] == 1, (
+        "a family row was counted as a series as well — the two patterns "
+        "overlap and the family must win")
+    assert got["leaf_rows"] == 1
 
 
 def test_the_document_quotes_only_figures_the_probe_produces():
@@ -325,3 +307,33 @@ def test_the_widest_fan_out_names_itself(monkeypatch):
     assert got["widest_soc_title"] == "Computer Occupations, All Other", (
         "the widest fan-out does not name itself, so the page's example is "
         "again a figure the probe cannot produce")
+
+
+def test_two_columns_matching_one_lookup_are_refused_rather_than_guessed():
+    """`column_named` returned the first match.
+
+    A heading reading "SOC Code and Title" satisfies both the code lookup and
+    the title lookup, so two different figures would be read off one column
+    with nothing saying so — the positional read this function exists to
+    replace, arriving by another route.
+    """
+    with pytest.raises(probe.MalformedSource, match="2 columns are headed"):
+        probe.column_named(["2018 SOC Code", "2018 SOC Code (rolled up)"], "SOC", "Code")
+
+    # One match is still one answer.
+    assert probe.column_named(
+        ["O*NET-SOC 2019 Code", "2018 SOC Code"], "2018", "Code") == 1
+
+
+def test_a_published_file_with_an_apostrophe_in_its_name_is_counted():
+    """`[^"']*` excluded both quote characters from the href.
+
+    A double-quoted href may legitimately contain an apostrophe, so
+    `href="/o'brien.csv"` counted as no published file — and a missed file is
+    a false zero, which is the direction that manufactures the licence
+    conclusion. Only the delimiter that opened the attribute can close it.
+    """
+    assert probe.data_files('''href="/o'brien.csv"''') == ["/o'brien.csv"]
+    assert probe.data_files("href='/x.xlsx?v=2'") == ["/x.xlsx"]
+    # And a genuinely mismatched quote is still not a link.
+    assert probe.data_files('''href="a.csv'"''') == []

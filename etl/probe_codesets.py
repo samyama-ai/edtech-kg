@@ -103,27 +103,19 @@ def crosswalk_pairs() -> list[tuple[str, str]]:
         except MalformedSource:
             raise
         except Exception as exc:  # noqa: BLE001 - see below
-            # EVERYTHING, not `RuntimeError`/`ValueError`. This function exists
-            # because a `FileNotFoundError` reached `main()`, which catches only
-            # `MalformedSource`, and came out as a traceback — and the two types
-            # it named are not the ones a download raises. `URLError`, `OSError`,
-            # `TimeoutError` and `BadZipFile` are all reachable here and none is
-            # either of them, so the guard covered the case that could not
-            # happen and missed the ones that do.
+            # EVERYTHING, not `RuntimeError`/`ValueError` — neither of which
+            # a download raises. `URLError`, `OSError`, `TimeoutError` and
+            # `BadZipFile` are all reachable, so the guard covered the case
+            # that cannot happen and missed the ones that do.
             raise MalformedSource(
                 f"could not fetch the CIP-SOC crosswalk "
                 f"({type(exc).__name__}): {exc}") from exc
-    # The READ is wrapped too, not only the fetch. Wrapping the download alone
-    # left the case that actually happens: a fetch that returns without
-    # writing a usable file — a truncated download, a 200 carrying HTML, a
-    # cached partial from an interrupted run. `zipfile.ZipFile` then raises
-    # `FileNotFoundError` or `BadZipFile`, and `main()` catches neither, so the
-    # traceback this function exists to prevent came back through the door
-    # next to the one that was closed.
-    #
-    # `KeyError` as well: `sheets(book)["CIP-SOC"]` is how a renamed sheet
-    # arrives, and a bare `KeyError: 'CIP-SOC'` is the least readable of the
-    # three.
+    # The READ is wrapped too, not only the fetch. A fetch that returns
+    # without writing a usable file — truncated, HTML, a cached partial —
+    # then raises `FileNotFoundError` or `BadZipFile`, which `main()` does not
+    # catch, so the traceback this function prevents came back through the
+    # door next to the one that was closed. `KeyError` too: that is how a
+    # renamed sheet arrives.
     try:
         with zipfile.ZipFile(crosswalk.LOCAL) as book:
             rows = crosswalk.rows(book, crosswalk.sheets(book)["CIP-SOC"])
@@ -188,11 +180,24 @@ def column_named(header: list[str], *must_contain: str, avoid: str = "") -> int:
     heading that has moved is a layout change, and reading the old index would
     keep working while counting the wrong column.
     """
+    matched = []
     for i, cell in enumerate(header):
         if all(token in cell for token in must_contain):
             if avoid and avoid in cell:
                 continue
-            return i
+            matched.append(i)
+    if len(matched) > 1:
+        # AMBIGUOUS, not "the first one". A heading reading "SOC Code and
+        # Title" satisfies both the code and the title lookup, so two figures
+        # would be read off one column — the positional read this function
+        # exists to replace, arriving by another route.
+        raise MalformedSource(
+            f"{len(matched)} columns are headed {' + '.join(must_contain)}"
+            f"{f' (excluding {avoid})' if avoid else ''}: "
+            f"{[header[i] for i in matched]}. Reading the first would take two "
+            f"figures from one column.")
+    if matched:
+        return matched[0]
     raise MalformedSource(
         f"no column headed {' + '.join(must_contain)}"
         f"{f' (excluding {avoid})' if avoid else ''} in {header} — the "
@@ -307,7 +312,12 @@ def data_files(page: str) -> list[str]:
     The opening quote is backreferenced, so `href="a.csv'` no longer matches.
     """
     return sorted(set(match[1] for match in re.findall(
-        r"""href=(["'])([^"']*\.(?:xlsx|xls|csv|json))(?:[?#][^"']*)?\1""",
+        # `(?!\1)` rather than `[^"']`: a double-quoted href may contain an
+        # apostrophe — `href="/o'brien.csv"` — and excluding both quote
+        # characters missed it. Only the delimiter that opened the attribute
+        # can close it, and a missed file is a false zero.
+        r"""href=(["'])((?:(?!\1)[^\s>])*\.(?:xlsx|xls|csv|json))"""
+        r"""(?:[?#](?:(?!\1)[^\s>])*)?\1""",
         page, re.I)))
 
 
@@ -325,9 +335,8 @@ def career_clusters() -> dict:
     crosswalks = page_text(CLUSTER_CROSSWALKS)
     flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page))
     # Periods allowed: the notice reads "© 2023 Advance CTE: State Leaders
-    # Connecting Learning to Work. All rights reserved." and a pattern that
-    # stopped at the first full stop found nothing — reporting no notice on a
-    # page that carries one, which is the wrong way round for a licence check.
+    # Connecting Learning to Work. All rights reserved.", and stopping at the
+    # first full stop reported no notice on a page that carries one.
     notice = re.search(r"(©\s*\d{4}[^©]{0,160}?All rights reserved)", flat)
     structure = re.search(r"(\d+) Clusters and (\d+) Sub-Clusters", flat)
     # Either quote style, and a query string or fragment allowed after the
@@ -355,21 +364,21 @@ def career_clusters() -> dict:
     # copyright line or restate the cluster count without the page having
     # failed to load, and refusing on one missing landmark would turn an
     # ordinary edit into a broken probe.
-    # BOTH pages, not just the framework one.
+    # BOTH pages. The guard below covered `CLUSTERS` only, and the crosswalks
+    # page is where both corroborating figures come from — a failed load there
+    # returned two empty lists, so the zero the licence position rests on was
+    # still reachable from a page that never loaded. Guarding one of two pages
+    # that feed a conclusion is not guarding the conclusion.
     #
-    # The guard below covered `CLUSTERS` and nothing checked `CLUSTER_CROSSWALKS`
-    # — and the crosswalks page is where the two corroborating figures come
-    # from. A failed load there returned `machine_readable_on_crosswalks: []`
-    # and `pdfs_on_crosswalks: []`, so the zero the licence position rests on
-    # was still reachable from a page that never loaded, and the "6 PDFs" that
-    # corroborate it vanished silently. Guarding one of the two pages that feed
-    # a conclusion is not guarding the conclusion.
-    #
-    # The crosswalks page has no cluster count and no copyright line of its
-    # own, so it is checked on what it does carry: a page of links to published
-    # files. Nothing to link at all is the same failed-fetch signal.
-    if not re.search(r"""href=["'][^"']+\.(?:pdf|xlsx|xls|csv|json|docx?)["']""",
-                     crosswalks, re.I):
+    # It carries no cluster count and no copyright line, so it is checked on
+    # what it does carry: links to published files. None at all is the same
+    # failed-fetch signal.
+    # Query string or fragment allowed, like `data_files` and the PDF regex.
+    # Without it a page whose links all look like `/wheel.pdf?ver=3` is
+    # refused as carrying none — a false refusal of a page that loaded.
+    if not re.search(
+            r"""href=["'][^"']+\.(?:pdf|xlsx|xls|csv|json|docx?)(?:[?#][^"']*)?["']""",
+            crosswalks, re.I):
         raise MalformedSource(
             f"{CLUSTER_CROSSWALKS} carried no links to published files at all "
             f"({len(crosswalks)} characters). That page is where the PDF count "
@@ -410,7 +419,7 @@ def career_clusters() -> dict:
             "pdfs_on_crosswalks": sorted({
                 match[1].rsplit("/", 1)[-1].split("?")[0].split("#")[0]
                 for match in re.findall(
-                    r"""href=(["'])([^"']*\.pdf(?:[?#][^"']*)?)\1""",
+                    r"""href=(["'])((?:(?!\1)[^\s>])*\.pdf(?:[?#](?:(?!\1)[^\s>])*)?)\1""",
                     crosswalks, re.I)}),
             "measured_or_read": "read"}
 
