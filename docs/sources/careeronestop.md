@@ -3,11 +3,23 @@
 Every figure on this page is printed by
 `python -m etl.probe_apprenticeship --reach`. None is typed.
 
-**edtech-kg#38** asks whether CareerOneStop can answer Q23, which
-`docs/questions.md` marks unanswerable on the grounds that licensure
-requirements are "state-by-state and not centrally published". The issue is
-right that this is worth an hour: a question marked unanswerable that turns out
-to be answerable is the cheapest win available.
+**edtech-kg#38** asks whether CareerOneStop can answer Q23, quoting it as
+marked unanswerable "state-by-state and not centrally published".
+
+**That quote is not in `docs/questions.md`, and Q23 is not that question.**
+Checked: line 93 reads **Q23.** *Which colleges near me offer this programme?*
+— marked ✅, answered. No question in the file is about licensure being
+unpublished; the only licence question is **Q47** — *This occupation now
+requires a licence. Which programmes lead to it?* — also ✅. The phrase appears
+nowhere in `docs/`.
+
+This page previously repeated the issue's wording as a citation. It was a
+citation to a line that does not exist, on a page whose first sentence is that
+nothing on it is typed — so it is recorded here rather than quietly corrected.
+
+The issue's underlying instinct still holds: a question marked unanswerable
+that turns out to be answerable is the cheapest win available. It just is not
+Q23, and the run below could not settle it either way.
 
 **It is still unanswered**, on two counts. The API does not accept a
 connection from here, so the coverage question was never asked — and the terms
@@ -41,9 +53,16 @@ behaving that way.
 This is the distinction `docs/sources/bls-occupation.md` had to make and it
 applies here with more force, so it is stated before anyone leans on the page.
 
-**Established.** The API host resolves to a real address and does not complete a
-TLS connection from this network, and the web host returns 403 to an automated
-request regardless of User-Agent. Control hosts reached successfully in the same
+**Established.** The API host resolves to a real address — `155.204.131.84`,
+the same from the system resolver, Google and Cloudflare — and the connection
+then **times out**. The web host returns 403 to an automated request regardless
+of User-Agent.
+
+The probe records `no connection (timed out)` and nothing finer. It cannot tell
+a TLS handshake that never completes from a TCP connection that is dropped or
+filtered, so this page does not claim which — it said "does not complete a TLS
+connection" in one place and "a refused TCP connection" in another, and the
+measurement supports neither. Control hosts reached successfully in the same
 session — `onetcenter.org`, `nces.ed.gov`, `careertech.org` — so this is not a
 general egress failure.
 
@@ -80,10 +99,11 @@ answered here either, and nothing on this page should be read as clearing it.
 
 ## Verdict
 
-**Not cleared, and Q23 stands as it is.** The claim in `docs/questions.md` —
-that licensure is state-by-state and not centrally published — is neither
-confirmed nor refuted by this run. It should keep its current status rather
-than being softened on the strength of a source nobody could read.
+**Not cleared, and nothing about a question's status changes on this run.**
+The claim edtech-kg#38 attributes to `docs/questions.md` is not in that file,
+and the run could not read CareerOneStop either way — so there is nothing here
+to move a question with. Q47 keeps its ✅ and Q23 keeps its ✅; neither was in question, and
+neither should be softened on the strength of a source nobody could read.
 
 Reopening this needs two things a probe cannot do: a **registered API key**, and
 a **reading of the terms** to establish whether measured coverage may be

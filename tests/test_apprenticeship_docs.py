@@ -156,3 +156,36 @@ def test_the_headline_and_the_table_state_the_same_number():
         "the table's total is no longer 63; the prose above it still says 63")
     assert "disagree by 63 occupations" in page or "63 occupations" in page, (
         "the page's prose no longer names the figure its table totals")
+
+
+def test_the_page_quotes_the_questions_file_accurately():
+    """It cited a line that does not exist.
+
+    edtech-kg#38 quotes Q23 as marked unanswerable, "state-by-state and not
+    centrally published". `docs/questions.md:93` reads *Which colleges near me
+    offer this programme?* — marked answered — and the phrase appears nowhere
+    in `docs/`. The page repeated the issue's wording as a citation, on a page
+    whose first sentence is that nothing on it is typed.
+
+    Checked against the file rather than against the issue, which is the
+    mistake being fixed: an issue is somebody's recollection and a repo file
+    is the record.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    questions = (root / "docs" / "questions.md").read_text(encoding="utf-8")
+    page = CAREERONESTOP.read_text(encoding="utf-8")
+
+    for quoted in re.findall(r'"([^"\n]{25,})"', page):
+        if "docs/questions.md" not in page[:page.index(quoted)][-400:]:
+            continue
+        assert quoted in questions, (
+            f"the page attributes {quoted!r} to docs/questions.md and the file "
+            f"does not contain it")
+
+    # And the two questions it names are quoted as the file marks them.
+    assert "**Q23.** Which colleges near me offer this programme? ✅" in questions
+    assert "Which colleges near me offer this programme?" in page, (
+        "the page no longer says what Q23 actually is, which is the correction")

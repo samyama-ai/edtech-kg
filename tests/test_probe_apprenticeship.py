@@ -12,15 +12,12 @@ Workbooks are built in the test, so no network and no committed sample file.
 from __future__ import annotations
 
 import io
-from pathlib import Path
 
 import pytest
 
 from etl import probe_apprenticeship as probe
 from tests.test_probe_cipsoc import workbook as cipsoc_workbook
 
-APPRENTICESHIP = Path(__file__).resolve().parents[1] / "docs" / "sources" / "apprenticeship.md"
-CAREERONESTOP = Path(__file__).resolve().parents[1] / "docs" / "sources" / "careeronestop.md"
 
 SHEET = "O-NET-SOC 2019 Crosswalks"
 
@@ -41,7 +38,20 @@ def workbook(rows: list[list[str]]) -> bytes:
 def crosswalks(monkeypatch, rapids: list[list[str]], cip: list[list[str]]):
     """Serve both O*NET workbooks without touching the network or `data/`."""
     books = {probe.RAPIDS_URL: workbook(rapids), probe.CIP_URL: workbook(cip)}
-    monkeypatch.setattr(probe, "download", lambda url, into: books[url])
+
+    def served(url, into):
+        # Named, not `books[url]`. A URL the fixture does not fake raised
+        # `KeyError: 'https://...'` from inside a lambda, which reads as a
+        # broken probe rather than as a test that stopped covering a fetch the
+        # probe has started making.
+        if url not in books:
+            raise AssertionError(
+                f"the probe fetched {url}, which this fixture does not serve. "
+                f"Add it to `crosswalks()` — a new fetch is exactly what these "
+                f"tests must not silently miss.")
+        return books[url]
+
+    monkeypatch.setattr(probe, "download", served)
 
 
 HEADER = ["RAPIDS Code", "RAPIDS Title", "O*NET-SOC 2019 Code", "O*NET-SOC 2019 Title"]
@@ -344,31 +354,43 @@ def test_the_major_group_split_is_computed_not_typed(monkeypatch):
     crosswalks(
         monkeypatch,
         [HEADER,
-         # Two construction occupations, one also reachable by a programme.
+         # Three construction occupations, two also reachable by a programme.
          ["0001", "Electrician", "47-2111.00", "Electricians"],
          ["0002", "Plumber", "47-2152.00", "Plumbers"],
-         # One production occupation, reachable no other way.
-         ["0003", "Machine Setter", "51-4081.00", "Machine Tool Setters"]],
-        [HEADER, ["46.0302", "Electrician", "47-2111.00", "Electricians"]])
+         ["0004", "Roofer", "47-2181.00", "Roofers"],
+         # Two production occupations, both reachable no other way — so the
+         # gap is 2 against 1 and the ORDER is falsifiable. It was 1 against
+         # 1, and the assertion below read `1 >= 1 or ...`, which is true
+         # however the list comes back: a test of the ordering that no
+         # ordering could fail.
+         ["0003", "Machine Setter", "51-4081.00", "Machine Tool Setters"],
+         ["0005", "Machinist", "51-4041.00", "Machinists"]],
+        [HEADER,
+         ["46.0302", "Electrician", "47-2111.00", "Electricians"],
+         ["46.0503", "Plumber", "47-2152.00", "Plumbers"]])
     monkeypatch.setattr(probe, "our_soc", lambda: set())
 
-    groups = {g["name"]: g for g in probe.routes()["by_major_group"]}
+    # Called ONCE. It was called again at the end for the ordering, which
+    # assumes it is side-effect free and re-mockable rather than asserting it.
+    found = probe.routes()["by_major_group"]
+    groups = {g["name"]: g for g in found}
     assert set(groups) == {"Construction and Extraction", "Production"}
 
     trades = groups["Construction and Extraction"]
     assert (trades["apprenticeable"], trades["also_via_a_programme"],
-            trades["only_apprenticeship"]) == (2, 1, 1)
-    assert trades["covered_pct"] == 50, (
+            trades["only_apprenticeship"]) == (3, 2, 1)
+    assert trades["covered_pct"] == 67, (
         "the coverage percentage is not derived from the two counts beside it")
 
     production = groups["Production"]
-    assert production["only_apprenticeship"] == 1
+    assert (production["apprenticeable"], production["only_apprenticeship"]) == (2, 2)
     assert production["covered_pct"] == 0
 
-    # Ordered by the gap, because that is what the section argues about.
-    order = [g["name"] for g in probe.routes()["by_major_group"]]
-    assert order[0] == "Production" or groups["Production"]["only_apprenticeship"] >= \
-        groups["Construction and Extraction"]["only_apprenticeship"]
+    # Ordered by the GAP, descending — which is what the section argues about,
+    # and what the document's table is read off.
+    assert [g["name"] for g in found] == ["Production", "Construction and Extraction"], (
+        "the groups are not ordered by the exclusive count, so the document's "
+        "table is in whatever order the SOC prefixes happen to sort in")
 
 
 def test_json_does_not_force_the_slow_network_probe(monkeypatch):
