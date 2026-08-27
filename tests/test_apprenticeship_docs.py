@@ -105,3 +105,54 @@ def test_the_page_does_not_claim_the_gap_is_one_this_graph_cannot_see():
     assert "disagree" in page.lower(), (
         "the page no longer says what the exclusive count actually measures — "
         "a disagreement between two published crosswalks")
+
+
+def test_the_major_group_table_adds_up_to_the_headline():
+    """The check a reader performs and no test did.
+
+    The table shipped four rows summing to 48 under a headline of 63, with
+    nothing on the page saying the other fifteen existed — while the paragraph
+    above it argued that the split was computed rather than asserted precisely
+    so the claim could be re-run.
+
+    Adding a column up needs no probe and no network, which is what makes the
+    absence of this check the surprising part: the page carries both numbers
+    and they disagreed.
+    """
+    page = APPRENTICESHIP.read_text(encoding="utf-8")
+
+    rows, total = [], None
+    for line in page.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 5 or not cells[0]:
+            continue
+        only = cells[3].strip("*").strip()
+        if not only.isdigit():
+            continue
+        if cells[0].strip("*").lower() == "total":
+            total = int(only)
+        else:
+            rows.append(int(only))
+
+    assert rows, "no major-group rows parsed — this check read nothing"
+    assert total is not None, (
+        "the major-group table has no Total row, so a reader cannot tell a "
+        "complete table from a truncated one")
+    assert sum(rows) == total, (
+        f"the table's own rows sum to {sum(rows)} and it claims {total}; "
+        f"{total - sum(rows)} occupations are unaccounted for and nothing on "
+        f"the page says so")
+
+
+def test_the_headline_and_the_table_state_the_same_number():
+    """The two halves of the finding, pinned to each other.
+
+    The table's total and the figure the prose leads with are the same
+    measurement. They were written at different times against different
+    crosswalks once already.
+    """
+    page = APPRENTICESHIP.read_text(encoding="utf-8")
+    assert "| **Total** | | | **63** | |" in page, (
+        "the table's total is no longer 63; the prose above it still says 63")
+    assert "disagree by 63 occupations" in page or "63 occupations" in page, (
+        "the page's prose no longer names the figure its table totals")
