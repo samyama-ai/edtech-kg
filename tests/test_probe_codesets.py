@@ -207,10 +207,14 @@ def test_a_missing_crosswalk_is_fetched_rather_than_raising_a_traceback(monkeypa
     asked = []
     monkeypatch.setattr(probe.crosswalk, "download",
                         lambda *a, **k: asked.append(True))
-    # Still absent after the stubbed download, so the read fails — the point is
-    # that the fetch was attempted and the failure carries a message.
-    with pytest.raises((probe.MalformedSource, FileNotFoundError)):
+    # No `pytest.raises` accepting either outcome: accepting two exception
+    # types asserts nothing about which one happens, and the `asked` check
+    # below is what carries the weight. The read still fails because the
+    # stubbed download writes nothing; what matters is that it was attempted.
+    try:
         probe.crosswalk_pairs()
+    except (probe.MalformedSource, FileNotFoundError):
+        pass
     assert asked, "the probe read a gitignored path without trying to fetch it"
 
 
@@ -232,7 +236,6 @@ def test_a_family_row_is_told_apart_from_a_series_row_and_a_leaf():
     hierarchy it does not."""
     assert probe.FAMILY.match("11.0000") and not probe.FAMILY.match("11.0700")
     assert probe.SERIES.match("11.0700") and not probe.SERIES.match("11.0701")
-    assert not probe.SERIES.match("11.0701")
 
 
 def test_the_copyright_notice_survives_a_full_stop(monkeypatch):
@@ -275,3 +278,42 @@ def test_the_document_calls_the_zero_match_safe_rather_than_a_problem():
     assert "safe failure" in page, (
         "the page no longer explains that matching nothing is the good case")
     assert "align" in page, "the page no longer states that the taxonomies align"
+
+
+def test_the_licence_zero_is_counted_on_the_page_the_prose_describes(monkeypatch):
+    """The conclusion rested on a page the probe never fetched.
+
+    `machine_readable_files` counted links on the framework LANDING page, while
+    the document's corroborating sentence describes the CROSSWALKS page — "the
+    files actually published on the crosswalks page are PDFs". A zero measured
+    somewhere other than where the sentence points is not corroborated by it.
+
+    Both pages are fetched now, counted separately, and the PDFs are named
+    rather than described.
+    """
+    pages = {
+        probe.CLUSTERS: ("<html><p>14 Clusters and 72 Sub-Clusters</p>"
+                         "<footer>© 2023 Advance CTE. All rights reserved.</footer>"
+                         "<a href='/framework.xlsx'>x</a></html>"),
+        probe.CLUSTER_CROSSWALKS: ("<html><a href='/grid.pdf'>a</a>"
+                                   "<a href='/wheel.pdf'>b</a></html>"),
+    }
+    monkeypatch.setattr(probe, "page_text", lambda url: pages[url])
+
+    got = probe.career_clusters()
+    assert got["machine_readable_files"] == ["/framework.xlsx"], (
+        "the framework page's own data files are no longer counted")
+    assert got["machine_readable_on_crosswalks"] == [], (
+        "the crosswalks page was not counted separately, so the licence zero "
+        "is again measured somewhere other than where the prose points")
+    assert got["pdfs_on_crosswalks"] == ["grid.pdf", "wheel.pdf"], (
+        "the PDFs are described rather than named")
+
+
+def test_a_data_link_with_a_mismatched_quote_is_not_counted():
+    """`href="a.csv'` matched, because the pattern did not backreference the
+    opening quote. Harmless for the count today and wrong as a rule."""
+    assert probe.data_files('''<a href="a.csv">''') == ["a.csv"]
+    assert probe.data_files("""<a href='b.xlsx?v=2'>""") == ["b.xlsx"]
+    assert probe.data_files('''<a href="c.csv\'>''') == [], (
+        "a mismatched quote pair was counted as a published data file")

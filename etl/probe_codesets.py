@@ -44,7 +44,13 @@ ONET_URL = "https://www.onetcenter.org/dl_files/OccupationalListings.zip"
 ONET_LOCAL = DATA_DIR / "OccupationalListings.zip"
 ONET_MEMBER = "OccupationalListings/Crosswalks/2019_to_SOC_Crosswalk.xlsx"
 
+# BOTH pages, because the licence conclusion needs both. The framework landing
+# page carries the structure and the copyright notice; the CROSSWALKS page is
+# the one the document's own corroborating sentence describes, and it was never
+# fetched — so "0 machine-readable files" was counted on one page while the
+# sentence beside it pointed at another.
 CLUSTERS = "https://careertech.org/career-clusters/"
+CLUSTER_CROSSWALKS = "https://careertech.org/crosswalks/"
 
 USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
@@ -132,11 +138,13 @@ def cip_hierarchy(mapped: list[tuple[str, str]] | None = None) -> dict:
             "distinct_families": len(prefixes),
             "families_with_a_row": len(with_row),
             "families_without_a_row": sorted(prefixes - with_row),
-            # The question #36 asks in a parenthesis. The 2-digit prefix is in
-            # the code string, so the family CODE is derivable — but its NAME
-            # is not, for any family with no rollup row. That is what makes the
-            # separate NCES hierarchy file necessary rather than convenient.
-            "family_names_derivable": not (prefixes - with_row)}
+            # The question #36 asks in a parenthesis. Named for what it
+            # measures — every family having a rollup ROW — rather than
+            # `family_names_derivable`, which read as the opposite of the
+            # argument: the family CODE is always derivable from the string,
+            # and it is the NAME that is missing without a row. That is what
+            # makes the separate NCES hierarchy file necessary.
+            "every_family_has_a_row": not (prefixes - with_row)}
 
 
 def onet_to_soc(ours: set[str] | None = None) -> dict:
@@ -199,6 +207,32 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
             "largest_fan_out": max(fan.values()) if fan else 0}
 
 
+def page_text(url: str) -> str:
+    """One page, or a refusal naming it."""
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise MalformedSource(f"{url} did not answer ({exc})") from exc
+
+
+def data_files(page: str) -> list[str]:
+    """Links to a machine-readable data file on one page.
+
+    Either quote style, and a query string or fragment allowed after the
+    extension. The tight pattern (double quotes, extension at the very end)
+    reported zero for `href='/x.xlsx?v=2'` — and a zero here feeds a licence
+    conclusion, so a false negative is the wrong way round, the same way round
+    as the copyright pattern.
+
+    The opening quote is backreferenced, so `href="a.csv'` no longer matches.
+    """
+    return sorted(set(match[1] for match in re.findall(
+        r"""href=(["'])([^"']*\.(?:xlsx|xls|csv|json))(?:[?#][^"']*)?\1""",
+        page, re.I)))
+
+
 def career_clusters() -> dict:
     """Read rather than measured — the licence question edtech-kg#35 asks.
 
@@ -209,13 +243,8 @@ def career_clusters() -> dict:
     position is exactly the thing that should be re-read rather than served
     from a copy taken months ago. The cost is one request per run.
     """
-    request = urllib.request.Request(CLUSTERS, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            page = response.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise MalformedSource(f"{CLUSTERS} did not answer ({exc})") from exc
-
+    page = page_text(CLUSTERS)
+    crosswalks = page_text(CLUSTER_CROSSWALKS)
     flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page))
     # Periods allowed: the notice reads "© 2023 Advance CTE: State Leaders
     # Connecting Learning to Work. All rights reserved." and a pattern that
@@ -228,15 +257,23 @@ def career_clusters() -> dict:
     # reported zero for href='/x.xlsx?v=2' — and the zero here feeds a licence
     # conclusion, so a false negative is the wrong way round, the same way
     # round as the copyright pattern above.
-    machine_readable = sorted(set(re.findall(
-        r"""href=["']([^"']*\.(?:xlsx|xls|csv|json))(?:[?#][^"']*)?["']""",
-        page, re.I)))
-
+    machine_readable = data_files(page)
+    on_crosswalks = data_files(crosswalks)
     return {"source": CLUSTERS,
+            "crosswalks_source": CLUSTER_CROSSWALKS,
             "copyright_notice": notice.group(1).strip() if notice else None,
             "clusters": int(structure.group(1)) if structure else None,
             "sub_clusters": int(structure.group(2)) if structure else None,
+            # Per page. The conclusion rests on the crosswalks page, so the
+            # count from that page is the one the document quotes.
             "machine_readable_files": machine_readable,
+            "machine_readable_on_crosswalks": on_crosswalks,
+            # What IS published there, which is the corroboration: the
+            # document says PDFs, so the PDFs are counted rather than
+            # described.
+            "pdfs_on_crosswalks": sorted({
+                name.rsplit("/", 1)[-1] for name in re.findall(
+                    r"""href=["']([^"']*\.pdf)["']""", crosswalks, re.I)}),
             "measured_or_read": "read"}
 
 
@@ -277,7 +314,10 @@ def probe(quiet: bool = False) -> dict:
         print(f"  structure                        {clusters['clusters']} clusters, "
               f"{clusters['sub_clusters']} sub-clusters")
         print(f"  copyright notice                 {clusters['copyright_notice']}")
-        print(f"  machine-readable files published {len(clusters['machine_readable_files']):>8}")
+        print(f"  data files on the framework page {len(clusters['machine_readable_files']):>8}")
+        print(f"  data files on the CROSSWALKS page{len(clusters['machine_readable_on_crosswalks']):>8}"
+              "   <- the page the licence conclusion rests on")
+        print(f"  PDFs published there instead     {len(clusters['pdfs_on_crosswalks']):>8}")
         print(f"\n  measured {stamp}")
         print("  reproduce with: python -m etl.probe_codesets\n")
 
@@ -294,6 +334,14 @@ def main(argv: list[str] | None = None) -> int:
         result = probe(quiet=args.json)
     except MalformedSource as exc:
         print(f"refused: {exc}", file=sys.stderr)
+        return 3
+    except zipfile.BadZipFile as exc:
+        # `download()` returns a cached file without looking inside it, so a
+        # truncated download from a previous run raised past every handler as a
+        # traceback — the failure `crosswalk_pairs` was fixed for, through the
+        # other door.
+        print(f"refused: a cached file under data/ is not a readable archive "
+              f"({exc}). Delete it and re-run.", file=sys.stderr)
         return 3
     if args.json:
         print(json.dumps(result, indent=2))

@@ -92,16 +92,24 @@ the probe output.
 |---|---|
 | Structure | **14 Clusters, 72 Sub-Clusters** — as edtech-kg#35 states |
 | Copyright notice | **© 2023 Advance CTE: State Leaders Connecting Learning to Work. All rights reserved.** |
-| Machine-readable crosswalk files published | **0** |
+| Data files on the framework page | **0** |
+| Data files on the **crosswalks** page | **0** |
+| PDFs published there instead | **6** |
 
 The framework page describes crosswalks "between the modernized Framework, the
-original Framework, and national labor market data". The files actually
-published on the crosswalks page are **PDFs** — a cluster grid, two wheel
-graphics, a legend, and a **Brand Book**. No CIP, SOC or NAICS crosswalk is
-published as data.
+original Framework, and national labor market data". **Both pages are fetched**,
+because the sentence that corroborates the zero is about the crosswalks page and
+an earlier version of this probe read only the framework page — so the strongest
+number here was counted somewhere other than where the prose pointed.
 
-The **0** is a count of links on that page matching a data-file extension
-(`.xlsx`, `.xls`, `.csv`, `.json`), not an exhaustive audit of the site. It is
+The six files actually published on the crosswalks page are all PDFs, and the
+probe names them rather than describing them: a cluster grid, the Clusters
+Wheel and its key, a Spanish wheel and legend, and a **Brand Book**. No CIP, SOC
+or NAICS crosswalk is published as data on either page.
+
+The **0** is a count of links matching a data-file extension (`.xlsx`, `.xls`,
+`.csv`, `.json`) on the two pages named above, not an exhaustive audit of the
+site. It is
 stated that way because the zero is what the licence conclusion rests on, and a
 pattern too strict would produce the same zero from a link it simply failed to
 match — the wrong way round for a licence check. The prose above is the
