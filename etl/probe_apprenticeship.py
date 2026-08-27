@@ -3,22 +3,22 @@
 Two issues, one question. **edtech-kg#39** asks whether Registered
 Apprenticeship is reachable as data, and how much of the occupational world it
 covers that a CIP programme does not. **edtech-kg#38** asks whether
-CareerOneStop can answer the licensure question `docs/questions.md` marks
-unanswerable.
+CareerOneStop can answer a licensure question it attributes to
+`docs/questions.md` — that attribution does not hold, and
+`docs/sources/careeronestop.md` records what the file actually says.
 
     python -m etl.probe_apprenticeship            # the tables
     python -m etl.probe_apprenticeship --json     # machine-readable
     python -m etl.probe_apprenticeship --reach    # re-check what answers
 
-The number this exists to produce is the OVERLAP: how many occupations are
-reachable by apprenticeship, how many by a programme, and how many by
-apprenticeship **only**. That last set is what this graph cannot currently see,
-and a course-planning product that cannot see it steers every student toward
-tuition.
+The number this exists to produce is the OVERLAP, measured against BOTH
+CIP-to-SOC crosswalks because they disagree: against O*NET's the exclusive
+set is 63, against the NCES file this repo loads it is 0. The 63 measures
+how far two official crosswalks differ.
 
 **No third-party dependency**, and no second workbook reader: `probe_cipsoc`
-already has one that places cells by their `r` attribute, which is what stops a
-row with a blank cell shifting every column after it.
+places cells by their `r` attribute, which stops a row with a blank cell
+shifting every column after it.
 """
 
 from __future__ import annotations
@@ -27,8 +27,6 @@ import argparse
 import io
 import json
 import re
-import socket
-import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -39,6 +37,10 @@ from pathlib import Path
 
 from etl import probe_cipsoc as crosswalk
 from etl.probe_cipsoc import rows, sheets
+# Whether a source answers lives next door; this module is the crosswalk
+# arithmetic. `USER_AGENT` comes from there so both halves identify
+# themselves the same way.
+from etl.reach import USER_AGENT, reachable
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -53,35 +55,11 @@ CIP_URL = ("https://www.onetcenter.org/crosswalks/cip/"
 RAPIDS_LOCAL = DATA_DIR / "Apprenticeship_RAPIDS_to_ONET-SOC.xlsx"
 CIP_LOCAL = DATA_DIR / "Education_CIP_to_ONET_SOC.xlsx"
 
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 # The crosswalk's own NO MATCH sentinel, excluded for the reason edtech-kg#70
 # established: it is not an occupation.
 NO_MATCH = "99-9999"
 
-# What edtech-kg#38 asks about, and what this probe can say about it. Each is
-# attempted rather than remembered — a source recorded as blocked on a date is
-# a claim that goes stale, and the whole argument of these pages is that a
-# figure comes from a run.
-REACH = [
-    ("careeronestop.org (web)", "https://www.careeronestop.org/"),
-    ("careeronestop API", "https://api.careeronestop.org/v1/license/"),
-    ("apprenticeship.gov (web)", "https://www.apprenticeship.gov/"),
-    ("apprenticeship.gov API", "https://api.apprenticeship.gov/"),
-    # Named individually rather than summarised. The page said "404 on every
-    # standard CKAN endpoint" while one endpoint was probed.
-    ("data.gov CKAN package_list",
-     "https://catalog.data.gov/api/3/action/package_list"),
-    ("data.gov CKAN package_search",
-     "https://catalog.data.gov/api/3/action/package_search?q=apprenticeship"),
-    # CONTROL hosts. Both pages argue that the failures above are not a general
-    # egress problem, and cite these as reached in the same session — so they
-    # have to be in the same run rather than in a sentence.
-    ("control: onetcenter.org", "https://www.onetcenter.org/"),
-    ("control: nces.ed.gov", "https://nces.ed.gov/"),
-    ("control: careertech.org", "https://careertech.org/"),
-    ("O*NET RAPIDS crosswalk", RAPIDS_URL),
-]
 
 # Queried alongside the system resolver. The page's whole argument rests on
 # telling "this network cannot resolve it" apart from "it resolves nowhere",
@@ -97,15 +75,34 @@ class MalformedSource(Exception):
     """A source that answered, but not with what it publishes."""
 
 
+#: The two workbooks are under 2 MB. This guards a redirect to something else,
+#: not a size prediction: an unbounded `read()` on a 180s timeout pulls
+#: whatever it is pointed at into memory.
+MAX_DOWNLOAD = 64 * 1024 * 1024
+
+
 def download(url: str, into: Path) -> bytes:
-    """Cached on disk. `data/` is gitignored, so this is a local cache and
-    never a committed artefact."""
+    """Cached on disk — `data/` is gitignored, so never a committed artefact.
+
+    The cache is CHECKED, not trusted on existence: a truncated write or an
+    HTML error page under the workbook's name was served to every later run
+    as the file, and the refusal that catches that only runs on download.
+    """
     if into.exists():
-        return into.read_bytes()
+        cached = into.read_bytes()
+        if cached.startswith(b"PK") and len(cached) > 1024:
+            return cached
+        # Removed, or every run from here reads the same bad bytes.
+        into.unlink()
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
-            payload = response.read()
+            payload = response.read(MAX_DOWNLOAD + 1)
+        if len(payload) > MAX_DOWNLOAD:
+            raise MalformedSource(
+                f"{url} returned more than {MAX_DOWNLOAD // (1024 * 1024)} MB; "
+                f"the workbooks are under 2 MB, so this is a redirect to "
+                f"something else rather than a bigger file.")
     except urllib.error.HTTPError as exc:
         raise MalformedSource(f"{url} returned HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -140,9 +137,20 @@ def crossings(url: str, into: Path) -> list[tuple[str, str]]:
         raise MalformedSource(f"no header row in {into.name}")
     onet = next(i for i, c in enumerate(table[head])
                 if "O*NET-SOC" in c and "Code" in c)
+    # The SOURCE column by name too. It was `r[0]` while the O*NET column was
+    # resolved by heading, so a file that gains a column on the left keeps
+    # parsing and pairs the wrong two values.
+    source = next((i for i, c in enumerate(table[head])
+                   if "Code" in c and "O*NET-SOC" not in c), None)
+    if source is None:
+        raise MalformedSource(
+            f"no source code column in {into.name}; its header is "
+            f"{table[head]}. Pairing against column 0 is how a reordered file "
+            f"keeps parsing and pairs the wrong values.")
 
-    out = [(r[0].strip(), r[onet].strip()) for r in table[head + 1:]
-           if len(r) > onet and r[0].strip() and r[onet].strip()]
+    wide = max(source, onet)
+    out = [(r[source].strip(), r[onet].strip()) for r in table[head + 1:]
+           if len(r) > wide and r[source].strip() and r[onet].strip()]
     if not out:
         raise MalformedSource(f"{into.name} parsed to zero rows")
     return out
@@ -233,11 +241,10 @@ def routes() -> dict:
     a_onet = {onet for _, onet in apprentice}
     p_onet = {onet for _, onet in programme}
     # The sentinel is excluded from EVERY side, not only ours. `our_soc()`
-    # dropped it and these two did not, so a `99-9999.00` row in either O*NET
-    # crosswalk would have landed in `apprentice_soc` and, being absent from
-    # `programme_soc`, been reported as an occupation reachable ONLY by
-    # apprenticeship. That is the headline figure, and it is the same class of
-    # defect edtech-kg#70 fixed on the NCES file.
+    # dropped it and these did not, so a `99-9999.00` row in either O*NET file
+    # landed in `apprentice_soc` and, absent from `programme_soc`, counted as
+    # apprenticeship-only — the headline figure, and the same defect
+    # edtech-kg#70 fixed on the NCES file.
     a_soc = {soc_of(o) for o in a_onet} - {NO_MATCH}
     p_soc = {soc_of(o) for o in p_onet} - {NO_MATCH}
     ours = our_soc()
@@ -252,12 +259,10 @@ def routes() -> dict:
         "programme_soc": len(p_soc),
         "both_ways": len(a_soc & p_soc),
         # **Against O*NET's programme crosswalk, which is NOT the one this
-        # graph loads.** That distinction is the whole finding and it was
-        # missing: this key was published as "occupations a programme cannot
-        # reach, and this graph has no shape for them", and every one of them
-        # is in `ours` — measured below as `apprenticeship_only_vs_ours`, which
-        # is 0. The two CIP-to-SOC crosswalks disagree; apprenticeship does not
-        # reach an occupation the loaded crosswalk misses.
+        # graph loads.** That distinction is the whole finding: every code in
+        # this set is in `ours`, measured below as
+        # `apprenticeship_only_vs_ours`, which is 0. The two crosswalks
+        # disagree; apprenticeship reaches nothing the loaded one misses.
         "apprenticeship_only": sorted(a_soc - p_soc),
         # The same question asked of the crosswalk this repo actually loads.
         # Reported beside the other one so a reader cannot take either for the
@@ -275,131 +280,10 @@ def routes() -> dict:
     }
 
 
-def resolves_anywhere(host: str) -> dict:
-    """Ask the system resolver AND two public ones.
-
-    The pages distinguish "this network cannot reach it" from "it resolves
-    nowhere", and only the second can be asserted without qualification. One
-    `gethostbyname()` call cannot tell those apart — it was the system resolver
-    once, while the page claimed "no A record from any resolver".
-
-    Answered without a DNS library: `dig` is asked directly, so this stays
-    dependency-free like every other probe here. A resolver that cannot be
-    reached is recorded as unknown rather than as a negative, because "we could
-    not ask" is not "there is no record".
-    """
-    answers = {}
-    try:
-        answers["system"] = socket.gethostbyname(host)
-    except OSError:
-        answers["system"] = None
-
-    for name, server in PUBLIC_RESOLVERS:
-        try:
-            out = subprocess.run(["dig", "+short", f"@{server}", host],
-                                 capture_output=True, text=True, timeout=20)
-        except (OSError, subprocess.SubprocessError):
-            answers[name] = "unknown"
-            continue
-        if out.returncode != 0:
-            answers[name] = "unknown"
-            continue
-        # VALIDATED as an address. `dig +short` prints a CNAME chain, and on
-        # some failures a message, so the first line that is not a name was
-        # taken as an answer whatever it said — and that string then appears
-        # on the page as the address a resolver returned.
-        found = [line for line in out.stdout.split()
-                 if ADDRESS.match(line)]
-        answers[name] = found[0] if found else None
-
-    # The strong claim needs a PUBLIC resolver to have answered. A local
-    # failure with both public resolvers unreachable is "we could not ask" —
-    # and reading that as "there is no record" turns a machine with no `dig`,
-    # or no route to 8.8.8.8, into evidence about a publisher.
-    public = [answers[name] for name, _ in PUBLIC_RESOLVERS
-              if answers.get(name) != "unknown"]
-    answered = [v for v in answers.values() if v != "unknown"]
-    return {"by_resolver": answers,
-            "resolves_nowhere": bool(public) and all(v is None for v in answered)}
-
-
-def reachable() -> list[dict]:
-    """What answers a request, and what does not — attempted, not remembered.
-
-    DNS is resolved separately from the connection, because they fail
-    differently and the difference is the whole finding. A host that resolves
-    and refuses TCP is a source that will not talk to this network; a host
-    whose name resolves NOWHERE is a broken chain at the publisher's end, and
-    only the second can be asserted without qualification.
-    """
-    # Resolved once per HOST, not once per row. `REACH` lists two data.gov
-    # endpoints and two onetcenter URLs, and each resolution shells out to
-    # `dig` twice at up to 20s — so a repeated host paid the whole cost again
-    # for an answer already in hand.
-    #
-    # Scoped to this call rather than cached on the module: a cache that
-    # outlives the run answers a later question with an earlier network, which
-    # is the opposite of what a probe re-measuring every run is for.
-    resolved: dict[str, dict] = {}
-    out = []
-    for name, url in REACH:
-        host = urllib.parse.urlparse(url).hostname or ""
-        if host not in resolved:
-            resolved[host] = resolves_anywhere(host)
-        dns = resolved[host]
-        record = {"source": name, "url": url,
-                  "dns": dns["by_resolver"].get("system"),
-                  "by_resolver": dns["by_resolver"],
-                  "status": None, "status_anonymous": None}
-
-        if dns["resolves_nowhere"]:
-            record["status"] = "name does not resolve (no resolver has a record)"
-            out.append(record)
-            continue
-        if record["dns"] is None:
-            record["status"] = ("name does not resolve here (another resolver "
-                                "does, so this is local)")
-            out.append(record)
-            continue
-
-        # BOTH requests, because the pages turn on the difference. `bls.gov`
-        # returned 403 to a short or absent User-Agent and 200 to the
-        # identifying one — a block on anonymity. A source that returns 403 to
-        # both is blocking automation instead, and that is a different claim
-        # which the pages make and this used to not measure.
-        record["status"] = attempt(url, USER_AGENT)
-        record["status_anonymous"] = attempt(url, None)
-        out.append(record)
-    return out
-
-
-def attempt(url: str, agent: str | None) -> str:
-    """One HEAD, with or without an identifying User-Agent.
-
-    HEAD rather than GET, and the pages say so: a 405 or 403 to HEAD is not
-    evidence about GET, and this whole probe is about telling failure modes
-    apart.
-    """
-    headers = {"User-Agent": agent} if agent else {}
-    request = urllib.request.Request(url, headers=headers, method="HEAD")
-    if agent is None:
-        # urllib inserts `Python-urllib/3.x` unless it is removed outright, so
-        # "anonymous" would otherwise measure a DEFAULT agent and not an
-        # absent one — the same trap edtech-kg#37 recorded on bls.gov.
-        request.add_unredirected_header("User-Agent", "")
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return str(response.status)
-    except urllib.error.HTTPError as exc:
-        return str(exc.code)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return f"no connection ({getattr(exc, 'reason', exc)})"
-
-
 def probe(quiet: bool = False, with_reach: bool = False) -> dict:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     found = routes()
-    reach = reachable() if with_reach else []
+    reach = reachable(RAPIDS_URL) if with_reach else []
 
     if not quiet:
         print("\nRegistered Apprenticeship — the route that is not a degree\n")

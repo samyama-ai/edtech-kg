@@ -12,7 +12,6 @@ Workbooks are built in the test, so no network and no committed sample file.
 from __future__ import annotations
 
 import io
-import subprocess
 
 import pytest
 
@@ -196,46 +195,6 @@ def test_a_row_that_omits_a_cell_does_not_shift_the_columns(monkeypatch):
         "document order again")
 
 
-def test_a_host_that_does_not_resolve_is_told_apart_from_one_that_refuses(monkeypatch):
-    """The distinction the CareerOneStop page turns on, and the reason it can
-    assert one finding and not the other.
-
-    A name that resolves nowhere is broken at the publisher's end. A resolved
-    address that refuses a connection cannot be told apart, from one network,
-    from an outbound restriction. Reporting both as "unreachable" would let the
-    page overclaim.
-    """
-    def resolve(host):
-        if host == "gone.example":
-            raise OSError(8, "nodename nor servname provided")
-        return "10.0.0.1"
-    monkeypatch.setattr(probe.socket, "gethostbyname", resolve)
-
-    # `dig` too. This patched `gethostbyname` only, so `resolves_anywhere`
-    # shelled out to the real `dig @8.8.8.8` for every host in REACH — real
-    # network calls from a unit test, answering about the internet rather
-    # than about the fixture.
-    def dug(argv, *a, **k):
-        host = argv[-1]
-        answer = "" if host == "gone.example" else "10.0.0.1\n"
-        return subprocess.CompletedProcess(argv, 0, stdout=answer, stderr="")
-    monkeypatch.setattr(probe.subprocess, "run", dug)
-
-    def refuse(*a, **k):
-        raise probe.urllib.error.URLError("timed out")
-    monkeypatch.setattr(probe.urllib.request, "urlopen", refuse)
-    monkeypatch.setattr(probe, "REACH", [("gone", "https://gone.example/"),
-                                         ("refusing", "https://refusing.example/")])
-
-    by_name = {row["source"]: row for row in probe.reachable()}
-    assert "does not resolve" in by_name["gone"]["status"]
-    assert by_name["gone"]["dns"] is None
-    assert "no connection" in by_name["refusing"]["status"], (
-        "a refused connection is reported as a DNS failure — a claim the "
-        "careeronestop page explicitly declines to make")
-    assert by_name["refusing"]["dns"] == "10.0.0.1"
-
-
 def test_the_no_match_sentinel_is_dropped_from_every_side(monkeypatch):
     """`99-9999` is not an occupation, and it was filtered on one set of three.
 
@@ -262,96 +221,6 @@ def test_the_no_match_sentinel_is_dropped_from_every_side(monkeypatch):
         "the sentinel was reported as an occupation reachable only by "
         "apprenticeship — the figure this whole page leads with")
     assert probe.NO_MATCH not in got["apprentice_soc_missing_from_ours"]
-
-
-def test_a_name_that_resolves_nowhere_is_told_apart_from_one_this_network_cannot_see(monkeypatch):
-    """The distinction both pages rest on, and it needs more than one resolver.
-
-    `socket.gethostbyname()` alone answers "this network cannot resolve it".
-    The page claims "no A record from ANY resolver", which is a claim about the
-    publisher — so the probe asks the public resolvers too, and only makes the
-    strong claim when every resolver it could ask said no.
-    """
-    monkeypatch.setattr(probe.socket, "gethostbyname",
-                        lambda host: (_ for _ in ()).throw(OSError(8, "no")))
-
-    # `probe.subprocess` is patched, so no real `dig @8.8.8.8` leaves the
-    # machine. Without this the test queried Google's resolver for real — a
-    # network call from a suite that is supposed to be hermetic, and an
-    # assertion whose answer depended on someone else's DNS.
-    asked = []
-
-    def answer(cmd, **kw):
-        asked.append(cmd)
-
-        class Out:
-            returncode = 0
-            stdout = "" if any("gone.example" in c for c in cmd) else "10.0.0.1\n"
-        return Out()
-    monkeypatch.setattr(probe.subprocess, "run", answer)
-
-    gone = probe.resolves_anywhere("gone.example")
-    assert asked, "the public resolvers were never asked"
-    assert all(cmd[0] == "dig" for cmd in asked), asked
-    assert gone["resolves_nowhere"] is True
-    assert set(gone["by_resolver"]) == {"system", "Google", "Cloudflare"}
-
-    assert gone["by_resolver"] == {"system": None, "Google": None, "Cloudflare": None}, (
-        f"the strong claim was made from something other than three negative "
-        f"answers: {gone['by_resolver']}")
-
-    local = probe.resolves_anywhere("fine.example")
-    assert local["by_resolver"]["Google"] == "10.0.0.1"
-    assert local["resolves_nowhere"] is False, (
-        "a name the public resolvers DO know was reported as resolving "
-        "nowhere — that is a claim about the publisher made from a local "
-        "failure")
-
-
-def test_a_resolver_that_cannot_be_asked_is_not_counted_as_a_no(monkeypatch):
-    """"We could not ask" is not "there is no record". A machine without `dig`,
-    or one that cannot reach 8.8.8.8, must not turn into evidence about a
-    publisher."""
-    monkeypatch.setattr(probe.socket, "gethostbyname",
-                        lambda host: (_ for _ in ()).throw(OSError(8, "no")))
-
-    def missing(cmd, **kw):
-        raise FileNotFoundError("dig")
-    monkeypatch.setattr(probe.subprocess, "run", missing)
-
-    got = probe.resolves_anywhere("gone.example")
-    assert got["by_resolver"]["Google"] == "unknown"
-    assert got["resolves_nowhere"] is False, (
-        "an unreachable resolver was read as a negative answer")
-
-
-def test_the_anonymous_request_really_sends_no_user_agent(monkeypatch):
-    """`urllib` inserts `Python-urllib/3.x` unless the header is cleared, so an
-    "anonymous" arm measures a DEFAULT agent rather than an absent one — the
-    trap edtech-kg#37 recorded on bls.gov, where the whole finding turned on
-    which agent was sent.
-
-    Both pages separate a block on anonymity from a block on automation, and
-    that separation is only as good as this.
-    """
-    sent = []
-
-    class R:
-        status = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-
-    def capture(request, *a, **k):
-        sent.append(request.get_header("User-agent"))
-        return R()
-    monkeypatch.setattr(probe.urllib.request, "urlopen", capture)
-
-    probe.attempt("https://x.example/", probe.USER_AGENT)
-    probe.attempt("https://x.example/", None)
-    assert sent[0] == probe.USER_AGENT
-    assert sent[1] == "", (
-        f"the anonymous request sent {sent[1]!r} — urllib's default agent, "
-        f"not an absent one")
 
 
 def test_the_major_group_split_is_computed_not_typed(monkeypatch):
@@ -471,30 +340,77 @@ def test_the_two_programme_crosswalks_are_reported_apart_not_as_one(monkeypatch)
         "the page cannot quote one under a sentence about the other")
 
 
-def test_a_cname_or_a_message_from_dig_is_not_taken_as_an_address(monkeypatch):
-    """`found[0]` took the first line that was not a name.
+def test_the_source_code_column_is_found_by_name_not_by_position(monkeypatch):
+    """`r[0]` while the O*NET column was resolved by heading.
 
-    `dig +short` prints a CNAME chain before the address, and on some failures
-    prints a message instead. Whatever that first line said became the answer
-    a resolver gave — and it appears on the page as the address the host
-    resolves to, which is a measured claim.
+    A file that gains a column on the left, or reorders, keeps parsing and
+    pairs the wrong two values — which is the failure the O*NET side was
+    already protected from, in the same expression.
     """
-    def dug(argv, *a, **k):
-        host = argv[-1]
-        if host == "chained.example":
-            out = "alias.cdn.example.\n93.184.216.34\n"
-        elif host == "broken.example":
-            out = ";; connection timed out; no servers could be reached\n"
-        else:
-            out = "10.0.0.1\n"
-        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
-    monkeypatch.setattr(probe.subprocess, "run", dug)
-    monkeypatch.setattr(probe.socket, "gethostbyname", lambda h: "10.0.0.1")
+    moved = ["Notes", "RAPIDS Code", "RAPIDS Title",
+             "O*NET-SOC 2019 Code", "O*NET-SOC 2019 Title"]
+    monkeypatch.setattr(probe, "download", lambda url, into: workbook(
+        [moved, ["ignore me", "0001", "Electrician", "47-2111.00", "Electricians"]]))
 
-    chained = probe.resolves_anywhere("chained.example")
-    assert chained["by_resolver"]["Google"] == "93.184.216.34", (
-        "a CNAME was reported as the resolved address")
+    pairs = probe.crossings(probe.RAPIDS_URL, probe.RAPIDS_LOCAL)
+    assert pairs == [("0001", "47-2111.00")], (
+        "the source column was read by position, so a prepended column made "
+        "the pair (notes, O*NET) instead of (RAPIDS, O*NET)")
 
-    broken = probe.resolves_anywhere("broken.example")
-    assert broken["by_resolver"]["Google"] is None, (
-        "a dig error message was reported as an address")
+
+def test_a_cached_file_that_is_not_a_workbook_is_refetched(monkeypatch, tmp_path):
+    """The cache was returned on existence alone.
+
+    A truncated write from an interrupted run, or an HTML error page saved
+    under the workbook's name, was served to every later run as though it were
+    the file — and the PK check that would catch it only runs on the download
+    path.
+    """
+    cached = tmp_path / "crosswalk.xlsx"
+    cached.write_bytes(b"<!DOCTYPE html><html>we are down</html>")
+
+    fetched = []
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self, *a):
+            fetched.append(True)
+            return b"PK\x03\x04" + b"x" * 2000
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
+
+    got = probe.download("https://example.invalid/x.xlsx", cached)
+    assert fetched, "the bad cached file was served instead of being refetched"
+    assert got.startswith(b"PK")
+    assert not cached.read_bytes().startswith(b"<!DOCTYPE"), (
+        "the bad file is still on disk, so the next run reads it again")
+
+
+def test_a_download_larger_than_the_cap_is_refused(monkeypatch, tmp_path):
+    """An unbounded `read()` on a 180-second timeout will pull anything a
+    redirect points at into memory.
+
+    Both halves asserted. The refusal is the visible one; the BOUND is the
+    one that matters, because a length check after an unbounded read has
+    already loaded the whole thing — the memory is spent before the guard
+    runs. A test that only drives the refusal passes either way, which is how
+    this first went in.
+    """
+    asked = []
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self, limit=None):
+            asked.append(limit)
+            body = b"PK" + b"x" * (probe.MAX_DOWNLOAD + 10)
+            return body if limit is None else body[:limit]
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
+
+    with pytest.raises(probe.MalformedSource, match="more than"):
+        probe.download("https://example.invalid/x.xlsx", tmp_path / "big.xlsx")
+
+    assert asked == [probe.MAX_DOWNLOAD + 1], (
+        f"the body was read with limit {asked}, so the cap is checked after "
+        f"the whole response is already in memory — one byte over the cap is "
+        f"all that is needed to know, and all that should be read")

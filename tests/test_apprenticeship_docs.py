@@ -15,8 +15,10 @@ sentence between them.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 APPRENTICESHIP = Path(__file__).resolve().parents[1] / "docs" / "sources" / "apprenticeship.md"
 CAREERONESTOP = Path(__file__).resolve().parents[1] / "docs" / "sources" / "careeronestop.md"
 
@@ -130,13 +132,26 @@ def test_the_page_does_not_claim_the_gap_is_one_this_graph_cannot_see():
     # the words alone bans the fix as well. What must not come back is the
     # claim attached to the 63.
     page = plain(APPRENTICESHIP)
+    # The PROBE'S OWN prose too, not only the pages. Both claims this test
+    # bans survived in `etl/probe_apprenticeship.py`'s module docstring for a
+    # full round — the retracted "what this graph cannot see", and the
+    # citation to a licensure question `docs/questions.md` does not contain.
+    # Fixing the documents and not the code that generates them is the same
+    # partial sweep the documents were fixed for.
+    prose = page + " " + " ".join(
+        (ROOT / "etl" / "probe_apprenticeship.py").read_text(
+            encoding="utf-8").replace("*", "").replace("`", "").split())
+
     for claim in ("63 of them are reachable no other way",
                   "this graph has no shape for those",
-                  "cannot see a public, funded route into any of them"):
-        assert claim not in page, (
-            f"the page claims {claim!r}; every occupation in that set is a "
-            f"code this repo's crosswalk carries, which the probe prints as "
-            f"`apprenticeship SOC not in ours: 0` in the same run")
+                  "what this graph cannot currently see",
+                  "cannot see a public, funded route into any of them",
+                  "licensure question docs/questions.md marks unanswerable"):
+        assert claim not in prose, (
+            f"{claim!r} appears in a page or in the probe's own docstring; "
+            f"every occupation in that set is a code this repo's crosswalk "
+            f"carries, which the probe prints as `apprenticeship SOC not in "
+            f"ours: 0` in the same run")
 
     assert "0 of them are reachable no other way" in page, (
         "the page no longer states the corrected answer to #39")
@@ -202,37 +217,44 @@ def test_the_headline_and_the_table_state_the_same_number():
         "the page's prose no longer names the figure its table totals")
 
 
-def test_the_page_quotes_the_questions_file_accurately():
+def test_every_question_the_page_names_is_quoted_as_the_file_has_it():
     """It cited a line that does not exist.
 
     edtech-kg#38 quotes Q23 as marked unanswerable, "state-by-state and not
-    centrally published". `docs/questions.md:93` reads *Which colleges near me
+    centrally published". `docs/questions.md` reads *Which colleges near me
     offer this programme?* — marked answered — and the phrase appears nowhere
-    in `docs/`. The page repeated the issue's wording as a citation, on a page
-    whose first sentence is that nothing on it is typed.
+    in `docs/`. The page repeated the issue's wording as a citation.
 
-    Checked against the file rather than against the issue, which is the
-    mistake being fixed: an issue is somebody's recollection and a repo file
-    is the record.
+    **The first version of this guard asserted nothing.** It scanned quoted
+    phrases and kept only those within 400 characters of a `docs/questions.md`
+    mention — a condition nothing on the page met, so the loop ran zero times
+    and the test passed by examining no quotes at all. A guard added to catch
+    a fabricated citation, itself proving nothing.
+
+    Driven off the Q-NUMBERS instead, which is what the defect was about: for
+    every `Q<n>` this page names, the file must have that question and the
+    page must quote its actual text. That cannot go vacuous — if the page
+    names no questions, there is nothing to check and this says so.
     """
-    import re
-    from pathlib import Path
+    named = sorted(set(re.findall(r"\bQ(\d+)\b", plain(CAREERONESTOP))), key=int)
+    assert named, (
+        "the page names no question at all, so this check read nothing — "
+        "which is how its first version passed")
 
-    root = Path(__file__).resolve().parents[1]
-    questions = (root / "docs" / "questions.md").read_text(encoding="utf-8")
-    page = flat(CAREERONESTOP)
+    questions = (ROOT / "docs" / "questions.md").read_text(encoding="utf-8")
+    page = plain(CAREERONESTOP).lower()
 
-    for quoted in re.findall(r'"([^"\n]{25,})"', page):
-        if "docs/questions.md" not in page[:page.index(quoted)][-400:]:
-            continue
-        assert quoted in questions, (
-            f"the page attributes {quoted!r} to docs/questions.md and the file "
-            f"does not contain it")
-
-    # And the two questions it names are quoted as the file marks them.
-    assert "**Q23.** Which colleges near me offer this programme? ✅" in questions
-    assert "Which colleges near me offer this programme?" in page, (
-        "the page no longer says what Q23 actually is, which is the correction")
+    for number in named:
+        found = re.search(rf"\*\*Q{number}\.\*\*\s*(.+)", questions)
+        assert found, (
+            f"the page discusses Q{number} and docs/questions.md has no such "
+            f"question — the citation is to a line that does not exist")
+        # The question text, without the status marker the file ends it with.
+        stem = re.sub(r"\s*[✅⚠❌⬜].*$", "", found.group(1)).strip()
+        assert stem.lower()[:40] in page, (
+            f"the page names Q{number} without quoting what it says. The file "
+            f"has {stem!r}, and a page that names a question and characterises "
+            f"it differently is the defect this exists to catch.")
 
 
 def test_the_page_does_not_claim_what_it_says_it_cannot_tell():
@@ -268,8 +290,6 @@ def test_no_resolved_address_is_typed_into_the_page():
     with nothing to say so — on a page whose first line is that nothing on it
     is typed.
     """
-    import re
-
     from etl import probe_apprenticeship as probe
 
     # The PUBLIC RESOLVERS are exempt. Naming which resolvers were asked is
