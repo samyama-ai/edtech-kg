@@ -31,6 +31,7 @@ import json
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
@@ -42,16 +43,35 @@ from datetime import datetime, timezone
 # one, so appending in order shifts every later column left. Carrying a second
 # reader is how this file came to miss ` Course Title`, below.
 from etl.probe_cipsoc import rows, sheets
+# The reach measurement lives next door; this module reads the sources and
+# prints the page. `MalformedSource` is raised by both, so it stays here.
+from etl.sced_reach import MalformedSource, SCED_CODE, district_reach
 
 LANDING = "https://nces.ed.gov/forum/sced.asp"
 
 # v13, not the v12 edtech-kg#34 names — the issue was written against the page
-# as it stood, and NCES has published a version since. Read from the landing
-# page rather than pinned, so the next version is a changed figure and not a
-# stale constant.
-MASTER = ("https://nces.ed.gov/sites/default/files/"
-          "national-forum-education-statistics-nfes/document/2025/11/"
-          "SCEDv13File_508.xlsx")
+# as it stood, and NCES has published a version since.
+#
+# READ from the landing page, which is what this comment claimed and the code
+# did not do. `MASTER` was a hard-pinned v13 URL and `LANDING` was fetched
+# nowhere, so "the next version is a changed figure and not a stale constant"
+# described a mechanism that did not exist: when NCES ships v14 the probe would
+# have reported SCED 13.0 indefinitely, which is precisely the stale constant
+# the page's own corrections section claims to avoid.
+#
+# Kept below as the URL this was pinned to, for the record and for nothing
+# else. It is not a fallback: a fallback that kicks in silently when the
+# landing page changes shape is the stale constant again, wearing a guard.
+PINNED_WAS = ("https://nces.ed.gov/sites/default/files/"
+              "national-forum-education-statistics-nfes/document/2025/11/"
+              "SCEDv13File_508.xlsx")
+
+# `SCEDv{N}File` in the href, because the landing page also links the previous
+# version — v12 and v13 are both there today. The HIGHEST is the current one,
+# and taking the first link found would have pinned whichever NCES happens to
+# list first.
+MASTER_LINK = re.compile(r"""href=["']([^"']*SCEDv(\d+)File[^"']*\.xlsx)["']""",
+                         re.IGNORECASE)
 
 NEW_YORK = ("https://www.p12.nysed.gov/irs/courseCatalog/"
             "sced-course-codes-2024-25.xlsx")
@@ -61,18 +81,12 @@ USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 # A five-digit SCED code and nothing else. New York publishes eleven codes with
 # a state suffix (`01003CC`), which are NOT SCED codes — they are New York
 # extending the taxonomy, and counting them as SCED would overstate alignment.
-SCED_CODE = re.compile(r"\A\d{5}\Z")
-
 # What the first two New York columns must be called for the positional reads
 # below to mean what they say. Taken from the published file rather than
 # guessed: the course NAME is under "Course Code Description", and "Course
 # Description" — the long text — is a different column, two along.
 NY_CODE_HEADER = "course code (course id)"
 NY_TITLE_HEADER = "course code description"
-
-
-class MalformedSource(Exception):
-    """A source that answered, but not with what it publishes."""
 
 
 def fetch(url: str) -> bytes:
@@ -93,9 +107,52 @@ def fetch(url: str) -> bytes:
     return payload
 
 
+def master_file() -> tuple[str, int]:
+    """The current SCED master workbook, read from the landing page.
+
+    Returns the absolute URL and the version number in its filename, so the
+    version this page reports is the version it downloaded rather than a name
+    inside a sheet — those can disagree, and the sheet name is the one a
+    restructure changes without the file changing.
+
+    Refuses rather than falling back. If NCES restyles the landing page this
+    stops, loudly, on the run that would otherwise have reported last year's
+    taxonomy as this year's.
+    """
+    page = fetch_text(LANDING)
+    found = MASTER_LINK.findall(page)
+    if not found:
+        raise MalformedSource(
+            f"no SCEDv<N>File .xlsx link on {LANDING} — the master workbook is "
+            f"read from that page rather than pinned, so a restructured "
+            f"landing page has to stop the run. It was pinned to "
+            f"{PINNED_WAS} when this was written; check whether that still "
+            f"resolves before re-pinning anything.")
+    href, version = max(found, key=lambda pair: int(pair[1]))
+    return urllib.parse.urljoin(LANDING, href), int(version)
+
+
+def fetch_text(url: str) -> str:
+    """One HTML page, or a refusal naming it.
+
+    Separate from `fetch`, which insists on a workbook's PK magic — the whole
+    point of that guard is that an HTML error page is not a workbook, so it
+    cannot be reused for a page that is meant to be HTML.
+    """
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        raise MalformedSource(f"{url} returned HTTP {exc.code}") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise MalformedSource(f"{url} did not answer ({exc})") from exc
+
+
 def master() -> dict:
     """The taxonomy itself, and what a SCED record is allowed to carry."""
-    book = zipfile.ZipFile(io.BytesIO(fetch(MASTER)))
+    url, version = master_file()
+    book = zipfile.ZipFile(io.BytesIO(fetch(url)))
     parts = sheets(book)
     catalogue = next((n for n in parts if n.startswith("SCED ") and "Archived" not in n), None)
     if catalogue is None:
@@ -122,7 +179,11 @@ def master() -> dict:
 
     named = elements_and_attributes(book, parts)
 
-    return {"source": MASTER, "landing_page": LANDING, "version_sheet": catalogue,
+    return {"source": url, "landing_page": LANDING,
+            # The version in the FILENAME the landing page pointed at, beside
+            # the sheet name. They agree today and a restructure separates
+            # them, which is worth seeing rather than resolving silently.
+            "version": version, "version_sheet": catalogue,
             "columns": header, "courses": len(courses),
             "sheets": sorted(parts),
             **named}
@@ -241,85 +302,12 @@ def new_york() -> dict:
                        for r in courses if len(r) > 1 and r[1].strip()}}
 
 
-def normalise(title: str) -> str:
-    """A course title reduced to what two states might plausibly share.
-
-    The programme markers go: PWCS publishes `AP Biology` and New York
-    publishes `AP Biology` too, but it also publishes `Biology` where PWCS has
-    `AICE Biology (AS Level)`. Stripping them measures the best case for
-    matching — which is the honest thing to measure, because a worse
-    normalisation would understate what SCED could reach.
-    """
-    text = re.sub(r"\*+", "", title or "").lower()
-    # The parenthetical qualifier goes first, while it is still bracketed:
-    # `AICE Biology (AS Level)` is the same course as `Biology` for this
-    # purpose, and leaving `as level` on the end meant the comparison was
-    # stricter than the page claimed it was.
-    text = re.sub(r"\([^)]*\)", " ", text)
-    text = re.sub(r"\b(ap|ib|aice|advanced placement|honors|dual enrollment)\b", " ", text)
-    text = re.sub(r"[^a-z0-9 ]", " ", text)
-    return " ".join(text.split())
-
-
-def district_reach(ny_titles: dict[str, str]) -> dict:
-    """How much of a real district's catalogue can reach a SCED code.
-
-    The figure the whole probe exists for. A taxonomy nothing can join to is a
-    document, not an identifier.
-    """
-    from etl import pwcs_source as source
-
-    loaded = source.read()
-    titles = [c["title"] for c in loaded["courses"]]
-    if not titles:
-        raise MalformedSource(
-            "the loaded catalogue holds no courses — refusing to report a "
-            "reach of zero when nothing was compared")
-    by_name = {normalise(t): code for t, code in ny_titles.items()}
-
-    # Keyed on the NORMALISED title, so the numerator and the denominator
-    # count the same thing. Keying on the raw title made `reachable_by_name`
-    # a count of distinct titles while `district_courses` counted rows, and
-    # two courses sharing a name would have made the percentage disagree with
-    # itself.
-    matched = {normalise(t): by_name[normalise(t)]
-               for t in titles if normalise(t) in by_name}
-    reachable = sum(1 for t in titles if normalise(t) in by_name)
-
-    # Does the district publish a SCED code of its own? If it did, none of the
-    # name matching above would be needed — and that is the whole finding.
-    #
-    # This asks whether the record carries a FIELD for one, not whether any of
-    # its text happens to be five digits. The earlier version scanned every
-    # string value, so a course titled `12345` or a URL segment would have
-    # counted — it returned 0 for the right answer by the wrong route, and the
-    # zero is what the schema recommendation rests on.
-    fields = sorted({key for c in loaded["courses"] for key in c})
-    code_fields = [f for f in fields
-                   if any(marker in f.lower()
-                          for marker in ("sced", "course_code", "state_code"))]
-    # Per COURSE, not per (course × field) pair. The sum ran over both loops,
-    # so a record carrying two code fields counted twice while being reported
-    # as a count of courses — the units problem one line down from the one this
-    # figure was introduced to fix.
-    published = sum(1 for c in loaded["courses"]
-                    if any(SCED_CODE.match(str(c.get(f, "")).strip())
-                           for f in code_fields))
-
-    return {"district_courses": len(titles),
-            "fields_published": fields,
-            "sced_code_fields": code_fields,
-            "publishes_sced_code": published,
-            "reachable_by_name": reachable,
-            "distinct_titles_matched": len(matched),
-            "examples": dict(sorted(matched.items())[:8])}
-
-
 def probe(quiet: bool = False) -> dict:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     taxonomy = master()
     state = new_york()
-    reach = district_reach(state.pop("titles"))
+    reach = district_reach(state.pop("titles"),
+                           set(state["state_extensions"]))
 
     if not quiet:
         print("\nSCED — the national course taxonomy\n")
@@ -352,6 +340,15 @@ def probe(quiet: bool = False) -> dict:
         print(f"  publishing a SCED code           {reach['publishes_sced_code']:>8}")
         print(f"  reachable by name alone          {reach['reachable_by_name']:>8}"
               f"   ({reach['reachable_by_name'] / reach['district_courses']:.0%})")
+        print(f"  ... without the parenthetical rule "
+              f"{reach['reachable_without_the_parenthetical_rule']:>6}"
+              "   <- the strict comparison")
+        print(f"  ... via a NY state extension     "
+              f"{len(reach['matched_via_state_extension']):>8}"
+              "   <- not SCED alignment")
+        print(f"  titles NY publishes twice        "
+              f"{len(reach['ambiguous_titles']):>8}"
+              "   <- resolved to the SCED code")
         print(f"\n  measured {stamp}")
         print("  reproduce with: python -m etl.probe_sced\n")
 

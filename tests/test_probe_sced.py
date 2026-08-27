@@ -62,13 +62,16 @@ def test_a_page_served_as_html_is_refused_not_read_as_an_empty_taxonomy(monkeypa
     monkeypatch.setattr(probe.urllib.request, "urlopen",
                         lambda *a, **k: _Response(b"<!DOCTYPE html><html>404"))
     with pytest.raises(probe.MalformedSource, match="did not return a workbook"):
-        probe.fetch(probe.MASTER)
+        probe.fetch(probe.PINNED_WAS)
 
 
 def test_a_renamed_sheet_is_refused_with_what_it_did_find(monkeypatch):
     """NCES changing the layout must stop the probe, not shrink its answer."""
     book = workbook({"Overview": [["x"]], "Something Else": [["y"]]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="no course sheet"):
         probe.master()
 
@@ -77,6 +80,9 @@ def test_a_sheet_that_parses_to_zero_rows_is_refused(monkeypatch):
     """An empty taxonomy is not a measurement."""
     book = workbook({"SCED 13.0": [["Course Title", "SCED Course Code"]]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     # "no data rows" rather than "zero rows": a header-only sheet is caught by
     # the length guard now, which fires first and says what is missing. The
     # zero-rows message still covers a sheet with rows that all fail the
@@ -106,6 +112,9 @@ def test_a_state_suffix_is_not_counted_as_a_sced_code(monkeypatch):
         ["01003CC", "ELA III (Common Core)"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     got = probe.new_york()
     assert got["courses"] == 2
     assert got["sced_codes"] == 1, "the state extension was counted as a SCED code"
@@ -121,15 +130,10 @@ def test_a_sequence_column_would_be_reported_if_a_state_published_one(monkeypatc
         ["01001", "ELA I", "1 of 2"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     assert probe.new_york()["publishes_sequence"] is True
-
-
-def test_programme_markers_are_stripped_so_the_match_is_a_best_case():
-    """The reachability figure is the one the document leads with, so it must
-    not understate what SCED could reach. `AICE Biology (AS Level)` gets its
-    best chance against `Biology`."""
-    assert probe.normalise("AICE Biology (AS Level)") == probe.normalise("Biology")
-    assert probe.normalise("AP U.S. History") == probe.normalise("U S History")
 
 
 def test_a_row_that_omits_a_cell_does_not_shift_the_columns(monkeypatch):
@@ -150,6 +154,9 @@ def test_a_row_that_omits_a_cell_does_not_shift_the_columns(monkeypatch):
         ["01003CC", "", "another English course"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     got = probe.new_york()
     assert got["courses"] == 2
     assert got["state_extensions"] == ["01003CC"], (
@@ -168,6 +175,9 @@ def test_a_reordered_export_is_refused_rather_than_read_positionally(monkeypatch
         ["ELA I", "01001"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="has been restructured"):
         probe.new_york()
 
@@ -198,6 +208,9 @@ def test_the_element_split_is_read_from_the_sheets_own_banner_rows(monkeypatch):
             ["Course Description", "A description of the course content."],
         ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     got = probe.master()
 
     assert got["elements"] == [
@@ -221,61 +234,11 @@ def test_an_elements_sheet_whose_banners_changed_is_refused(monkeypatch):
         "SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
         "Elements and Attributes": [["Field"], ["Something", "else"]]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="banner rows"):
         probe.master()
-
-
-def test_a_district_with_no_code_field_is_reported_as_carrying_none(monkeypatch):
-    """The figure the whole probe exists for, and it had no test at all.
-
-    The zero is what the schema recommendation rests on, so it has to mean
-    "there is no field for a SCED code" and not "no text happened to be five
-    digits". The earlier version scanned every string value on the record, so
-    a course *titled* `12345` would have counted as a district publishing SCED
-    — the right answer by the wrong route.
-    """
-    catalogue = {"courses": [
-        {"title": "Algebra I", "url": "https://x/algebra-1"},
-        # A title that is five digits. Under the old check this counted as a
-        # published SCED code.
-        {"title": "12345", "url": "https://x/12345"},
-    ]}
-    monkeypatch.setattr("etl.pwcs_source.read", lambda *a, **k: catalogue)
-    got = probe.district_reach({"Algebra I": "02052"})
-
-    assert got["sced_code_fields"] == [], (
-        "a field was treated as a SCED code column when the record has none")
-    assert got["publishes_sced_code"] == 0, (
-        "a five-digit title was counted as a published SCED code")
-    assert got["district_courses"] == 2
-    assert got["reachable_by_name"] == 1
-
-
-def test_two_courses_sharing_a_title_are_counted_once_each_way(monkeypatch):
-    """`reachable_by_name` and `district_courses` must count the same thing.
-    Keying the match on the raw title made the numerator a count of distinct
-    titles and the denominator a count of rows, so the percentage disagreed
-    with itself the moment a catalogue repeated a name."""
-    catalogue = {"courses": [
-        {"title": "Algebra I", "url": "https://x/a"},
-        {"title": "Algebra I", "url": "https://x/b"},
-    ]}
-    monkeypatch.setattr("etl.pwcs_source.read", lambda *a, **k: catalogue)
-    got = probe.district_reach({"Algebra I": "02052"})
-    assert got["district_courses"] == 2
-    assert got["reachable_by_name"] == 2, (
-        "the second course with the same title vanished from the numerator "
-        "while staying in the denominator")
-    assert got["distinct_titles_matched"] == 1
-
-
-def test_an_empty_catalogue_is_refused_rather_than_divided_by(monkeypatch):
-    """The reach is printed as a percentage of the catalogue. An empty one gave
-    a ZeroDivisionError traceback, where every other zero-result path in this
-    file refuses with a message."""
-    monkeypatch.setattr("etl.pwcs_source.read", lambda *a, **k: {"courses": []})
-    with pytest.raises(probe.MalformedSource, match="refusing to report a"):
-        probe.district_reach({"Algebra I": "02052"})
 
 
 def test_the_document_quotes_only_figures_the_probe_produces():
@@ -331,6 +294,9 @@ def test_a_repeated_course_code_does_not_make_the_table_stop_adding_up(monkeypat
         ["01003CC", "ELA III (Common Core), second listing"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     got = probe.new_york()
 
     assert got["rows"] == 3, "the row count no longer reports rows"
@@ -360,29 +326,11 @@ def test_a_sheet_whose_header_row_starts_blank_is_refused(monkeypatch):
         ["01001", "ELA I", "x"],
     ]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="opens with a blank row"):
         probe.new_york()
-
-
-def test_a_course_with_two_code_fields_is_counted_once(monkeypatch):
-    """`published` summed over (course × field) pairs while being reported as a
-    count of courses, so a record carrying two code fields counted twice.
-
-    The figure is the one the schema recommendation rests on, and it is a
-    count of DISTRICTS PUBLISHING A CODE — the same units problem this figure
-    was introduced to fix, one line down.
-    """
-    catalogue = {"courses": [
-        {"title": "Algebra I", "sced_code": "02052", "state_code": "02052"},
-        {"title": "Biology", "url": "https://x/bio"},
-    ]}
-    monkeypatch.setattr("etl.pwcs_source.read", lambda *a, **k: catalogue)
-    got = probe.district_reach({"Algebra I": "02052"})
-
-    assert sorted(got["sced_code_fields"]) == ["sced_code", "state_code"]
-    assert got["publishes_sced_code"] == 1, (
-        f"a course carrying two code fields was counted "
-        f"{got['publishes_sced_code']} times in a figure reported as courses")
 
 
 def test_the_master_sheet_gets_the_same_blank_header_guard_as_new_york(monkeypatch):
@@ -396,6 +344,9 @@ def test_the_master_sheet_gets_the_same_blank_header_guard_as_new_york(monkeypat
     book = workbook({"SCED 13.0": [["", "SCED Course Code", "Notes"],
                                    ["Algebra I", "02052", "x"]]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
+    # `master()` reads the landing page for the workbook URL now, so a test
+    # that fakes the workbook must fake that too or it makes a real request.
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="blank first column"):
         probe.master()
 
@@ -435,3 +386,41 @@ def test_the_new_york_table_is_a_table_and_not_prose():
     assert lines[sequence - 1].startswith("|"), (
         f"the sequence row is orphaned — the line above it is prose "
         f"({lines[sequence - 1][:60]!r}), so the row renders as literal text")
+
+
+def test_the_master_workbook_is_read_from_the_landing_page_not_pinned(monkeypatch):
+    """The comment claimed this and the code did not do it.
+
+    `MASTER` was a hard-pinned v13 URL and `LANDING` was fetched nowhere, while
+    the comment beside it said the URL was "read from the landing page rather
+    than pinned, so the next version is a changed figure and not a stale
+    constant". When NCES ships v14 that probe reports SCED 13.0 for ever —
+    precisely the stale constant the page's corrections section claims to
+    avoid.
+
+    The HIGHEST version, not the first link: NCES publishes the previous
+    version alongside the current one, so taking the first match pins whichever
+    happens to be listed first.
+    """
+    page = ('<a href="/files/SCEDv12File_508.xlsx">v12</a>'
+            '<a href="/files/SCEDv13File_508.xlsx">v13</a>')
+    monkeypatch.setattr(probe, "fetch_text", lambda url: page)
+
+    url, version = probe.master_file()
+    assert version == 13, "the older version was taken as current"
+    assert url.endswith("/files/SCEDv13File_508.xlsx")
+    assert url.startswith("https://nces.ed.gov"), (
+        "the href is relative on the real page and must be resolved against it")
+
+
+def test_a_restructured_landing_page_stops_the_run(monkeypatch):
+    """No fallback to the pinned URL.
+
+    A fallback that kicks in silently when the landing page changes shape is
+    the stale constant again, wearing a guard: the run would keep reporting
+    whichever version was pinned the day this was written, and nothing would
+    say so.
+    """
+    monkeypatch.setattr(probe, "fetch_text", lambda url: "<html>redesigned</html>")
+    with pytest.raises(probe.MalformedSource, match="no SCEDv"):
+        probe.master_file()

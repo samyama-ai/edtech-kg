@@ -37,9 +37,16 @@ earlier version of this probe assembled it and got a right-looking total over
 the wrong members.
 
 Note the version: **13.0**, where edtech-kg#34 says 12. The issue was written
-against the page as it stood and NCES has published a version since. The probe
-reads the file rather than pinning a number, so the next release shows as a
-changed figure instead of a stale constant.
+against the page as it stood and NCES has published a version since.
+
+The probe finds the workbook by reading the NCES **landing page** and taking
+the highest `SCEDv<N>File` link on it — v12 and v13 are both published there —
+rather than holding a URL to one file. So the next release shows up as a
+changed figure rather than as a stale constant, and a restructured landing page
+stops the run instead of silently re-reporting last year's taxonomy. The
+version in the table is the one in the filename that was downloaded; the sheet
+name inside it is reported beside it, because a restructure can move one
+without the other.
 
 A SCED code is five digits: the first two are the subject area, the rest
 identify the course within it.
@@ -109,9 +116,25 @@ you fall back to matching on course titles, which is a guess rather than a key.
 The 8% is also generous, deliberately. It is measured after stripping
 programme markers — `AP`, `IB`, `AICE`, `honors` — and parenthetical
 qualifiers, so `AICE Biology (AS Level)` gets its best chance against
-`Biology`. A stricter comparison returns less: without the parenthetical rule
-it was 58 rather than 67, and that difference is the measure of how much of the
-match depends on being lenient.
+`Biology`. A stricter comparison returns less: the probe prints both, and
+without the parenthetical rule it is **58** rather than 67. That difference is
+the measure of how much of the match depends on being lenient.
+
+Two things the probe also reports, because the count would otherwise be
+counting something the page argues against:
+
+| | |
+|---|---:|
+| Matches resolving to a New York **state extension** | **0** |
+| Titles New York publishes under more than one code | **31** |
+
+New York's eleven `CC` and `L` codes are the state adding to the taxonomy, not
+using it — this page says so below, and counting one as SCED alignment would
+overstate the reach. Normalising a title also collapses `Geometry` and
+`Geometry (Common Core)` onto the same key, so a title can have several codes
+behind it. A five-digit SCED code beats an extension, the lowest code breaks a
+remaining tie, and the 31 titles where a tie survives both rules are reported
+rather than quietly resolved.
 
 ### And the 8% is the wrong 8%
 
