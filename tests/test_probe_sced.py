@@ -267,6 +267,16 @@ def test_the_document_quotes_only_figures_the_probe_produces():
         "the page no longer states that the district publishes no SCED code — "
         "which is the finding the schema decision rests on")
 
+    # The three figures added with the resolution fix, pinned the same way. A
+    # figure on the page that nothing guards is the drift this test exists to
+    # stop, and these are the ones that make the headline honest: the strict
+    # comparison it is measured against, and the two counts that say the
+    # headline is not quietly counting a state extension.
+    for claim in ("without the parenthetical rule it is **58** rather than 67",
+                  "| Matches resolving to a New York **state extension** | **0** |",
+                  "| Titles New York publishes under more than one code | **31** |"):
+        assert claim in page, f"the page no longer states {claim!r}"
+
 
 def test_the_document_does_not_claim_sced_solves_prerequisites():
     """The sequence element's name invites exactly that conclusion, and the
