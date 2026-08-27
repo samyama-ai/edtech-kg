@@ -1,4 +1,4 @@
-# CareerOneStop — not cleared, and not for a licence reason
+# CareerOneStop — not cleared, and the licence was never reached
 
 Every figure on this page is printed by
 `python -m etl.probe_apprenticeship --reach`. None is typed.
@@ -9,8 +9,10 @@ requirements are "state-by-state and not centrally published". The issue is
 right that this is worth an hour: a question marked unanswerable that turns out
 to be answerable is the cheapest win available.
 
-**It is still unanswered.** Not because the claim was tested and held, but
-because the API does not accept a connection from here.
+**It is still unanswered**, on two counts. The API does not accept a
+connection from here, so the coverage question was never asked — and the terms
+sit behind the same block, so the licence question was never reached either.
+Neither is ruled out; both are simply unmeasured.
 
 ## What was measured
 
@@ -21,7 +23,7 @@ because the API does not accept a connection from here.
 
 Both columns are measured. The probe issues each request twice — once with the
 identifying User-Agent this repo sends and once with the header removed
-outright, because `urllib` inserts `Python-invoke/3.x` unless it is cleared, and
+outright, because `urllib` inserts `Python-urllib/3.x` unless it is cleared, and
 an "anonymous" request that actually carries a default agent measures the wrong
 thing.
 
@@ -61,9 +63,10 @@ page claimed "any resolver". `api.careeronestop.org` answers `155.204.131.84`
 from all three, which is why its row is a refused connection and not a missing
 name.
 
-**One caveat the whole page rests on:** these are `HEAD` requests. A 403 or 405
-to HEAD is **not evidence about GET**, and a page about telling failure modes
-apart should say so rather than let the reader assume.
+**One caveat the whole page rests on:** these are `HEAD` requests, and a
+response to HEAD is **not evidence about GET**. No 405 was observed here — it
+is named only as the shape a HEAD-specific refusal would take, which is exactly
+why the distinction is drawn rather than assumed.
 
 ## The part nobody measured
 

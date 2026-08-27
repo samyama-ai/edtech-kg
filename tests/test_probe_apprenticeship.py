@@ -317,18 +317,33 @@ def test_a_name_that_resolves_nowhere_is_told_apart_from_one_this_network_cannot
     monkeypatch.setattr(probe.socket, "gethostbyname",
                         lambda host: (_ for _ in ()).throw(OSError(8, "no")))
 
+    # `probe.subprocess` is patched, so no real `dig @8.8.8.8` leaves the
+    # machine. Without this the test queried Google's resolver for real — a
+    # network call from a suite that is supposed to be hermetic, and an
+    # assertion whose answer depended on someone else's DNS.
+    asked = []
+
     def answer(cmd, **kw):
+        asked.append(cmd)
+
         class Out:
             returncode = 0
-            stdout = "" if "gone.example" in cmd else "10.0.0.1\n"
+            stdout = "" if any("gone.example" in c for c in cmd) else "10.0.0.1\n"
         return Out()
     monkeypatch.setattr(probe.subprocess, "run", answer)
 
     gone = probe.resolves_anywhere("gone.example")
+    assert asked, "the public resolvers were never asked"
+    assert all(cmd[0] == "dig" for cmd in asked), asked
     assert gone["resolves_nowhere"] is True
     assert set(gone["by_resolver"]) == {"system", "Google", "Cloudflare"}
 
+    assert gone["by_resolver"] == {"system": None, "Google": None, "Cloudflare": None}, (
+        f"the strong claim was made from something other than three negative "
+        f"answers: {gone['by_resolver']}")
+
     local = probe.resolves_anywhere("fine.example")
+    assert local["by_resolver"]["Google"] == "10.0.0.1"
     assert local["resolves_nowhere"] is False, (
         "a name the public resolvers DO know was reported as resolving "
         "nowhere — that is a claim about the publisher made from a local "
@@ -379,3 +394,73 @@ def test_the_anonymous_request_really_sends_no_user_agent(monkeypatch):
     assert sent[1] == "", (
         f"the anonymous request sent {sent[1]!r} — urllib's default agent, "
         f"not an absent one")
+
+
+def test_the_major_group_split_is_computed_not_typed(monkeypatch):
+    """The half of this finding that was hand-typed.
+
+    The trades table was measured in a shell and written into the document,
+    under a heading promising every figure comes from the probe. The probe
+    computes it now — and the claim it supports ("the exclusive set is not the
+    trades") is arithmetic a reader can re-run.
+    """
+    crosswalks(
+        monkeypatch,
+        [HEADER,
+         # Two construction occupations, one also reachable by a programme.
+         ["0001", "Electrician", "47-2111.00", "Electricians"],
+         ["0002", "Plumber", "47-2152.00", "Plumbers"],
+         # One production occupation, reachable no other way.
+         ["0003", "Machine Setter", "51-4081.00", "Machine Tool Setters"]],
+        [HEADER, ["46.0302", "Electrician", "47-2111.00", "Electricians"]])
+    monkeypatch.setattr(probe, "our_soc", lambda: set())
+
+    groups = {g["name"]: g for g in probe.routes()["by_major_group"]}
+    assert set(groups) == {"Construction and Extraction", "Production"}
+
+    trades = groups["Construction and Extraction"]
+    assert (trades["apprenticeable"], trades["also_via_a_programme"],
+            trades["only_apprenticeship"]) == (2, 1, 1)
+    assert trades["covered_pct"] == 50, (
+        "the coverage percentage is not derived from the two counts beside it")
+
+    production = groups["Production"]
+    assert production["only_apprenticeship"] == 1
+    assert production["covered_pct"] == 0
+
+    # Ordered by the gap, because that is what the section argues about.
+    order = [g["name"] for g in probe.routes()["by_major_group"]]
+    assert order[0] == "Production" or groups["Production"]["only_apprenticeship"] >= \
+        groups["Construction and Extraction"]["only_apprenticeship"]
+
+
+def test_json_does_not_force_the_slow_network_probe(monkeypatch):
+    """`--json` turned `--reach` on, which made the machine-readable mode take
+    the network path the help text says is off by default — a flag doing
+    something its own documentation denies."""
+    calls = []
+    monkeypatch.setattr(probe, "probe",
+                        lambda quiet, with_reach: calls.append(with_reach) or {})
+    probe.main(["--json"])
+    assert calls == [False], "--json still forces the reachability probe"
+    calls.clear()
+    probe.main(["--json", "--reach"])
+    assert calls == [True], "--reach no longer turns it on"
+
+
+def test_a_network_failure_fetching_the_crosswalk_is_refused_not_a_traceback(monkeypatch, tmp_path):
+    """`our_soc()` caught `RuntimeError` and `ValueError` only.
+
+    `probe_cipsoc.download()` raises `URLError` when the network is down, and
+    that escaped `main()` as a traceback rather than arriving as `refused:` —
+    the same class the `MalformedSource` wrapper exists to close, through the
+    one door left open.
+    """
+    monkeypatch.setattr(probe.crosswalk, "LOCAL", tmp_path / "absent.xlsx")
+
+    def offline(*a, **k):
+        raise probe.urllib.error.URLError("network is unreachable")
+    monkeypatch.setattr(probe.crosswalk, "download", offline)
+
+    with pytest.raises(probe.MalformedSource, match="could not fetch the CIP-SOC"):
+        probe.our_soc()

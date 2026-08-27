@@ -97,18 +97,25 @@ The issue's framing is that "for a substantial set of well-paid occupations
 the road runs through an apprenticeship instead" of a degree. Measured, the
 occupations where that is *exclusively* true are somewhere else:
 
-| SOC major group | Apprenticeable | Also via a programme | **Only apprenticeship** |
-|---|---:|---:|---:|
-| Construction & Extraction | 39 | 32 | **7** |
-| Installation, Maintenance & Repair | 46 | 42 | **4** |
-| Production | 81 | 52 | **29** |
+| SOC major group | Apprenticeable | Also via a programme | **Only apprenticeship** | Covered |
+|---|---:|---:|---:|---:|
+| Production | 81 | 52 | **29** | 64% |
+| Transportation & Material Moving | 21 | 13 | **8** | 62% |
+| Construction & Extraction | 39 | 32 | **7** | 82% |
+| Installation, Maintenance & Repair | 46 | 42 | **4** | 91% |
+
+The probe prints this table. It did not when this section was first written —
+the figures were measured in a shell and typed in, under the heading at the top
+of this page promising that none of them are. That was the wrong way round, and
+it was the most interesting half of the finding resting on arithmetic nobody
+could re-run.
 
 The construction and maintenance trades — electrician, plumber, HVAC, the
 occupations the word "apprenticeship" calls to mind — are **already visible**
 through CIP, at 82% and 91% coverage. Building the apprenticeship route to
 reach them would add almost nothing.
 
-The 63 are dominated by **Production** (29) and Transportation (8): machine
+The 63 are dominated by **Production** (29) and **Transportation** (8): machine
 setters, operators and manufacturing roles that no CIP programme maps to. That
 is the gap, and it is a narrower and more specific one than the issue assumed.
 

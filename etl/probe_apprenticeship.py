@@ -160,13 +160,64 @@ def our_soc() -> set[str]:
     if not crosswalk.LOCAL.exists():
         try:
             crosswalk.download()
-        except (RuntimeError, ValueError) as exc:
+        except (RuntimeError, ValueError, urllib.error.URLError,
+                TimeoutError, OSError) as exc:
+            # A network failure escaped as a traceback: the crosswalk
+            # download raises URLError, and only RuntimeError and
+            # ValueError were caught.
             raise MalformedSource(
                 f"could not fetch the CIP-SOC crosswalk: {exc}") from exc
     with zipfile.ZipFile(crosswalk.LOCAL) as book:
         table = rows(book, sheets(book)["CIP-SOC"])
     mapped, _ = crosswalk.pairs(table, crosswalk.find_header(table, "CIP"))
     return {soc for _, soc in mapped if soc != NO_MATCH}
+
+
+# SOC major groups, by the first two digits of the code. Only the groups the
+# apprenticeship set actually reaches need names; anything else is reported by
+# its number rather than guessed at.
+SOC_GROUPS = {
+    "11": "Management", "13": "Business and Financial",
+    "15": "Computer and Mathematical", "17": "Architecture and Engineering",
+    "19": "Life, Physical and Social Science", "21": "Community and Social Service",
+    "23": "Legal", "25": "Education", "27": "Arts, Design and Media",
+    "29": "Healthcare Practitioner", "31": "Healthcare Support",
+    "33": "Protective Service", "35": "Food Preparation and Serving",
+    "37": "Building and Grounds Cleaning", "39": "Personal Care",
+    "41": "Sales", "43": "Office and Administrative Support",
+    "45": "Farming, Fishing and Forestry", "47": "Construction and Extraction",
+    "49": "Installation, Maintenance and Repair", "51": "Production",
+    "53": "Transportation and Material Moving", "55": "Military",
+}
+
+
+def by_major_group(apprentice: set[str], programme: set[str]) -> list[dict]:
+    """Where the apprenticeship-only occupations actually sit.
+
+    The most useful half of this page's finding, and it was hand-typed:
+    measured in a shell, written into the document, and published under a
+    heading promising every figure came from the probe. It comes from the
+    probe now.
+
+    The point it makes is that the exclusive set is NOT the trades — so the
+    per-group split has to be computed rather than asserted, or the claim
+    rests on arithmetic nobody can re-run.
+    """
+    groups = sorted({soc[:2] for soc in apprentice})
+    out = []
+    for prefix in groups:
+        mine = {s for s in apprentice if s.startswith(prefix)}
+        shared = mine & programme
+        out.append({
+            "group": prefix,
+            "name": SOC_GROUPS.get(prefix, f"SOC {prefix}"),
+            "apprenticeable": len(mine),
+            "also_via_a_programme": len(shared),
+            "only_apprenticeship": len(mine - shared),
+            # Printed rather than left for a reader to divide.
+            "covered_pct": round(100 * len(shared) / len(mine)) if mine else 0,
+        })
+    return sorted(out, key=lambda g: -g["only_apprenticeship"])
 
 
 def routes() -> dict:
@@ -205,6 +256,7 @@ def routes() -> dict:
         # Re-measured here rather than cited: every O*NET-SOC code carries a
         # suffix, so a naive join against SOC finds nothing at all.
         "naive_string_matches": len(a_onet & ours),
+        "by_major_group": by_major_group(a_soc, p_soc),
     }
 
 
@@ -261,10 +313,21 @@ def reachable() -> list[dict]:
     whose name resolves NOWHERE is a broken chain at the publisher's end, and
     only the second can be asserted without qualification.
     """
+    # Resolved once per HOST, not once per row. `REACH` lists two data.gov
+    # endpoints and two onetcenter URLs, and each resolution shells out to
+    # `dig` twice at up to 20s — so a repeated host paid the whole cost again
+    # for an answer already in hand.
+    #
+    # Scoped to this call rather than cached on the module: a cache that
+    # outlives the run answers a later question with an earlier network, which
+    # is the opposite of what a probe re-measuring every run is for.
+    resolved: dict[str, dict] = {}
     out = []
     for name, url in REACH:
         host = urllib.parse.urlparse(url).hostname or ""
-        dns = resolves_anywhere(host)
+        if host not in resolved:
+            resolved[host] = resolves_anywhere(host)
+        dns = resolved[host]
         record = {"source": name, "url": url,
                   "dns": dns["by_resolver"].get("system"),
                   "by_resolver": dns["by_resolver"],
@@ -333,6 +396,14 @@ def probe(quiet: bool = False, with_reach: bool = False) -> dict:
               "   <- this graph has no shape for these")
         print(f"  reachable ONLY by a programme    {found['programme_only']:>8,}")
 
+        print("\nWhere the apprenticeship-only occupations sit\n")
+        print(f"  {'SOC major group':<38} {'appr':>5} {'also':>5} {'only':>5} {'cov':>5}")
+        for g in found["by_major_group"]:
+            if g["only_apprenticeship"] or g["apprenticeable"] >= 20:
+                print(f"  {g['name'][:37]:<38} {g['apprenticeable']:>5} "
+                      f"{g['also_via_a_programme']:>5} {g['only_apprenticeship']:>5} "
+                      f"{g['covered_pct']:>4}%")
+
         print("\nJoining to the crosswalk this repo loads\n")
         print(f"  SOC our crosswalk carries        {found['our_crosswalk_soc']:>8,}")
         print(f"  of those, apprenticeable         {found['apprenticeable_in_ours']:>8,}")
@@ -363,7 +434,11 @@ def main(argv: list[str] | None = None) -> int:
                              "makes a plain run slow for no new figure.")
     args = parser.parse_args(argv)
     try:
-        result = probe(quiet=args.json, with_reach=args.reach or args.json)
+        # `--reach` only. It used to be forced on by `--json` too, which
+        # made the machine-readable mode take the slow network path the
+        # help text says is off by default — a flag doing something its
+        # own documentation denies.
+        result = probe(quiet=args.json, with_reach=args.reach)
     except MalformedSource as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
