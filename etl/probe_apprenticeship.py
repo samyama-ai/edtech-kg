@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import re
 import socket
 import subprocess
 import sys
@@ -85,6 +86,10 @@ REACH = [
 # Queried alongside the system resolver. The page's whole argument rests on
 # telling "this network cannot resolve it" apart from "it resolves nowhere",
 # and one `gethostbyname()` call cannot make that distinction.
+#: An A or AAAA answer, as `dig +short` prints one. Anything else in that
+#: output is a CNAME, a message, or part of a chain.
+ADDRESS = re.compile(r"\A(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]{3,})\Z")
+
 PUBLIC_RESOLVERS = (("Google", "8.8.8.8"), ("Cloudflare", "1.1.1.1"))
 
 
@@ -299,8 +304,12 @@ def resolves_anywhere(host: str) -> dict:
         if out.returncode != 0:
             answers[name] = "unknown"
             continue
+        # VALIDATED as an address. `dig +short` prints a CNAME chain, and on
+        # some failures a message, so the first line that is not a name was
+        # taken as an answer whatever it said — and that string then appears
+        # on the page as the address a resolver returned.
         found = [line for line in out.stdout.split()
-                 if line and not line.endswith(".")]
+                 if ADDRESS.match(line)]
         answers[name] = found[0] if found else None
 
     # The strong claim needs a PUBLIC resolver to have answered. A local

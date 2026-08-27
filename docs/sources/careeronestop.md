@@ -53,34 +53,34 @@ behaving that way.
 This is the distinction `docs/sources/bls-occupation.md` had to make and it
 applies here with more force, so it is stated before anyone leans on the page.
 
-**Established.** The API host resolves to a real address — `155.204.131.84`,
-the same from the system resolver, Google and Cloudflare — and the connection
-then **times out**. The web host returns 403 to an automated request regardless
+**Established.** The API host resolves to a real address — the **same one from
+the system resolver, Google and Cloudflare** — and the connection then **times
+out**. The address itself is in the probe output rather than on this page: it
+is a fact about DNS on the day of the run, and typing it here would go stale
+without anything saying so. The web host returns 403 to an automated request regardless
 of User-Agent.
 
 The probe records `no connection (timed out)` and nothing finer. It cannot tell
-a TLS handshake that never completes from a TCP connection that is dropped or
-filtered, so this page does not claim which — it said "does not complete a TLS
-connection" in one place and "a refused TCP connection" in another, and the
-measurement supports neither. Control hosts reached successfully in the same
+a TLS handshake that never completes from a connection dropped or filtered, so
+this page does not say which. Control hosts reached successfully in the same
 session — `onetcenter.org`, `nces.ed.gov`, `careertech.org` — so this is not a
 general egress failure.
 
-**Not established.** That CareerOneStop is unreachable *in general*. A refused
-TCP connection to a single address cannot be told apart, from one network, from
-an outbound restriction on that address. It may well answer from elsewhere.
+**Not established.** That CareerOneStop is unreachable *in general*. A
+connection to a single address that times out cannot be told apart, from one
+network, from an outbound restriction on that address. It may well answer from
+elsewhere.
 
 The neighbouring finding on the same run is a useful contrast, because it can be
 asserted without that qualification: `api.apprenticeship.gov` returns no A
 record from the system resolver, `8.8.8.8` **or** `1.1.1.1`. A name that
-resolves nowhere is broken at the publisher's end. A refused connection is not
-the same claim, and this page does not make it.
+resolves nowhere is broken at the publisher's end. A connection that times out
+is not the same claim, and this page does not make it.
 
 That asymmetry is the argument of this page, so the probe asks all three
-resolvers rather than one — it used to ask the system resolver once while the
-page claimed "any resolver". `api.careeronestop.org` answers `155.204.131.84`
-from all three, which is why its row is a refused connection and not a missing
-name.
+resolvers rather than one. `api.careeronestop.org` answers with the **same
+address from all three**, which is why its row is a connection that times out
+and not a missing name.
 
 **One caveat the whole page rests on:** these are `HEAD` requests, and a
 response to HEAD is **not evidence about GET**. No 405 was observed here — it

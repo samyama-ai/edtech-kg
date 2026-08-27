@@ -12,6 +12,7 @@ Workbooks are built in the test, so no network and no committed sample file.
 from __future__ import annotations
 
 import io
+import subprocess
 
 import pytest
 
@@ -209,6 +210,16 @@ def test_a_host_that_does_not_resolve_is_told_apart_from_one_that_refuses(monkey
             raise OSError(8, "nodename nor servname provided")
         return "10.0.0.1"
     monkeypatch.setattr(probe.socket, "gethostbyname", resolve)
+
+    # `dig` too. This patched `gethostbyname` only, so `resolves_anywhere`
+    # shelled out to the real `dig @8.8.8.8` for every host in REACH — real
+    # network calls from a unit test, answering about the internet rather
+    # than about the fixture.
+    def dug(argv, *a, **k):
+        host = argv[-1]
+        answer = "" if host == "gone.example" else "10.0.0.1\n"
+        return subprocess.CompletedProcess(argv, 0, stdout=answer, stderr="")
+    monkeypatch.setattr(probe.subprocess, "run", dug)
 
     def refuse(*a, **k):
         raise probe.urllib.error.URLError("timed out")
@@ -458,3 +469,32 @@ def test_the_two_programme_crosswalks_are_reported_apart_not_as_one(monkeypatch)
         "an occupation our own crosswalk reaches was reported as one no "
         "programme can reach — the two crosswalks are not the same file and "
         "the page cannot quote one under a sentence about the other")
+
+
+def test_a_cname_or_a_message_from_dig_is_not_taken_as_an_address(monkeypatch):
+    """`found[0]` took the first line that was not a name.
+
+    `dig +short` prints a CNAME chain before the address, and on some failures
+    prints a message instead. Whatever that first line said became the answer
+    a resolver gave — and it appears on the page as the address the host
+    resolves to, which is a measured claim.
+    """
+    def dug(argv, *a, **k):
+        host = argv[-1]
+        if host == "chained.example":
+            out = "alias.cdn.example.\n93.184.216.34\n"
+        elif host == "broken.example":
+            out = ";; connection timed out; no servers could be reached\n"
+        else:
+            out = "10.0.0.1\n"
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+    monkeypatch.setattr(probe.subprocess, "run", dug)
+    monkeypatch.setattr(probe.socket, "gethostbyname", lambda h: "10.0.0.1")
+
+    chained = probe.resolves_anywhere("chained.example")
+    assert chained["by_resolver"]["Google"] == "93.184.216.34", (
+        "a CNAME was reported as the resolved address")
+
+    broken = probe.resolves_anywhere("broken.example")
+    assert broken["by_resolver"]["Google"] is None, (
+        "a dig error message was reported as an address")
