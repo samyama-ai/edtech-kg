@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import os
+import tomllib
 import re
 import subprocess
 import sys
@@ -87,6 +88,14 @@ def test_a_placeholder_in_a_markdown_heading_is_not_stripped_as_a_comment():
     # And a placeholder in a VALUE is caught in every file type.
     value = 'NAME = "{{%s}}-kg"' % "KG_SLUG"
     assert _prose_stripped(value, "etl/x.py") == [value]
+
+
+#: Read from `pyproject.toml`, never restated. A second copy of this list is
+#: how the packaging test comes to agree with itself rather than with the file
+#: that decides what ships.
+CONFIGURED_PACKAGES = tomllib.loads(
+    (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+)["tool"]["setuptools"]["packages"]["find"]["include"]
 
 
 def test_the_package_metadata_is_valid_enough_to_install():
@@ -238,13 +247,33 @@ def test_the_contributing_notes_carry_the_rules_that_cost_rounds():
     omits any of them is decorative."""
     doc = (ROOT / "CONTRIBUTING.md").read_text(errors="replace")
     flat = " ".join(doc.split()).lower()
-    for phrase, why in (
-        ("500", "the file-size limit review enforces"),
-        ("closes #", "the only thing that closes an issue on merge"),
-        ("red", "breaking your own fix to see a test fail"),
-        ("engine", "which engine build the figures were measured against"),
+    # Anchored to a SECTION, not to a word that happens to appear in one.
+    #
+    # Two of these were bare substring tests and neither guarded anything:
+    # `"red" in flat` is satisfied by "shared", "learned" and "measured", and
+    # `"engine" in flat` by the `SAMYAMA_REQUIRE_ENGINE` variable in a code
+    # block three sections away. Deleting the whole of "Break your own fix
+    # before asking for review" and the whole of "Engine version" left this
+    # test green — a guard that provably does not guard, in the file that
+    # names the vacuous pass as the thing to watch for.
+    #
+    # A heading AND a phrase from the body, because a heading with nothing
+    # under it is the other way to satisfy this.
+    for heading, phrase, why in (
+        ("## size", "500", "the file-size limit review enforces"),
+        ("## what a pr body should contain", "closes #",
+         "the only thing that closes an issue on merge"),
+        ("## break your own fix before asking for review", "confirm red",
+         "breaking your own fix to see a test fail"),
+        ("## engine version", "one engine build",
+         "which engine build the figures were measured against"),
     ):
-        assert phrase in flat, f"CONTRIBUTING.md does not cover {why}"
+        assert heading in flat, (
+            f"CONTRIBUTING.md has no {heading!r} section, so it does not cover "
+            f"{why}")
+        assert phrase in flat, (
+            f"CONTRIBUTING.md's {heading!r} section no longer says {phrase!r}, "
+            f"which is how it covers {why}")
 
 
 def _prose_stripped(body: str, name: str) -> list[str]:
@@ -333,3 +362,37 @@ def test_the_short_meeting_set_runs_the_question_its_pitch_depends_on():
     assert {QUESTIONS[i]["tier"] for i in chosen} == {1, 2, 3, 4, 5}, (
         "the set no longer reaches every tier, which is what the page claims "
         "of it")
+
+
+def test_every_module_the_readme_tells_you_to_run_is_packaged():
+    """`include` listed `etl*` and `mcp_server*` and not `demo*`.
+
+    So `pip install -e .` shipped the MCP stub — which returns nothing — and
+    left out the demo, which is the thing this repo exists to show. `README.md`
+    tells a reader to install and then run `python -m demo.demo`, and from
+    outside the repo root that raised `ModuleNotFoundError`. From inside it the
+    working directory hides the omission, which is why nothing caught it.
+
+    Derived from the README rather than from a list here: a `python -m` line
+    added to the quick start later is covered the day it is added, and a list
+    in this file would agree with itself instead.
+    """
+    import re
+    import setuptools
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    invoked = {match.split(".")[0]
+               for match in re.findall(r"python -m ([a-z_][a-z0-9_.]*)", readme)}
+    assert invoked, "no `python -m` line found in the README to check"
+
+    packaged = set(setuptools.find_packages(
+        where=str(ROOT), include=CONFIGURED_PACKAGES))
+
+    missing = sorted(name for name in invoked
+                     if (ROOT / name / "__init__.py").is_file()
+                     and name not in packaged)
+    assert not missing, (
+        f"the README tells a reader to run {missing} after installing, and "
+        f"`pip install .` does not ship them — from any directory other than "
+        f"the repo root that is a ModuleNotFoundError. Add them to "
+        f"`[tool.setuptools.packages.find] include`.")

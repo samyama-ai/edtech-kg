@@ -37,7 +37,12 @@ dev = ["pytest>=7.0", "flake8>=6.0", "pyflakes>=3.0", "setuptools>=61.0"]
 mcp = ["fastmcp>=0.1.0"]
 
 [tool.setuptools.packages.find]
-include = ["etl*", "mcp_server*"]
+# `demo*` as well. The README tells a reader to `pip install -e .` and then
+# run `python -m demo.demo`; without it the demo is the one thing the repo
+# exists to show and the one thing not packaged, while an empty mcp_server
+# stub ships. Verified by importing from outside the repo root, which is
+# where the difference shows — from inside it, the cwd hides the omission.
+include = ["etl*", "mcp_server*", "demo*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

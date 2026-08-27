@@ -166,11 +166,14 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
     backend.
 
     Scoped to the modules the suite REACHES — the tests, this conftest, and the
-    `etl` modules the tests import. `etl/loader.py`, `etl/helpers.py`,
-    `etl/download_data.py` and `mcp_server/server.py` are untouched template
-    scaffolding, still holding `{{KG_NAME}}` placeholders and imported by
-    nothing; they carry third-party imports that CI never executes, and folding
-    them in here would fail for a reason CI does not have.
+    `etl` modules the tests import. Not every file in the tree: a module the
+    suite never imports can carry a third-party import that CI never executes,
+    and compiling it here would fail for a reason CI does not have.
+
+    The scope is DERIVED below by walking the imports, never listed here. A
+    docstring that names the files it excludes is wrong the moment one of them
+    is renamed or deleted, and it is wrong silently — the test keeps passing
+    and the paragraph keeps explaining a tree that no longer exists.
     """
     assert re.search(r"pip install[^\n]*\bpytest\b", workflow), "pytest is not installed"
 

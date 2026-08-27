@@ -23,12 +23,14 @@ perfectly to ones it cannot answer at all, in five tiers:
 Opening at tier 4 invites "couldn't you have done that in Excel?". The early
 questions are what make the later answers credible.
 
-Running it short — the eight that carry a meeting:
+Running it short — the nine that carry a meeting:
 
     python -m demo.demo --only 0,5,8,11,13,15,16,17,19
 
-Q8 and Q11 are in that set for the same reason: an audience that hears only
-what is broken stops listening. Q8 is what to reach for when someone asks how
+Q8, Q11 and Q16 are in that set for the same reason: an audience that hears
+only what is broken stops listening. Q16 is the one that answers "so what do I
+do with this?" — the shortest path from a course a student is already taking to
+a career, which is the question a parent in the room is actually holding. Q8 is what to reach for when someone asks how
 messy data is handled — 138 conditions that are not course references, counted,
 kept, and not pretended into edges. Q11 is the positive counterpart to Q15's
 twenty-eight: one course that opens six different careers.
