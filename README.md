@@ -60,7 +60,7 @@ curl -X POST http://localhost:8200/api/tenants -H 'Content-Type: application/jso
      -d '{"id":"edtech","name":"EdTech KG"}'
 
 python -m etl.load_pwcs --url http://localhost:8200 --graph edtech
-python -m demo.demo     --only 0,5,8,11,13,15,17,19    # the eight for a short meeting
+python -m demo.demo     --only 0,5,8,11,13,15,16,17,19  # the nine for a short meeting
 python -m demo.demo --list                             # all 21, no engine needed
 ```
 
@@ -201,7 +201,7 @@ pip install -e .
 python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
 python -m etl.load_pwcs          # build + load the graph
 python -m demo.demo              # walk it
-pytest                           # 548 tests
+pytest                           # 551 tests
 ```
 
 CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an

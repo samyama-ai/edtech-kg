@@ -108,6 +108,11 @@ def test_the_package_metadata_is_valid_enough_to_install():
     from setuptools import build_meta
 
     with tempfile.TemporaryDirectory() as out:
+        # `os.chdir` is process-global, so it changes the working directory for
+        # every other test in the run. The restore is in a `finally` for that
+        # reason — a raise here would otherwise leave the whole suite pointed
+        # at a different directory, and the failures that followed would be in
+        # tests that have nothing to do with packaging.
         cwd = os.getcwd()
         os.chdir(ROOT)
         try:
@@ -184,14 +189,24 @@ def test_the_declared_dependencies_are_ones_something_imports():
     # The direction that stays meaningful when the list is empty.
     first_party = {d.name for d in ROOT.iterdir() if (d / "__init__.py").exists()}
     first_party |= {p.stem for p in ROOT.glob("*.py")} | {"__future__"}
+    # Scoped to the optional-dependencies TABLE, not to everything after its
+    # heading. Splitting on the heading and reading to the end of the file
+    # swept in every later array — `[tool.setuptools.packages.find]`'s
+    # `include`, and anything added below it — so an unrelated entry silently
+    # counted as a declared extra and excused an undeclared import.
+    tail = pyproject.split("[project.optional-dependencies]")
     extras = set()
-    for group in re.findall(r"^\w[\w-]* = \[(.*?)\]",
-                            pyproject.split("[project.optional-dependencies]")[-1],
-                            re.M | re.S):
-        for item in group.split(","):
-            item = item.strip().strip('"\'')
-            if item:
-                extras.add(re.match(r"[A-Za-z0-9_.-]+", item).group(0).lower())
+    if len(tail) > 1:
+        # Up to the next table header, wherever that is.
+        block = re.split(r"^\[", tail[1], maxsplit=1, flags=re.M)[0]
+        for group in re.findall(r"^\w[\w-]* = \[(.*?)\]", block, re.M | re.S):
+            for item in group.split(","):
+                item = item.strip().strip('"\'')
+                # `.group(0)` on a miss is an AttributeError, from inside the
+                # check that exists to produce a readable failure.
+                found = re.match(r"[A-Za-z0-9_.-]+", item)
+                if found:
+                    extras.add(found.group(0).lower())
 
     undeclared = sorted(
         imported - set(sys.stdlib_module_names) - first_party - declared - extras)
@@ -275,3 +290,46 @@ def _prose_stripped(body: str, name: str) -> list[str]:
                 first = node.body[0]
                 skip.update(range(first.lineno - 1, (first.end_lineno or first.lineno)))
     return [line for i, line in enumerate(lines) if i not in skip]
+
+
+def test_the_short_meeting_set_is_the_same_in_every_place_it_appears():
+    """It appears in four files, and a correction reached one of them.
+
+    `demo/demo.py` states it twice, `README.md` once and `demo/README.md`
+    once. Adding the missing question to one left three quoting a set that no
+    longer exists — the drift this repo keeps finding, in a string a presenter
+    copies before a meeting.
+    """
+    # The GIF is recorded from a DIFFERENT and shorter set, on a line carrying
+    # `--auto`. That one is meant to differ, so it is excluded rather than
+    # forced to agree — a test that flattens two deliberate sets into one
+    # would be demanding a bug.
+    quoted = set()
+    for name in ("demo/demo.py", "README.md", "demo/README.md"):
+        for line in (ROOT / name).read_text(encoding="utf-8").splitlines():
+            if "--auto" in line:
+                continue
+            quoted |= set(re.findall(r"--only ([\d,]+)", line))
+
+    assert len(quoted) == 1, (
+        f"the short-meeting set is quoted as {sorted(quoted)} across the repo "
+        f"— a presenter copying one of them runs a different demo")
+
+
+def test_the_short_meeting_set_runs_the_question_its_pitch_depends_on():
+    """The pitch is "fail Algebra 1 and courses close off — and they are not
+    the subjects anyone expects". The second half is Q16, and the set ran the
+    first half and stopped."""
+    from demo.demo import QUESTIONS
+
+    text = (ROOT / "demo" / "README.md").read_text(encoding="utf-8")
+    lines = [line for line in text.splitlines()
+             if "--only" in line and "--auto" not in line]
+    chosen = [int(n) for n in re.findall(r"--only ([\d,]+)", lines[0])[0].split(",")]
+
+    assert 16 in chosen, (
+        "Q16 is missing, so the demo makes a claim about subjects and never "
+        "shows them")
+    assert {QUESTIONS[i]["tier"] for i in chosen} == {1, 2, 3, 4, 5}, (
+        "the set no longer reaches every tier, which is what the page claims "
+        "of it")

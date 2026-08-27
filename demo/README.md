@@ -11,16 +11,25 @@ docker run -d --rm -p 8200:8080 public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0
 python -m etl.load_pwcs --url http://localhost:8200 --graph edtech
 
 SAMYAMA_URL=http://localhost:8200 python -m demo.demo
-SAMYAMA_URL=http://localhost:8200 python -m demo.demo --only 0,5,8,11,13,15,17,19
+SAMYAMA_URL=http://localhost:8200 python -m demo.demo --only 0,5,8,11,13,15,16,17,19
 python -m demo.demo --list      # the questions, no engine needed
 ```
 
 Pacing belongs to the presenter: it waits for Enter between questions unless
 `--auto` is passed.
 
-The `--only` set above is the eight that fit a short meeting: one per tier, plus
-the two that tend to start a conversation — fail Algebra 1 and 28 courses close
-off, and they are not the subjects anyone expects.
+The `--only` set above is the nine that fit a short meeting: every tier
+represented, weighted toward the tier-4 answers, which are the ones a
+spreadsheet cannot reach.
+
+It is nine rather than eight because **16** was missing. The pitch these
+questions build to is "fail Algebra 1 and a set of courses closes off — and
+they are not the subjects anyone expects", and the second half of that sentence
+is Q16, *…and in which subjects?*. The set ran the first half and stopped.
+
+The count itself is deliberately not quoted here. It is one district's figure,
+printed by the demo as it runs, and a number typed into this page would go
+stale the first time a different catalogue is loaded.
 
 ## The GIF at the top of the repo README
 

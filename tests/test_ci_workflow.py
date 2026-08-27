@@ -120,6 +120,10 @@ def packages_installed(workflow: str) -> set[str]:
     """What the workflow's `run:` commands actually install.
 
     Anchored to the `run:` COMMAND, not to any line mentioning `pip install`.
+    Both YAML spellings — `run:` on its own line and `- run:` as the first key
+    of a step — because the second is equally valid and was invisible to this
+    guard, which would have read a workflow that installs everything as one
+    that installs nothing.
     `ci.yml` discusses `pip install -e .` and `pip install --dry-run` in the
     comment block above the step, so matching the phrase anywhere absorbed
     English from those comments — `and`, `but`, `deliberate`, `is`, `not`,
@@ -132,11 +136,16 @@ def packages_installed(workflow: str) -> set[str]:
     this one left it green — it was verifying a duplicate parser.
     """
     found = set()
-    for line in re.findall(r"^\s*run:.*?pip install([^\n]*)$", workflow, re.M):
+    for line in re.findall(r"^\s*-?\s*run:.*?pip install([^\n]*)$", workflow, re.M):
         for word in line.split():
             if word.startswith("-"):
                 continue
-            found.add(re.split(r"[<>=!\[]", word)[0].lower())
+            # Quotes stripped first. A pinned dependency is normally quoted
+            # in a shell command — `"setuptools>=61.0"` — and leaving the
+            # quote on made the token `"setuptools`, which matches nothing.
+            # The guard then reported a package as missing that the very same
+            # line installs.
+            found.add(re.split(r"[<>=!\[]", word.strip('"\''))[0].lower())
     return found
 
 
@@ -144,11 +153,17 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
     """The suite needs pytest and the standard library, measured — so that is
     what CI installs.
 
-    `pip install -e .` is not used, because it cannot run: `pyproject.toml`
-    still carries the repo template's placeholder name and setuptools rejects
-    it (#17). The dependencies it lists are not the ones the code imports
-    either. Installing a dependency set nobody imports would be its own green
-    build that proves nothing.
+    `pip install -e .` is not used, and the reason changed with this branch.
+    It used to be that the packaging was broken — the template's placeholder
+    name is not a valid identifier, so the install failed before it started.
+    #17 fixed that, and this file is part of #17, so the old reason was an
+    argument for a state the same branch removes. It survived here after being
+    corrected in `ci.yml`, which is the sweep this round is about.
+
+    The reason now is that installing adds nothing and costs something:
+    `dependencies` is empty because outside the standard library this package
+    imports nothing, while build isolation would reach the index for a
+    backend.
 
     Scoped to the modules the suite REACHES — the tests, this conftest, and the
     `etl` modules the tests import. `etl/loader.py`, `etl/helpers.py`,
@@ -281,3 +296,20 @@ jobs:
     assert installed == {"pytest"}, (
         f"the guard read {sorted(installed)} as installed — anything beyond "
         f"pytest came from the comment, not from the command")
+
+
+def test_a_pinned_dependency_is_read_through_its_quotes():
+    """A pin is normally quoted in a shell command, and the quote broke it.
+
+    `"setuptools>=61.0"` parsed to `"setuptools` — so the guard reported a
+    package as missing that the very same line installs, and the obvious
+    "fix" would have been to remove the pin rather than to read it.
+    """
+    workflow = (
+        "jobs:\n"
+        "  test:\n"
+        "    steps:\n"
+        "      - run: python -m pip install --quiet pytest "
+        '"setuptools>=61.0" ' + "'wheel<1'\n"
+    )
+    assert packages_installed(workflow) == {"pytest", "setuptools", "wheel"}

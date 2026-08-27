@@ -81,7 +81,11 @@ jobs:
         # install --dry-run` that would reach the index. It is present in most
         # environments already; naming it is what keeps
         # `test_the_workflow_installs_what_the_suite_actually_imports` true.
-        run: python -m pip install --quiet pytest setuptools
+        # Pinned to match `pyproject.toml`'s `dev` extra. Unconstrained,
+        # CI could resolve a setuptools older than the one the metadata
+        # test needs and fail for a reason that has nothing to do with
+        # the change under review.
+        run: python -m pip install --quiet pytest "setuptools>=61.0"
 
       - name: Start a fresh engine
         # A FRESH instance, never a loaded one: the schema tests validate

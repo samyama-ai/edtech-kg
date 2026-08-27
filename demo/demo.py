@@ -25,7 +25,7 @@ questions are what make the later answers credible.
 
 Running it short — the eight that carry a meeting:
 
-    python -m demo.demo --only 0,5,8,11,13,15,17,19
+    python -m demo.demo --only 0,5,8,11,13,15,16,17,19
 
 Q8 and Q11 are in that set for the same reason: an audience that hears only
 what is broken stops listening. Q8 is what to reach for when someone asks how
@@ -434,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Run without waiting for a keypress.")
     parser.add_argument("--only", metavar="N,N,N",
                         help="Run just these questions, in this order. "
-                             "For a short meeting: --only 0,5,8,11,13,15,17,19")
+                             "For a short meeting: --only 0,5,8,11,13,15,16,17,19")
     parser.add_argument("--tier", type=int, choices=sorted(TIERS),
                         help="Run only the questions at this tier.")
     parser.add_argument("--rows", type=int, default=12,
