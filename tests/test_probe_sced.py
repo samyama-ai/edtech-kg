@@ -300,3 +300,73 @@ def test_the_document_does_not_claim_sced_solves_prerequisites():
         "the page no longer explains what the sequence element means")
     assert re.search(r"not a (relationship|prerequisite) between", page), (
         "the page no longer says the sequence element is not a prerequisite")
+
+
+def test_a_repeated_course_code_does_not_make_the_table_stop_adding_up(monkeypatch):
+    """`courses` and `sced_codes` counted ROWS while `state_extensions` counted
+    distinct codes, so the printed lines reconciled against each other only
+    because this file happens to carry no repeated extension code.
+
+    A catalogue that repeats one produced `courses` larger than
+    `sced_codes + state_extensions`, with nothing on the page saying why.
+    """
+    book = workbook({"All courses": [
+        ["Course Code (Course ID)", "Course Code Description"],
+        ["01001", "ELA I"],
+        ["01003CC", "ELA III (Common Core)"],
+        # The same extension code twice — two rows, one code.
+        ["01003CC", "ELA III (Common Core), second listing"],
+    ]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    got = probe.new_york()
+
+    assert got["rows"] == 3, "the row count no longer reports rows"
+    assert got["courses"] == 2, "the course count is still counting rows"
+    assert got["courses"] == got["sced_codes"] + len(got["state_extensions"]), (
+        f"the table does not add up: {got['courses']} courses against "
+        f"{got['sced_codes']} SCED codes and "
+        f"{len(got['state_extensions'])} extensions")
+
+
+def test_a_sheet_whose_header_row_starts_blank_is_refused(monkeypatch):
+    """`header[0]` was read before anything checked it had content.
+
+    The review described this as an IndexError on a blank first row. Driven,
+    that exact case does not reach it — `probe_cipsoc.rows` drops a row with no
+    values at all, so an entirely blank row never becomes `body[0]`. What DOES
+    reach it is a header whose first cell is empty and whose later cells are
+    not: the reader pads, so `header[0]` is `""` rather than missing, and the
+    column check then compares an empty string and reports a restructured
+    export in a message about column names.
+
+    The guard is worth having either way, and this is the shape that gets
+    there.
+    """
+    book = workbook({"All courses": [
+        ["", "Course Code Description", "Notes"],
+        ["01001", "ELA I", "x"],
+    ]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    with pytest.raises(probe.MalformedSource, match="opens with a blank row"):
+        probe.new_york()
+
+
+def test_a_course_with_two_code_fields_is_counted_once(monkeypatch):
+    """`published` summed over (course × field) pairs while being reported as a
+    count of courses, so a record carrying two code fields counted twice.
+
+    The figure is the one the schema recommendation rests on, and it is a
+    count of DISTRICTS PUBLISHING A CODE — the same units problem this figure
+    was introduced to fix, one line down.
+    """
+    catalogue = {"courses": [
+        {"title": "Algebra I", "sced_code": "02052", "state_code": "02052"},
+        {"title": "Biology", "url": "https://x/bio"},
+    ]}
+    monkeypatch.setattr("etl.pwcs_source.read", lambda *a, **k: catalogue)
+    got = probe.district_reach({"Algebra I": "02052"})
+
+    assert sorted(got["sced_code_fields"]) == ["sced_code", "state_code"]
+    assert got["publishes_sced_code"] == 1, (
+        f"a course carrying two code fields was counted "
+        f"{got['publishes_sced_code']} times in a figure reported as courses")

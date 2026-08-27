@@ -73,9 +73,15 @@ five that were checked.
 
 | | |
 |---|---|
-| Courses published | **2,012** |
+| Rows in the sheet | **2,012** |
+| Distinct course codes | **2,012** |
 | Five-digit SCED codes | **2,001** |
 | New York extensions | **11** — `01003CC`, `03001L` and nine more |
+
+The rows and the distinct codes are both given, and they agree here: 2,001 SCED
+codes plus 11 extensions is 2,012. They are reported separately because the
+table used to mix them — two lines counted rows and one counted distinct codes,
+so it added up only because this file repeats no code.
 | Publishes a sequence column | **No** |
 
 The eleven extensions are New York adding to the taxonomy, not using it —

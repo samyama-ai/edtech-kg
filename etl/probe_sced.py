@@ -187,6 +187,14 @@ def new_york() -> dict:
     header, courses = body[0], [r for r in body[1:] if r and r[0].strip()]
     if not courses:
         raise MalformedSource(f"the New York sheet {name!r} parsed to zero courses")
+    # The header row itself must have content. A blank first row passes the
+    # length guard above and then `header[0]` raises IndexError from inside the
+    # check that exists to catch a restructured export — a traceback instead of
+    # the message.
+    if not header or not header[0].strip():
+        raise MalformedSource(
+            f"the New York sheet {name!r} opens with a blank row, so its "
+            f"columns cannot be checked — the export has been restructured")
 
     # Column 0 is the code and column 1 the title. Checked rather than assumed:
     # a reordered export would otherwise be read silently, and every figure
@@ -201,10 +209,19 @@ def new_york() -> dict:
     codes = [r[0].strip() for r in courses]
     pure = [c for c in codes if SCED_CODE.match(c)]
 
-    return {"source": NEW_YORK, "columns": header, "courses": len(codes),
-            "sced_codes": len(pure),
-            "state_extensions": sorted(set(codes) - set(pure)),
-            "subject_prefixes": len({c[:2] for c in pure}),
+    # ONE unit throughout: distinct codes. `courses` and `sced_codes` counted
+    # ROWS while `state_extensions` counted distinct codes, so the printed
+    # table only reconciled against `courses` by the accident of this file
+    # carrying no repeated extension code. Rows are still reported, separately
+    # and named as rows, because a catalogue that repeats a code is worth
+    # seeing rather than silently collapsing.
+    distinct, distinct_pure = set(codes), set(pure)
+    return {"source": NEW_YORK, "columns": header,
+            "rows": len(codes),
+            "courses": len(distinct),
+            "sced_codes": len(distinct_pure),
+            "state_extensions": sorted(distinct - distinct_pure),
+            "subject_prefixes": len({c[:2] for c in distinct_pure}),
             # The question #34 asks, answered against a real published file
             # rather than against the standard.
             "publishes_sequence": any("sequence" in h.lower() for h in header),
@@ -269,8 +286,13 @@ def district_reach(ny_titles: dict[str, str]) -> dict:
     code_fields = [f for f in fields
                    if any(marker in f.lower()
                           for marker in ("sced", "course_code", "state_code"))]
-    published = sum(1 for c in loaded["courses"] for f in code_fields
-                    if SCED_CODE.match(str(c.get(f, "")).strip()))
+    # Per COURSE, not per (course × field) pair. The sum ran over both loops,
+    # so a record carrying two code fields counted twice while being reported
+    # as a count of courses — the units problem one line down from the one this
+    # figure was introduced to fix.
+    published = sum(1 for c in loaded["courses"]
+                    if any(SCED_CODE.match(str(c.get(f, "")).strip())
+                           for f in code_fields))
 
     return {"district_courses": len(titles),
             "fields_published": fields,
@@ -304,7 +326,8 @@ def probe(quiet: bool = False) -> dict:
             print("  no sequence element found — check the master file layout")
         print()
         print("New York — the one SCED-keyed state directory found\n")
-        print(f"  courses published                {state['courses']:>8,}")
+        print(f"  rows in the sheet                {state['rows']:>8,}")
+        print(f"  distinct course codes            {state['courses']:>8,}")
         print(f"  five-digit SCED codes            {state['sced_codes']:>8,}")
         print(f"  state extensions (not SCED)      {len(state['state_extensions']):>8}")
         print(f"  publishes a sequence column      {str(state['publishes_sequence']):>8}")
