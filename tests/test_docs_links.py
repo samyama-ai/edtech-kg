@@ -137,32 +137,21 @@ def test_the_front_page_is_inside_the_check():
     assert ROOT / "README.md" in DOCS, "the front page is not in the checked set"
 
 
-def test_the_test_count_the_readme_quotes_is_the_one_pytest_collects():
-    """The README said 379 and the PR description said 276 — one of them read
-    from a run and the other from memory, with no way to tell which.
+def test_the_readme_does_not_quote_a_test_count():
+    """The count is gone, and this is what stops it coming back.
 
-    Collected, not run: `--collect-only` counts the suite without needing an
-    engine, so this stays honest on a machine that has none. It is allowed to
-    lag by a few while a branch is in flight; a gap wider than that means the
-    number was typed rather than measured.
+    Every PR that adds a test edited that one line, so four open branches all
+    changed it to four different numbers and each conflicted with the others.
+    The README's job is to say how to run the suite, not how big it is.
+
+    Stronger than the check it replaces: the old one could only say a number
+    had gone stale; this one cannot be satisfied by a stale number at all, and
+    it never conflicts because every branch agrees on its absence.
     """
-    import subprocess
-    import sys
     readme = (ROOT / "README.md").read_text(errors="replace")
-    stated = re.search(r"pytest\s+#\s*([\d,]+) tests", readme)
-    assert stated, "the README no longer quotes a test count"
-    claimed = int(stated.group(1).replace(",", ""))
-
-    # `sys.executable`, not "python3": the default python3 on this machine is
-    # 3.14 with none of these dependencies installed, so a hardcoded name made
-    # the comparison skip rather than run — a guard that is always green.
-    out = subprocess.run([sys.executable, "-m", "pytest", "-q", "--collect-only",
-                          "-p", "no:cacheprovider"],
-                         cwd=ROOT, capture_output=True, text=True)
-    found = re.search(r"(\d+) tests? collected", out.stdout)
-    if not found:
-        pytest.skip("could not collect the suite here to compare against")
-    collected = int(found.group(1))
-    assert abs(collected - claimed) <= 5, (
-        f"the README says {claimed} tests; pytest collects {collected}. "
-        f"Re-run and quote the number rather than remembering it.")
+    stated = re.search(r"pytest[^\n]*?#\s*~?\s*([\d,]+)\s*tests", readme)
+    assert not stated, (
+        f"README.md quotes {stated.group(1)!r} tests in its quickstart. That "
+        f"figure goes stale on every commit that adds one, and every branch "
+        f"edits the same line. Say what the command does, not how many tests "
+        f"it runs.")
