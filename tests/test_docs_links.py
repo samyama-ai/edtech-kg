@@ -140,18 +140,25 @@ def test_the_front_page_is_inside_the_check():
 def test_the_readme_does_not_quote_a_test_count():
     """The count is gone, and this is what stops it coming back.
 
-    Every PR that adds a test edited that one line, so four open branches all
-    changed it to four different numbers and each conflicted with the others.
-    The README's job is to say how to run the suite, not how big it is.
+    It used to say `pytest  # N tests`, checked against a real collection with
+    a tolerance of five. That guard was sound and the FIGURE was the problem:
+    every PR that adds a test edits this one line, so four open branches all
+    changed it to four different numbers and every one conflicted with the
+    others at merge.
 
-    Stronger than the check it replaces: the old one could only say a number
-    had gone stale; this one cannot be satisfied by a stale number at all, and
-    it never conflicts because every branch agrees on its absence.
+    The choice was to widen the tolerance or to drop the figure. Widening it
+    weakens a guard to accommodate a number nobody needs — the README's job is
+    to say how to run the suite, not how big it is. So the figure went, and
+    this replaced it: there must be NO hardcoded count.
+
+    That is a stronger check than the one it replaces. The old one could only
+    say a number was stale; this one cannot be satisfied by a stale number at
+    all, and it never conflicts, because every branch agrees on its absence.
     """
     readme = (ROOT / "README.md").read_text(errors="replace")
     stated = re.search(r"pytest[^\n]*?#\s*~?\s*([\d,]+)\s*tests", readme)
     assert not stated, (
         f"README.md quotes {stated.group(1)!r} tests in its quickstart. That "
         f"figure goes stale on every commit that adds one, and every branch "
-        f"edits the same line. Say what the command does, not how many tests "
-        f"it runs.")
+        f"edits the same line — four-way merge conflicts for a number a reader "
+        f"does not need. Say what the command does, not how many tests it runs.")
