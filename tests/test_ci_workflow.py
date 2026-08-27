@@ -136,16 +136,54 @@ def packages_installed(workflow: str) -> set[str]:
     this one left it green — it was verifying a duplicate parser.
     """
     found = set()
-    for line in re.findall(r"^\s*-?\s*run:.*?pip install([^\n]*)$", workflow, re.M):
-        for word in line.split():
-            if word.startswith("-"):
-                continue
-            # Quotes stripped first. A pinned dependency is normally quoted
-            # in a shell command — `"setuptools>=61.0"` — and leaving the
-            # quote on made the token `"setuptools`, which matches nothing.
-            # The guard then reported a package as missing that the very same
-            # line installs.
-            found.add(re.split(r"[<>=!\[]", word.strip('"\''))[0].lower())
+    # BLOCK scalars too. `run: |` puts the commands on the following lines,
+    # indented, and a single-line regex sees none of them — so folding the
+    # install step into a block, which `ci.yml` already does for three of its
+    # five steps, would silently yield an empty install set and the guard
+    # would report a workflow that installs everything as one that installs
+    # nothing.
+    commands = []
+    lines = workflow.splitlines()
+    for i, line in enumerate(lines):
+        head = re.match(r"^(\s*)-?\s*run:\s*(\|-?|>-?)?\s*(.*)$", line)
+        if not head:
+            continue
+        indent, block, inline = head.group(1), head.group(2), head.group(3)
+        if block:
+            for follow in lines[i + 1:]:
+                if follow.strip() and not follow.startswith(indent + " "):
+                    break
+                commands.append(follow)
+        elif inline:
+            commands.append(inline)
+
+    for command in commands:
+        for piece in re.findall(r"pip install([^\n;&|]*)", command):
+            skip_next = False
+            for word in piece.split():
+                if skip_next:
+                    # The VALUE of the flag before it. `-r requirements.txt`
+                    # put the filename in as a package and `--index-url
+                    # https://x` put the URL in; neither is something pip
+                    # installs by that name.
+                    skip_next = False
+                    continue
+                if word.startswith("-"):
+                    skip_next = word in ("-r", "-c", "--index-url",
+                                         "--extra-index-url", "--find-links")
+                    continue
+                if word == ".":
+                    # `pip install -e .` installs THIS package, not one named
+                    # `.` — and it is the thing the workflow deliberately does
+                    # not do, so counting it made the set say otherwise.
+                    continue
+                # Quotes stripped first. A pinned dependency is normally
+                # quoted in a shell command — `"setuptools>=61.0"` — and
+                # leaving the quote on made the token `"setuptools`, which
+                # matches nothing, so the guard reported a package as missing
+                # that the same line installs.
+                found.add(re.split(r"[<>=!\[]", word.strip('"\''))[0].lower())
+
     return found
 
 
@@ -175,7 +213,12 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
     is renamed or deleted, and it is wrong silently — the test keeps passing
     and the paragraph keeps explaining a tree that no longer exists.
     """
-    assert re.search(r"pip install[^\n]*\bpytest\b", workflow), "pytest is not installed"
+    # Through `packages_installed`, not a second unanchored regex. This line
+    # is the pattern that helper exists to replace: `pip install[^\n]*pytest`
+    # matches the phrase anywhere, including the comment block above the step
+    # that discusses `pip install -e .` — so the check the whole file is about
+    # was still being made the old way, three lines from the fix.
+    assert "pytest" in packages_installed(workflow), "pytest is not installed"
 
     reached = set(ROOT.glob("tests/**/*.py")) | {ROOT / "conftest.py"}
     for path in sorted(reached):

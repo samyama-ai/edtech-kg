@@ -36,7 +36,7 @@ def tracked() -> list[str]:
 
 
 def test_no_tracked_file_still_carries_a_template_placeholder():
-    """`{{KG_NAME}}`, `{{KG_SLUG}}`, `{{YEAR}}` — the repo template's markers.
+    """`{{KG_NAME}}`, `{{KG_SLUG}}`, `{{YEAR}}` — the template's markers.
 
     Eight files still held one, including `LICENSE`, whose copyright year was
     literally `{{YEAR}}`. Matched as `{{IDENTIFIER}}` rather than as a list of
@@ -53,7 +53,13 @@ def test_no_tracked_file_still_carries_a_template_placeholder():
         path = ROOT / name
         if not path.is_file():
             continue
+        # BINARIES skipped. `errors="replace"` means a `.gif` never raises —
+        # it decodes to mojibake and gets scanned, which is slow and can only
+        # produce a false positive. A NUL byte in the first block is what
+        # `git` itself uses.
         try:
+            if b"\0" in path.read_bytes()[:8000]:
+                continue
             body = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
@@ -112,32 +118,24 @@ def test_the_package_metadata_is_valid_enough_to_install():
     identifier and `{{KG_SLUG}}-kg` is not one, so setuptools rejected the file
     before reading anything else.
 
-    Checked by building the metadata rather than by pattern-matching the name,
-    because the ways a pyproject can be invalid are not enumerable — and the
-    failure this guards against was a *category* error in one field, not a typo.
+    Built rather than pattern-matched, because the ways a pyproject can be
+    invalid are not enumerable and the failure guarded against was a category
+    error in one field.
 
-    Built IN-PROCESS rather than through `pip install --dry-run`. Even with
-    `--no-deps`, an editable install uses build isolation and reaches the index
-    to fetch the backend, so the test failed on an offline or network-
-    restricted runner for a reason that has nothing to do with the metadata —
-    and CI is exactly such a runner. The backend rejects `{{KG_SLUG}}-kg`
-    before parse either way, which is the failure this exists to catch.
+    IN-PROCESS, not `pip install --dry-run`: even with `--no-deps` an editable
+    install uses build isolation and reaches the index for the backend, so the
+    test failed on an offline runner for a reason unrelated to the metadata —
+    and CI is such a runner.
     """
     from setuptools import build_meta
 
     with tempfile.TemporaryDirectory() as out:
-        # `os.chdir` is process-global and this is the only way to point the
-        # build backend at a directory — it takes no path argument. The
-        # restore is in a `finally` because a raise here would otherwise leave
-        # the whole suite pointed elsewhere, and the failures that followed
-        # would be in tests that have nothing to do with packaging.
-        #
-        # It is NOT safe under `pytest-xdist`: workers are separate processes
-        # but a worker runs its own tests in one, so a concurrent test in the
-        # same worker sees the changed directory. The repo does not use xdist
-        # today — nothing in pyproject or CI passes `-n` — and the fix if it
-        # ever does is a subprocess rather than a lock, because the backend
-        # cannot be told where to look.
+        # `os.chdir` is process-global and the only way to point the build
+        # backend at a directory — it takes no path argument. The restore is
+        # in a `finally` or a raise leaves the whole suite pointed elsewhere.
+        # NOT safe under `pytest-xdist`, where a worker runs its own tests in
+        # one process; nothing passes `-n` today, and the fix would be a
+        # subprocess rather than a lock.
         cwd = os.getcwd()
         os.chdir(ROOT)
         try:
@@ -165,44 +163,46 @@ def test_the_declared_dependencies_are_ones_something_imports():
     `fastmcp`. Nothing imported any of them: `click` came from a placeholder
     loader and `fastmcp` from a placeholder MCP server.
 
-    A dependency list nobody needs is its own false claim — it says the package
-    cannot run without five things it never used, and it makes the install
-    heavier than the code. Optional extras are exempt: `mcp` names `fastmcp`
-    deliberately, for a server that is documented as not yet built.
+    A dependency list nobody needs is its own false claim, and it makes the
+    install heavier than the code. Optional extras are exempt: `mcp` names
+    `fastmcp` deliberately, for a server documented as not yet built.
 
-    Both directions are asserted, and the second is the one with teeth going
-    forward. With `dependencies = []`, `declared - imported` is empty by
-    construction — it passes without examining anything, which is the vacuous
-    pass CONTRIBUTING.md names. The converse cannot go vacuous: any
-    third-party module the code imports must be declared.
+    Both directions are asserted, and the second has the teeth. With
+    `dependencies = []`, `declared - imported` is empty by construction — the
+    vacuous pass CONTRIBUTING.md names — while the converse cannot go vacuous.
 
-    Distribution names and import names are compared directly. That holds for
-    everything here today and is not true in general — `PyYAML` imports as
-    `yaml` — so the day they diverge this needs an alias map rather than a
-    louder assertion.
+    Distribution and import names are compared directly, which holds here and
+    not in general (`PyYAML` imports as `yaml`); the day they diverge this
+    needs an alias map, not a louder assertion.
     """
     pyproject = (ROOT / "pyproject.toml").read_text()
     block = re.search(r"^dependencies = \[(.*?)\]", pyproject, re.M | re.S)
     assert block, "no dependencies field"
-    declared = {re.match(r"[A-Za-z0-9_.-]+", d.strip().strip('"\'')).group(0).lower()
-                for d in block.group(1).split(",") if d.strip().strip('"\'')}
+    # Guarded like the extras parser below. `.group(0)` on a miss is an
+    # AttributeError raised from inside the check that exists to produce a
+    # readable failure — and an entry starting with anything unexpected (a
+    # marker, an environment condition) is exactly when that happens.
+    declared = set()
+    for entry in block.group(1).split(","):
+        entry = entry.strip().strip('"\'')
+        if not entry:
+            continue
+        found = re.match(r"[A-Za-z0-9_.-]+", entry)
+        if not found:
+            raise AssertionError(
+                f"cannot read a package name from the dependency {entry!r}")
+        declared.add(found.group(0).lower())
 
-    # Parsed, not pattern-matched. The line regex this used to run also
-    # matched English: a docstring reading "import the catalogue first" put
-    # `the` into the set. That was invisible while the set was only ever
-    # subtracted FROM, and became six phantom dependencies the moment it was
-    # used in the other direction.
-    # RUNTIME and TEST imports kept apart.
-    #
-    # One set meant `pytest` and `setuptools` — imported only by tests —
-    # counted as things the package needs to run, so they had to be excused by
-    # the extras exemption. That exemption then excused a runtime import too:
-    # `import requests` in an `etl` module plus `requests` in the dev group
-    # passed, producing exactly the install-succeeds-then-import-fails case
-    # this test exists to prevent.
-    #
-    # A runtime module may import only what `dependencies` declares. A test
-    # may also import a dev extra. Neither borrows the other's list.
+    # Parsed, not pattern-matched. The line regex also matched English — a
+    # docstring reading "import the catalogue first" put `the` in the set —
+    # invisible while the set was only subtracted FROM, and six phantom
+    # dependencies the moment it was used the other way.
+    # RUNTIME and TEST imports kept apart. One set meant `pytest` and
+    # `setuptools` counted as things the package needs to RUN, so they had to
+    # be excused by the extras exemption — which then excused a runtime import
+    # too: `import requests` in an `etl` module plus `requests` in dev passed,
+    # producing the install-succeeds-then-import-fails case this exists to
+    # prevent. A runtime module may import only what `dependencies` declares.
     imported, test_only = set(), set()
     for name in tracked():
         if not name.endswith(".py"):
@@ -236,7 +236,7 @@ def test_the_declared_dependencies_are_ones_something_imports():
     # `include`, and anything added below it — so an unrelated entry silently
     # counted as a declared extra and excused an undeclared import.
     tail = pyproject.split("[project.optional-dependencies]")
-    extras, dev_only = set(), set()
+    extras, dev_only, other_extras = set(), set(), set()
     if len(tail) > 1:
         # Up to the next table header, wherever that is.
         block = re.split(r"^\[", tail[1], maxsplit=1, flags=re.M)[0]
@@ -248,14 +248,18 @@ def test_the_declared_dependencies_are_ones_something_imports():
                 found = re.match(r"[A-Za-z0-9_.-]+", item)
                 if found:
                     extras.add(found.group(0).lower())
-                    if name == "dev":
-                        dev_only.add(found.group(0).lower())
+                    (dev_only if name == "dev" else other_extras).add(
+                        found.group(0).lower())
 
     stdlib = set(sys.stdlib_module_names)
     # Runtime modules get `dependencies` and the extras, and NOT the dev
     # group: a package that installs without `[dev]` must still import.
     undeclared = sorted(
-        imported - stdlib - first_party - declared - (extras - dev_only))
+        # `other_extras`, not `extras - dev_only`. A package listed in `dev`
+        # AND in another group was removed by the subtraction and then flagged
+        # as undeclared for a runtime import — punished for being in two
+        # lists.
+        imported - stdlib - first_party - declared - other_extras)
     assert not undeclared, (
         f"imported but declared nowhere: {undeclared}. An install that "
         f"succeeds and then fails on import is worse than one that refuses.")
@@ -277,10 +281,9 @@ def test_the_shared_layout_is_present(name):
 
 @pytest.mark.parametrize("name", EXPECTED_DIRS)
 def test_no_directory_in_the_layout_is_silently_empty(name):
-    """An empty directory reads as "nothing to do here", which is the opposite
-    of what an empty one means. `benchmarks/` and `mcp_server/` hold nothing but
-    a README today, and each README says so and names the issue tracking it —
-    that is the honest state, and it is not the same as being absent.
+    """An empty directory reads as "nothing to do here", the opposite of
+    what it means. `benchmarks/` and `mcp_server/` hold only a README, and
+    each says so and names the issue tracking it.
     """
     entries = [p for p in (ROOT / name).iterdir() if p.name != "__pycache__"]
     assert entries, f"{name}/ is empty — say what lands there, or remove it"
@@ -292,18 +295,12 @@ def test_the_contributing_notes_carry_the_rules_that_cost_rounds():
     omits any of them is decorative."""
     doc = (ROOT / "CONTRIBUTING.md").read_text(errors="replace")
     flat = " ".join(doc.split()).lower()
-    # Anchored to a SECTION, not to a word that happens to appear in one.
-    #
-    # Two of these were bare substring tests and neither guarded anything:
-    # `"red" in flat` is satisfied by "shared", "learned" and "measured", and
-    # `"engine" in flat` by the `SAMYAMA_REQUIRE_ENGINE` variable in a code
-    # block three sections away. Deleting the whole of "Break your own fix
-    # before asking for review" and the whole of "Engine version" left this
-    # test green — a guard that provably does not guard, in the file that
-    # names the vacuous pass as the thing to watch for.
-    #
-    # A heading AND a phrase from the body, because a heading with nothing
-    # under it is the other way to satisfy this.
+    # Anchored to a SECTION, not to a word that appears in one. Two of these
+    # were bare substrings and neither guarded anything: `"red"` is satisfied
+    # by "shared", "learned" and "measured", `"engine"` by
+    # SAMYAMA_REQUIRE_ENGINE three sections away — deleting both sections left
+    # this green. A heading AND a phrase from the body, because a heading with
+    # nothing under it is the other way to pass.
     for heading, phrase, why in (
         ("## size", "500", "the file-size limit review enforces"),
         ("## what a pr body should contain", "closes #",
@@ -313,7 +310,12 @@ def test_the_contributing_notes_carry_the_rules_that_cost_rounds():
         ("## engine version", "one engine build",
          "which engine build the figures were measured against"),
     ):
-        assert heading in flat, (
+        # The heading must END there. `"## size" in flat` is satisfied by
+        # `## Sizing the demo`, so a renamed section could keep the guard
+        # green while the section it names is gone. `(?!\w)` says the next
+        # character does not continue the word — a body starting `**500` or
+        # `- the` is fine, `## sizing` is not.
+        assert re.search(re.escape(heading) + r"(?!\w)", flat), (
             f"CONTRIBUTING.md has no {heading!r} section, so it does not cover "
             f"{why}")
         assert phrase in flat, (
@@ -324,15 +326,14 @@ def test_the_contributing_notes_carry_the_rules_that_cost_rounds():
 def _prose_stripped(body: str, name: str) -> list[str]:
     """The lines a placeholder would actually ship in.
 
-    A `{{KG_NAME}}` inside a comment or a docstring is prose ABOUT the
-    placeholder, not one — and this repo now carries several such passages,
-    because the removal is the thing being explained. The first version of this
-    guard flagged all of them, including its own docstring, which made it fail
-    on the commit that fixed the defect.
+    A `{{KG_NAME}}` inside a comment or docstring is prose ABOUT the
+    placeholder, and this repo carries several such passages because the
+    removal is what is being explained — the first version of this guard
+    flagged them all, including its own docstring, and failed on the commit
+    that fixed the defect.
 
-    What it still catches is the case that matters: a placeholder in a value, a
-    heading, or anything that executes or gets read. Headings are load-bearing
-    in that sentence — see the gating below, which is what makes it true.
+    What it catches is the case that matters: a placeholder in a value or a
+    heading. Headings are load-bearing there — see the gating below.
     """
     lines = body.splitlines()
     skip = set()
@@ -385,6 +386,9 @@ def test_the_short_meeting_set_is_the_same_in_every_place_it_appears():
                 continue
             quoted |= set(re.findall(r"--only ([\d,]+)", line))
 
+    assert quoted, (
+        "no `--only` set is quoted anywhere in the repo, so this check read "
+        "nothing — it reported 'quoted as []' as though that were a conflict")
     assert len(quoted) == 1, (
         f"the short-meeting set is quoted as {sorted(quoted)} across the repo "
         f"— a presenter copying one of them runs a different demo")
@@ -425,15 +429,14 @@ def test_the_short_meeting_set_runs_the_question_its_pitch_depends_on():
 def test_every_module_the_readme_tells_you_to_run_is_packaged():
     """`include` listed `etl*` and `mcp_server*` and not `demo*`.
 
-    So `pip install -e .` shipped the MCP stub — which returns nothing — and
-    left out the demo, which is the thing this repo exists to show. `README.md`
-    tells a reader to install and then run `python -m demo.demo`, and from
+    So `pip install -e .` shipped the MCP stub and left out the demo, which is
+    the thing this repo exists to show. `README.md` says to install and run
+    `python -m demo.demo`, and from
     outside the repo root that raised `ModuleNotFoundError`. From inside it the
     working directory hides the omission, which is why nothing caught it.
 
-    Derived from the README rather than from a list here: a `python -m` line
-    added to the quick start later is covered the day it is added, and a list
-    in this file would agree with itself instead.
+    Derived from the README rather than a list here, so a `python -m` line
+    added later is covered the day it is added.
     """
     import setuptools
 
@@ -453,3 +456,45 @@ def test_every_module_the_readme_tells_you_to_run_is_packaged():
         f"`pip install .` does not ship them — from any directory other than "
         f"the repo root that is a ModuleNotFoundError. Add them to "
         f"`[tool.setuptools.packages.find] include`.")
+
+
+def test_no_module_leaves_a_helper_or_constant_behind():
+    """Splitting a file leaves residue, and `pyflakes` cannot see it.
+
+    Unused module-level FUNCTIONS and CONSTANTS are flagged by no linter this
+    repo runs. Three splits in three rounds each left something behind,
+    invisible to a green suite and a clean style run. `_`-prefixed names and
+    `pytest_*` hooks are exempt.
+    """
+    import ast
+
+    sources = {name: (ROOT / name).read_text(encoding="utf-8", errors="replace")
+               for name in tracked()
+               if name.endswith(".py") and not name.endswith("__init__.py")}
+
+    offenders = []
+    for name, body in sources.items():
+        try:
+            tree = ast.parse(body)
+        except SyntaxError:
+            continue
+        # `pytest_*` are HOOKS, called by name and referenced nowhere.
+        defined = {n.name for n in tree.body
+                   if isinstance(n, (ast.FunctionDef, ast.ClassDef))
+                   and not n.name.startswith(("_", "test_", "pytest_"))}
+        defined |= {t.id for n in tree.body if isinstance(n, ast.Assign)
+                    for t in n.targets
+                    if isinstance(t, ast.Name) and not t.id.startswith("_")}
+
+        used = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        used |= {node.attr for node in ast.walk(tree)
+                 if isinstance(node, ast.Attribute)}
+        # Read once per file, not once per name: that was twelve seconds.
+        others = "\n".join(text for other, text in sources.items() if other != name)
+        dead = sorted(n for n in defined - used if n not in others)
+        if dead:
+            offenders.append(f"{name}: {dead}")
+
+    assert not offenders, (
+        f"defined and used nowhere — {offenders}. A split leaves these behind "
+        f"and no linter this repo runs reports them.")
