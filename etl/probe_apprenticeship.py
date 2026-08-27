@@ -27,6 +27,7 @@ import argparse
 import io
 import json
 import socket
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -66,9 +67,25 @@ REACH = [
     ("careeronestop API", "https://api.careeronestop.org/v1/license/"),
     ("apprenticeship.gov (web)", "https://www.apprenticeship.gov/"),
     ("apprenticeship.gov API", "https://api.apprenticeship.gov/"),
-    ("data.gov catalogue API", "https://catalog.data.gov/api/3/action/package_list"),
+    # Named individually rather than summarised. The page said "404 on every
+    # standard CKAN endpoint" while one endpoint was probed.
+    ("data.gov CKAN package_list",
+     "https://catalog.data.gov/api/3/action/package_list"),
+    ("data.gov CKAN package_search",
+     "https://catalog.data.gov/api/3/action/package_search?q=apprenticeship"),
+    # CONTROL hosts. Both pages argue that the failures above are not a general
+    # egress problem, and cite these as reached in the same session — so they
+    # have to be in the same run rather than in a sentence.
+    ("control: onetcenter.org", "https://www.onetcenter.org/"),
+    ("control: nces.ed.gov", "https://nces.ed.gov/"),
+    ("control: careertech.org", "https://careertech.org/"),
     ("O*NET RAPIDS crosswalk", RAPIDS_URL),
 ]
+
+# Queried alongside the system resolver. The page's whole argument rests on
+# telling "this network cannot resolve it" apart from "it resolves nowhere",
+# and one `gethostbyname()` call cannot make that distinction.
+PUBLIC_RESOLVERS = (("Google", "8.8.8.8"), ("Cloudflare", "1.1.1.1"))
 
 
 class MalformedSource(Exception):
@@ -159,8 +176,14 @@ def routes() -> dict:
 
     a_onet = {onet for _, onet in apprentice}
     p_onet = {onet for _, onet in programme}
-    a_soc = {soc_of(o) for o in a_onet}
-    p_soc = {soc_of(o) for o in p_onet}
+    # The sentinel is excluded from EVERY side, not only ours. `our_soc()`
+    # dropped it and these two did not, so a `99-9999.00` row in either O*NET
+    # crosswalk would have landed in `apprentice_soc` and, being absent from
+    # `programme_soc`, been reported as an occupation reachable ONLY by
+    # apprenticeship. That is the headline figure, and it is the same class of
+    # defect edtech-kg#70 fixed on the NCES file.
+    a_soc = {soc_of(o) for o in a_onet} - {NO_MATCH}
+    p_soc = {soc_of(o) for o in p_onet} - {NO_MATCH}
     ours = our_soc()
 
     return {
@@ -185,6 +208,50 @@ def routes() -> dict:
     }
 
 
+def resolves_anywhere(host: str) -> dict:
+    """Ask the system resolver AND two public ones.
+
+    The pages distinguish "this network cannot reach it" from "it resolves
+    nowhere", and only the second can be asserted without qualification. One
+    `gethostbyname()` call cannot tell those apart — it was the system resolver
+    once, while the page claimed "no A record from any resolver".
+
+    Answered without a DNS library: `dig` is asked directly, so this stays
+    dependency-free like every other probe here. A resolver that cannot be
+    reached is recorded as unknown rather than as a negative, because "we could
+    not ask" is not "there is no record".
+    """
+    answers = {}
+    try:
+        answers["system"] = socket.gethostbyname(host)
+    except OSError:
+        answers["system"] = None
+
+    for name, server in PUBLIC_RESOLVERS:
+        try:
+            out = subprocess.run(["dig", "+short", f"@{server}", host],
+                                 capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            answers[name] = "unknown"
+            continue
+        if out.returncode != 0:
+            answers[name] = "unknown"
+            continue
+        found = [line for line in out.stdout.split()
+                 if line and not line.endswith(".")]
+        answers[name] = found[0] if found else None
+
+    # The strong claim needs a PUBLIC resolver to have answered. A local
+    # failure with both public resolvers unreachable is "we could not ask" —
+    # and reading that as "there is no record" turns a machine with no `dig`,
+    # or no route to 8.8.8.8, into evidence about a publisher.
+    public = [answers[name] for name, _ in PUBLIC_RESOLVERS
+              if answers.get(name) != "unknown"]
+    answered = [v for v in answers.values() if v != "unknown"]
+    return {"by_resolver": answers,
+            "resolves_nowhere": bool(public) and all(v is None for v in answered)}
+
+
 def reachable() -> list[dict]:
     """What answers a request, and what does not — attempted, not remembered.
 
@@ -197,25 +264,54 @@ def reachable() -> list[dict]:
     out = []
     for name, url in REACH:
         host = urllib.parse.urlparse(url).hostname or ""
-        record = {"source": name, "url": url, "dns": None, "status": None}
-        try:
-            record["dns"] = socket.gethostbyname(host)
-        except OSError as exc:
-            record["status"] = f"name does not resolve ({exc.strerror or exc})"
+        dns = resolves_anywhere(host)
+        record = {"source": name, "url": url,
+                  "dns": dns["by_resolver"].get("system"),
+                  "by_resolver": dns["by_resolver"],
+                  "status": None, "status_anonymous": None}
+
+        if dns["resolves_nowhere"]:
+            record["status"] = "name does not resolve (no resolver has a record)"
             out.append(record)
             continue
-        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT},
-                                         method="HEAD")
-        try:
-            with urllib.request.urlopen(request, timeout=20) as response:
-                record["status"] = str(response.status)
-        except urllib.error.HTTPError as exc:
-            record["status"] = str(exc.code)
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            reason = getattr(exc, "reason", exc)
-            record["status"] = f"no connection ({reason})"
+        if record["dns"] is None:
+            record["status"] = ("name does not resolve here (another resolver "
+                                "does, so this is local)")
+            out.append(record)
+            continue
+
+        # BOTH requests, because the pages turn on the difference. `bls.gov`
+        # returned 403 to a short or absent User-Agent and 200 to the
+        # identifying one — a block on anonymity. A source that returns 403 to
+        # both is blocking automation instead, and that is a different claim
+        # which the pages make and this used to not measure.
+        record["status"] = attempt(url, USER_AGENT)
+        record["status_anonymous"] = attempt(url, None)
         out.append(record)
     return out
+
+
+def attempt(url: str, agent: str | None) -> str:
+    """One HEAD, with or without an identifying User-Agent.
+
+    HEAD rather than GET, and the pages say so: a 405 or 403 to HEAD is not
+    evidence about GET, and this whole probe is about telling failure modes
+    apart.
+    """
+    headers = {"User-Agent": agent} if agent else {}
+    request = urllib.request.Request(url, headers=headers, method="HEAD")
+    if agent is None:
+        # urllib inserts `Python-urllib/3.x` unless it is removed outright, so
+        # "anonymous" would otherwise measure a DEFAULT agent and not an
+        # absent one — the same trap edtech-kg#37 recorded on bls.gov.
+        request.add_unredirected_header("User-Agent", "")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return str(response.status)
+    except urllib.error.HTTPError as exc:
+        return str(exc.code)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return f"no connection ({getattr(exc, 'reason', exc)})"
 
 
 def probe(quiet: bool = False, with_reach: bool = False) -> dict:
@@ -247,8 +343,10 @@ def probe(quiet: bool = False, with_reach: bool = False) -> dict:
 
         if with_reach:
             print("\nWhat answers a request\n")
+            print(f"  {'source':<30} {'identified':<28} anonymous")
             for row in reach:
-                print(f"  {row['source']:<28} {row['status']}")
+                anon = row["status_anonymous"] or "—"
+                print(f"  {row['source']:<30} {str(row['status'])[:27]:<28} {anon}")
         print(f"\n  measured {stamp}")
         print("  reproduce with: python -m etl.probe_apprenticeship\n")
 
@@ -268,6 +366,13 @@ def main(argv: list[str] | None = None) -> int:
         result = probe(quiet=args.json, with_reach=args.reach or args.json)
     except MalformedSource as exc:
         print(f"refused: {exc}", file=sys.stderr)
+        return 3
+    except zipfile.BadZipFile as exc:
+        # A truncated download from a previous run leaves a file that exists
+        # and is not a zip, and `download()` returns the cache without looking.
+        # It raised straight past every handler as a traceback.
+        print(f"refused: a cached file under data/ is not a readable archive "
+              f"({exc}). Delete it and re-run.", file=sys.stderr)
         return 3
     if args.json:
         print(json.dumps(result, indent=2))

@@ -225,7 +225,8 @@ def test_the_documents_quote_only_figures_the_probe_produces():
         assert claim in page, f"apprenticeship.md no longer states {claim!r}"
 
     blocked = CAREERONESTOP.read_text(encoding="utf-8")
-    assert "**403**" in blocked and "TCP 443 never opens" in blocked
+    assert "**403**" in blocked
+    assert "**no connection**" in blocked
 
 
 def test_the_apprenticeship_page_does_not_claim_the_trades_are_the_gap():
@@ -240,6 +241,33 @@ def test_the_apprenticeship_page_does_not_claim_the_trades_are_the_gap():
     assert "production" in page, "the page no longer names where the gap is"
 
 
+def test_both_pages_state_that_these_are_head_requests():
+    """A 403 or 405 to HEAD is not evidence about GET, and both pages are
+    entirely about telling failure modes apart. The limit belongs on the page
+    rather than in the reader's assumptions."""
+    for doc in (APPRENTICESHIP, CAREERONESTOP):
+        # Whitespace-normalised before matching. These files wrap at 80
+        # columns, so a phrase that crosses a line break does not appear as a
+        # literal substring — the first version of this test failed on prose
+        # that said exactly the right thing, which is a test brittle about
+        # formatting rather than about meaning.
+        page = " ".join(doc.read_text(encoding="utf-8").split())
+        assert "HEAD" in page, f"{doc.name} no longer states the request method"
+        assert "not evidence about GET" in page, (
+            f"{doc.name} no longer states what a HEAD result does not prove")
+
+
+def test_the_apprenticeship_page_names_its_control_hosts():
+    """Both pages argue the failures are not a general egress problem. That
+    argument is only reproducible if the controls are in the run, so the table
+    has to carry them."""
+    page = APPRENTICESHIP.read_text(encoding="utf-8")
+    page = " ".join(page.split())
+    for host in ("onetcenter.org", "nces.ed.gov", "careertech.org"):
+        assert f"control: `{host}`" in page, (
+            f"{host} is cited as a control but is not in the measured table")
+
+
 def test_the_careeronestop_page_states_what_it_cannot_establish():
     """A blocked source is easy to overclaim. The page must keep saying that a
     refused connection from one network is not proof the source is down."""
@@ -248,3 +276,106 @@ def test_the_careeronestop_page_states_what_it_cannot_establish():
     assert "not cleared" in page, "the verdict is gone"
     assert "registered api key" in page, (
         "the page no longer says what reopening this needs")
+
+
+def test_the_no_match_sentinel_is_dropped_from_every_side(monkeypatch):
+    """`99-9999` is not an occupation, and it was filtered on one set of three.
+
+    `our_soc()` excluded it; `apprentice_soc` and `programme_soc` did not. A
+    sentinel row in either O*NET crosswalk would have landed in the
+    apprenticeship set, been absent from the programme set, and been reported
+    as an occupation reachable ONLY by apprenticeship — which is the headline
+    figure. Same class as edtech-kg#70 on the NCES file.
+    """
+    crosswalks(
+        monkeypatch,
+        [HEADER,
+         ["0001", "Electrician", "47-2111.00", "Electricians"],
+         ["9999", "No match", "99-9999.00", "No match"]],
+        [HEADER,
+         ["46.0302", "Electrician", "47-2111.00", "Electricians"],
+         ["99.9999", "No match", "99-9999.00", "No match"]])
+    monkeypatch.setattr(probe, "our_soc", lambda: {"47-2111"})
+
+    got = probe.routes()
+    assert got["apprentice_soc"] == 1, "the sentinel was counted as an occupation"
+    assert got["programme_soc"] == 1
+    assert got["apprenticeship_only"] == [], (
+        "the sentinel was reported as an occupation reachable only by "
+        "apprenticeship — the figure this whole page leads with")
+    assert probe.NO_MATCH not in got["apprentice_soc_missing_from_ours"]
+
+
+def test_a_name_that_resolves_nowhere_is_told_apart_from_one_this_network_cannot_see(monkeypatch):
+    """The distinction both pages rest on, and it needs more than one resolver.
+
+    `socket.gethostbyname()` alone answers "this network cannot resolve it".
+    The page claims "no A record from ANY resolver", which is a claim about the
+    publisher — so the probe asks the public resolvers too, and only makes the
+    strong claim when every resolver it could ask said no.
+    """
+    monkeypatch.setattr(probe.socket, "gethostbyname",
+                        lambda host: (_ for _ in ()).throw(OSError(8, "no")))
+
+    def answer(cmd, **kw):
+        class Out:
+            returncode = 0
+            stdout = "" if "gone.example" in cmd else "10.0.0.1\n"
+        return Out()
+    monkeypatch.setattr(probe.subprocess, "run", answer)
+
+    gone = probe.resolves_anywhere("gone.example")
+    assert gone["resolves_nowhere"] is True
+    assert set(gone["by_resolver"]) == {"system", "Google", "Cloudflare"}
+
+    local = probe.resolves_anywhere("fine.example")
+    assert local["resolves_nowhere"] is False, (
+        "a name the public resolvers DO know was reported as resolving "
+        "nowhere — that is a claim about the publisher made from a local "
+        "failure")
+
+
+def test_a_resolver_that_cannot_be_asked_is_not_counted_as_a_no(monkeypatch):
+    """"We could not ask" is not "there is no record". A machine without `dig`,
+    or one that cannot reach 8.8.8.8, must not turn into evidence about a
+    publisher."""
+    monkeypatch.setattr(probe.socket, "gethostbyname",
+                        lambda host: (_ for _ in ()).throw(OSError(8, "no")))
+
+    def missing(cmd, **kw):
+        raise FileNotFoundError("dig")
+    monkeypatch.setattr(probe.subprocess, "run", missing)
+
+    got = probe.resolves_anywhere("gone.example")
+    assert got["by_resolver"]["Google"] == "unknown"
+    assert got["resolves_nowhere"] is False, (
+        "an unreachable resolver was read as a negative answer")
+
+
+def test_the_anonymous_request_really_sends_no_user_agent(monkeypatch):
+    """`urllib` inserts `Python-urllib/3.x` unless the header is cleared, so an
+    "anonymous" arm measures a DEFAULT agent rather than an absent one — the
+    trap edtech-kg#37 recorded on bls.gov, where the whole finding turned on
+    which agent was sent.
+
+    Both pages separate a block on anonymity from a block on automation, and
+    that separation is only as good as this.
+    """
+    sent = []
+
+    class R:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def capture(request, *a, **k):
+        sent.append(request.get_header("User-agent"))
+        return R()
+    monkeypatch.setattr(probe.urllib.request, "urlopen", capture)
+
+    probe.attempt("https://x.example/", probe.USER_AGENT)
+    probe.attempt("https://x.example/", None)
+    assert sent[0] == probe.USER_AGENT
+    assert sent[1] == "", (
+        f"the anonymous request sent {sent[1]!r} — urllib's default agent, "
+        f"not an absent one")

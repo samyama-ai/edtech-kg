@@ -24,14 +24,42 @@ the more useful half of the finding.
 edtech-kg#39 names apprenticeship.gov and the RAPIDS datasets on data.gov.
 Measured, neither answers (`--reach`):
 
-| Source | Result |
-|---|---|
-| `careeronestop.org` (web) | **403** |
-| `api.careeronestop.org` | **no connection** — resolves, TCP 443 never opens |
-| `apprenticeship.gov` (web) | 200 — but the occupations page is a Tableau dashboard carrying **0** occupation codes |
-| `api.apprenticeship.gov` | **name does not resolve** — a CNAME to `dol-api.azure-api.net`, which has no A record from any resolver |
-| `catalog.data.gov` API | **404** on every standard CKAN endpoint |
-| **O\*NET RAPIDS crosswalk** | **200** |
+| Source | Identified UA | No UA |
+|---|---|---|
+| `careeronestop.org` (web) | **403** | **403** |
+| `api.careeronestop.org` | **no connection** | **no connection** |
+| `apprenticeship.gov` (web) | 200 | 403 |
+| `api.apprenticeship.gov` | **name does not resolve** | — |
+| `catalog.data.gov` `package_list` | **404** | **404** |
+| `catalog.data.gov` `package_search` | **404** | **404** |
+| control: `onetcenter.org` | 200 | 200 |
+| control: `nces.ed.gov` | 200 | 403 |
+| control: `careertech.org` | 200 | 200 |
+| **O\*NET RAPIDS crosswalk** | **200** | **200** |
+
+Four things about that table are deliberate.
+
+The **control rows** are in the run, not in a sentence. They are what rules out
+a general egress failure, so they have to be reproducible alongside the
+failures rather than asserted beside them.
+
+The **data.gov endpoints are named individually**. This page said "404 on every
+standard CKAN endpoint" while one endpoint was probed; two are probed now and
+the claim is only as wide as the table.
+
+**`api.apprenticeship.gov` resolves nowhere** — no A record from the system
+resolver, `8.8.8.8` or `1.1.1.1`, all three asked in the run. That is the one
+row here that can be asserted about the publisher rather than about this
+network.
+
+And these are **`HEAD` requests**. A 403 or 405 to HEAD is **not evidence about
+GET**. On a page about telling failure modes apart, that limit belongs on the
+page.
+
+Note `apprenticeship.gov` at 200 identified and 403 anonymous: an anonymity
+block, the shape `docs/sources/bls-occupation.md` measured on `www.bls.gov`.
+CareerOneStop returns 403 to both, which is a different thing —
+`docs/sources/careeronestop.md` turns on that distinction.
 
 So the answer to "which files are genuinely public and record-level, versus
 dashboards and aggregates" is that DOL publishes the dashboard and **O\*NET

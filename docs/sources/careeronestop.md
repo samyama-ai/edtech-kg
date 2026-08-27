@@ -14,15 +14,25 @@ because the API does not accept a connection from here.
 
 ## What was measured
 
-| Source | Result |
-|---|---|
-| `www.careeronestop.org` (web) | **403** |
-| `api.careeronestop.org` | **no connection** — DNS resolves, TCP 443 never opens |
+| Source | Identified UA | No UA |
+|---|---|---|
+| `www.careeronestop.org` (web) | **403** | **403** |
+| `api.careeronestop.org` | **no connection** | **no connection** |
 
-The 403 is returned to the identifying User-Agent this repo sends **and** to a
-request with no User-Agent at all, so it is not the anonymity block
-`docs/sources/bls-occupation.md` measured on `www.bls.gov`. It is a block on
-automated access.
+Both columns are measured. The probe issues each request twice — once with the
+identifying User-Agent this repo sends and once with the header removed
+outright, because `urllib` inserts `Python-invoke/3.x` unless it is cleared, and
+an "anonymous" request that actually carries a default agent measures the wrong
+thing.
+
+**403 to both** is what separates this from `docs/sources/bls-occupation.md`,
+where `www.bls.gov` returns 403 to a short or absent User-Agent and 200 to the
+identifying one — a block on anonymity. This is a block on automated access.
+
+The same run shows the contrast is real rather than theoretical:
+`www.apprenticeship.gov` answers **200 identified and 403 anonymous**, so an
+anonymity block does exist on a neighbouring host and CareerOneStop is not
+behaving that way.
 
 ## What this does and does not establish
 
@@ -40,11 +50,20 @@ TCP connection to a single address cannot be told apart, from one network, from
 an outbound restriction on that address. It may well answer from elsewhere.
 
 The neighbouring finding on the same run is a useful contrast, because it can be
-asserted without that qualification: `api.apprenticeship.gov` is a CNAME to
-`dol-api.azure-api.net`, which returns no A record from the local resolver,
-`8.8.8.8` **or** `1.1.1.1`. A name that resolves nowhere is broken at the
-publisher's end. A refused connection is not the same claim, and this page does
-not make it.
+asserted without that qualification: `api.apprenticeship.gov` returns no A
+record from the system resolver, `8.8.8.8` **or** `1.1.1.1`. A name that
+resolves nowhere is broken at the publisher's end. A refused connection is not
+the same claim, and this page does not make it.
+
+That asymmetry is the argument of this page, so the probe asks all three
+resolvers rather than one — it used to ask the system resolver once while the
+page claimed "any resolver". `api.careeronestop.org` answers `155.204.131.84`
+from all three, which is why its row is a refused connection and not a missing
+name.
+
+**One caveat the whole page rests on:** these are `HEAD` requests. A 403 or 405
+to HEAD is **not evidence about GET**, and a page about telling failure modes
+apart should say so rather than let the reader assume.
 
 ## The part nobody measured
 
