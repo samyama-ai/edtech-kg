@@ -1,0 +1,26 @@
+{
+  "retrieved_at": "2026-08-28",
+  "onet_database": {
+    "source": "https://www.onetcenter.org/license_db.html",
+    "version": "31.0",
+    "licence": "Except as noted below, the content of the O*NET 31.0 Database is licensed under a Creative Commons Attribution 4.0 International License",
+    "attribution": "This page includes information from the O*NET 31.0 Database by the U.S. Department of Labor, Employment and Training Administration (USDOL/ETA). Used under the CC BY 4.0 license. O*NET\u00ae is a trademark of USDOL/ETA.",
+    "applies_only_to": "This license applies only to downloadable files on the following pages: O*NET Database Database Releases Archive Spanish Language Resources",
+    "read_or_measured": "read"
+  },
+  "onet_crosswalks": {
+    "source": "https://www.onetcenter.org/crosswalks.html",
+    "licence": "Crosswalk Files by U.S. Department of Labor, Employment and Training Administration is licensed under a Creative Commons Attribution 4.0 International License",
+    "files_this_repo_reads": [
+      "Classfication of Instructional Programs (CIP)",
+      "Registered Apprenticeship Partners Information Data System (RAPIDS)"
+    ],
+    "read_or_measured": "read"
+  },
+  "urban_portal": {
+    "source": "https://educationdata.urban.org/documentation/",
+    "licence": "All data made available via the Education Data Portal in any form is licensed to you under the Open Data Commons Attribution License (ODC-By) v1.0",
+    "citation": "[dataset names], Education Data Portal (Version ), Urban Institute, accessed Month, DD, YYYY, https://educationdata.urban.org/documentation/, made available under the ODC Attribution License",
+    "read_or_measured": "read"
+  }
+}

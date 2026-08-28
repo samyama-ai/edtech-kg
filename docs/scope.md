@@ -106,14 +106,22 @@ anything is published from it.
 | IPEDS (completions, directory) | NCES | US-government public domain |
 | CCD (schools, districts) | NCES | US-government public domain |
 | CIP-SOC crosswalk | NCES + BLS | US-government public domain |
-| O\*NET | US Dept of Labor | Public, attribution requested — **terms to confirm** |
+| O\*NET crosswalk workbooks | US Dept of Labor | CC BY 4.0 by the crosswalks page's own notice, checked 2026-08-28 — **not** the Database licence, which excludes that page. Attribution wording and the version rule in [`sources/licences.md`](sources/licences.md) |
 | College Scorecard | US Dept of Education | US-government public domain |
-| Urban Institute Education Data API | Urban Institute | Republishes the federal data above; **wrapper's own terms not yet checked** |
+| Urban Institute Education Data API | Urban Institute | Republishes the federal data above under Open Data Commons Attribution (ODC-By) v1.0, checked 2026-08-28. Reuse and re-sharing permitted; citation requested — [`sources/licences.md`](sources/licences.md) |
 | PWCS course catalogue | Prince William County Public Schools | **A public catalogue, but reuse permission is a human decision — not settled.** See #4 |
 
-Two of those are open questions, and they are open in this document rather than
-discovered later. **Neither the Urban Institute wrapper nor the PWCS catalogue
-should be treated as cleared until someone has cleared them.**
+One of those is still an open question, and it is open in this document rather
+than discovered later. **The PWCS catalogue should not be treated as cleared
+until someone has cleared it** — its reuse permission is a human decision, not
+a published licence.
+
+The Urban Institute wrapper and O\*NET were the other two, and both were
+cleared on 2026-08-28 by reading the terms rather than assuming them; see
+[`sources/licences.md`](sources/licences.md). O\*NET did not clear the way the
+question assumed: the Database content licence names the pages it applies to
+and the crosswalks page is not among them, so the workbooks this repo reads
+are covered by a separate notice that happens to say the same thing.
 
 Raw data is never committed. The repo ships downloaders, loaders, schema and a
 bounded demo, and cites its sources — the convention across every `*-kg` repo.
