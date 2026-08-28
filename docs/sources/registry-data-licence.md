@@ -67,15 +67,19 @@ project is not an exemption on the face of this text.
 
 Not in practice, and barely in principle.
 
-CTDL has **1,032 terms**. Four have a rights-shaped name, and three of them
-are not what they look like:
+CTDL has **1,032 terms**. Searching them for *licence*, *copyright*, *rights*
+or *terms* returns **five**, and four are not what they look like:
 
 | term | what it actually is |
 |---|---|
 | `ceterms:License` | a **credential type** — a government authorisation to do a job, like a nursing licence. Not a data licence, and it is what a search for "license" finds first. |
 | `ceterms:RightsAction` | an action asserting legal rights over a credential |
 | `ceterms:rightSource` | the right-hand parameter of a constraint |
-| **`ceterms:copyrightHolder`** | the only one: *"Person or organization holding the rights in copyright to this resource."* |
+| `statementCat:TerminationTerms` | a statement category — the conditions under which an *agreement* ends |
+| **`ceterms:copyrightHolder`** | the only one about rights in the resource: *"Person or organization holding the rights in copyright to this resource."* |
+
+*Terms* has to stay in that search: a property called `termsOfUse` is exactly
+what this question asks whether CTDL has. It does not have one.
 
 And `copyrightHolder` names a holder, not a licence. It says who owns the
 rights; it does not say what anyone else may do.

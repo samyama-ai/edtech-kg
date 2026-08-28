@@ -53,6 +53,9 @@ VOCABULARY = [
     {"@id": "ceterms:prerequisite"}, {"@id": "ceterms:License"},
     {"@id": "ceterms:RightsAction"}, {"@id": "ceterms:copyrightHolder"},
     {"@id": "ceterms:rightSource"},
+    # A real CTDL term whose LOCAL name carries "terms" and which is still not
+    # a data licence — the conditions under which an agreement ends.
+    {"@id": "statementCat:TerminationTerms"},
 ]
 
 
@@ -97,15 +100,16 @@ def test_a_page_missing_any_of_the_three_is_refused(missing):
 
 
 def test_the_prefix_is_stripped_before_the_vocabulary_is_searched():
-    """Every CTDL term is named `ceterms:something`.
+    """Every CTDL term is named `ceterms:something`, and "terms" is searched for.
 
-    A search for "terms" over the raw identifiers matches all 1,032 of them,
-    which is how a first pass reported that the vocabulary is full of
-    licensing properties. Four have a rights-shaped NAME.
+    A property called `termsOfUse` is precisely what #56 asks whether CTDL
+    has, so the word stays in the pattern — which means searching the raw
+    identifiers matches all 1,032 terms. That is how a first pass reported a
+    vocabulary full of licensing properties.
     """
     assert rl.rights_terms_in(VOCABULARY) == [
         "ceterms:License", "ceterms:RightsAction", "ceterms:copyrightHolder",
-        "ceterms:rightSource"]
+        "ceterms:rightSource", "statementCat:TerminationTerms"]
 
 
 def test_a_vocabulary_with_no_rights_term_is_refused():

@@ -98,15 +98,18 @@ def terms_of_use(page: str) -> dict:
 def rights_terms_in(vocabulary: list[dict]) -> list[str]:
     """Every CTDL term that could carry a rights position, prefix stripped.
 
-    The prefix is stripped BEFORE matching. Every term in CTDL is named
-    `ceterms:something`, so a search for "terms" over the raw identifiers
-    matches all 1,032 of them — which is how a first pass reported that the
-    vocabulary is full of licensing properties. It has one.
+    "terms" is IN the pattern, and it is the reason the prefix has to go
+    first. A property named `termsOfUse` is exactly what #56 asks whether CTDL
+    has, so the word cannot be dropped from the search — and every term in the
+    vocabulary is named `ceterms:something`, so searching the raw identifiers
+    matches all 1,032 of them. That is how a first pass reported a vocabulary
+    full of licensing properties. Four have a rights-shaped local name and
+    none is named for terms of use.
     """
     found = []
     for term in vocabulary:
         name = str(term.get("@id", "")).split(":", 1)[-1]
-        if re.search(r"licen[cs]|copyright|rights", name, re.I):
+        if re.search(r"licen[cs]|copyright|rights|terms", name, re.I):
             found.append(term["@id"])
     if not found:
         raise MalformedSource(

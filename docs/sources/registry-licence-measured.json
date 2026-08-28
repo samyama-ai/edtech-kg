@@ -11,7 +11,8 @@
     "ceterms:License",
     "ceterms:RightsAction",
     "ceterms:copyrightHolder",
-    "ceterms:rightSource"
+    "ceterms:rightSource",
+    "statementCat:TerminationTerms"
   ],
   "records": {
     "envelopes": 300,
