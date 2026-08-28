@@ -280,3 +280,27 @@ def test_a_field_that_describes_a_code_is_not_one():
     assert got["sced_code_fields"] == [], (
         f"{got['sced_code_fields']} describe a code rather than carrying one")
     assert got["publishes_sced_code"] == 0
+
+
+def test_the_sample_is_spread_across_the_set_not_taken_from_the_head():
+    """"Evenly spaced" is a claim the page makes, so it is asserted.
+
+    Sorted alphabetically, both exhibit lists opened with eight AICE courses
+    and showed nothing about the shape of either set — which is what the "wrong
+    8%" section argues from. A spread is also not a choice anyone made about
+    which examples flatter the argument, and that is the objection it answers.
+    """
+    titles = [f"{chr(ord('A') + i // 4)}{i:03d}" for i in range(80)]
+
+    sample = probe.spread(titles, 8)
+    assert len(sample) == 8
+    assert sample[0] == titles[0], "the sample does not start at the start"
+    assert sample != titles[:8], "the head was taken rather than a spread"
+    assert sample[-1] >= titles[len(titles) * 7 // 8], (
+        "the sample does not reach the end of the set")
+
+    # Deterministic, and unchanged by re-running.
+    assert probe.spread(titles, 8) == sample
+
+    # Shorter than the count is the whole list, not a crash.
+    assert probe.spread(titles[:3], 8) == titles[:3]

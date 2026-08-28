@@ -12,6 +12,7 @@ edtech-kg#48 turns on. `sced_reach` then asks what a district can join to.
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 
 from etl.probe_cipsoc import rows, sheets
@@ -61,6 +62,16 @@ def new_york(payload: bytes) -> dict:
         return _new_york(book)
 
 
+def squashed(text: str) -> str:
+    """Case, spaces and punctuation removed — the one header-matching policy.
+
+    `probe_sced._master` uses the same rule. A heading that gains an internal
+    space or a hyphen is a cosmetic change, and these readers name columns
+    precisely so a cosmetic change does not decide anything.
+    """
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
 def _new_york(book: zipfile.ZipFile) -> dict:
     parts = sheets(book)
     name = next((n for n in parts if "all courses" in n.lower()), None)
@@ -94,7 +105,11 @@ def _new_york(book: zipfile.ZipFile) -> dict:
     # Column 0 is the code and column 1 the title. Checked rather than assumed:
     # a reordered export would otherwise be read silently, and every figure
     # below would be a plausible count of the wrong column.
-    if not (header[0].strip().lower() == NY_CODE_HEADER
+    # Matched the SAME WAY `_master` matches its own — squashed, so case and
+    # spacing do not decide it. Exact equality here and loose matching there
+    # meant an extra internal space stopped the New York run and passed on
+    # master, and the master file already ships a cell with a leading space.
+    if not (squashed(header[0]) == squashed(NY_CODE_HEADER)
             and len(header) > 1 and header[1].strip().lower() == NY_TITLE_HEADER):
         raise MalformedSource(
             f"the New York columns are {header[:3]}, not a code column followed "

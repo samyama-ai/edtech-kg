@@ -83,7 +83,7 @@ five that were checked.
 | Rows in the sheet | **2,012** |
 | Distinct course codes | **2,012** |
 | Five-digit SCED codes | **2,001** |
-| New York extensions | **11** — `01003CC`, `03001L` and nine more |
+| New York extensions | **11** |
 | Publishes a sequence column | **No** |
 
 The rows and the distinct codes are both given, and they agree here: 2,001 SCED
@@ -95,8 +95,17 @@ The eleven extensions are New York adding to the taxonomy, not using it —
 `01003CC` is a Common Core variant of SCED `01003`. Counting them as SCED
 alignment would overstate it, so the probe separates them.
 
-**New York publishes eight columns and none is a sequence.** The element exists
-in the standard and is absent from the one state that keys to it.
+**New York publishes 8 columns and none is a sequence.** The
+element exists in the standard and is absent from the one state that keys to
+it. The columns, printed by the run:
+
+    Course Code (Course ID) · Course Code Description · Course Description · Course Level
+    Course Subject Area · CTE Indicator · AP Indicator · IB Indicator
+
+And the 11 extension codes, which are New York adding to the taxonomy
+rather than using it:
+
+    01003CC · 02056CC · 02072CC · 03001L · 03051L · 03101L · 03151L · 04052NF · 04101F · 22201W · 22202W
 
 ## The measurement that decides it
 

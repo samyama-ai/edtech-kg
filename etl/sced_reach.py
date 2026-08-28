@@ -245,4 +245,8 @@ def district_reach(ny_titles: dict[str, list[str]],
             "matched_titles": spread(sorted(t for t, k in zip(titles, keys)
                                             if k in by_name)),
             "unmatched_titles": spread(sorted(
-                t for t, k in zip(titles, keys) if k not in by_name))}
+                t for t, k in zip(titles, keys) if k not in by_name)),
+            # The whole set, for callers that need to ask about a specific
+            # course rather than see a sample. Not printed.
+            "all_unmatched": sorted(t for t, k in zip(titles, keys)
+                                    if k not in by_name)}

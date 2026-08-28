@@ -388,3 +388,42 @@ def test_the_workbook_url_must_be_https_on_the_nces_host(monkeypatch):
         '<a href="https://evil.example/SCEDv99File_x.xlsx">x</a>'))
     with pytest.raises(probe.MalformedSource, match="same host"):
         probe.master_file()
+
+
+def test_the_printed_tables_carry_the_figures_the_page_quotes(monkeypatch, capsys):
+    """The print block never executed in tests — every call passed
+    `quiet=True`, so two printing mutants survived the whole suite.
+
+    The page quotes what this prints, so what it prints is the contract. Faked
+    sources rather than live ones, for the reason `conftest` gives.
+    """
+    from etl import new_york_catalog, sced_reach
+    from etl import pwcs_source
+
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
+    monkeypatch.setattr(probe, "fetch", lambda url: workbook({
+        "SCED 13.0": [["Course Title", "SCED Course Code"],
+                      ["Algebra I", "02052"]],
+        "Elements and Attributes": [["Element Name"], ["Course Title"],
+                                    ["Attribute Name"], ["Course Level"]]}))
+    monkeypatch.setattr(new_york_catalog, "new_york", lambda payload: {
+        "source": "x", "columns": ["Course Code (Course ID)", "Course Code Description"],
+        "rows": 3, "courses": 3, "sced_codes": 2,
+        "state_extensions": ["01003CC"], "subject_prefixes": 1,
+        "publishes_sequence": False, "titles": {"Algebra I": ["02052"]}})
+    monkeypatch.setattr(probe, "new_york", lambda payload: new_york_catalog.new_york(payload))
+    monkeypatch.setattr(pwcs_source, "read",
+                        lambda: {"courses": [{"title": "Algebra I"},
+                                             {"title": "Turfgrass Management"}]})
+    monkeypatch.setattr(sced_reach, "MAX_TERM", 0, raising=False)
+
+    probe.probe(quiet=False)
+    printed = capsys.readouterr().out
+
+    # The two figures that were typed on the page because nothing printed them.
+    assert "Course Code (Course ID), Course Code Description" in printed, (
+        "the columns are not printed, so the page's count of them is typed")
+    assert "01003CC" in printed, (
+        "the extension codes are not printed, so the page's list is typed")
+    # And the exhibits, which the page reproduces verbatim.
+    assert "Algebra I" in printed and "Turfgrass Management" in printed

@@ -34,6 +34,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from pathlib import Path
 from datetime import datetime, timezone
 
 # `probe_cipsoc`'s reader, not a second one. `sheets` resolves through the
@@ -353,6 +354,14 @@ def probe(quiet: bool = False) -> dict:
         print(f"  distinct course codes            {state['courses']:>8,}")
         print(f"  five-digit SCED codes            {state['sced_codes']:>8,}")
         print(f"  state extensions (not SCED)      {len(state['state_extensions']):>8}")
+        # The COLUMNS and the CODES, not just their counts. The page names
+        # both — "eight columns", "01003CC, 03001L and nine more" — and
+        # printing only a count leaves the names typed on a page that says
+        # nothing is. Mutating either in the page left the suite green.
+        print(f"  columns it publishes             "
+              f"{len(state['columns'])}: {', '.join(state['columns'])}")
+        print(f"  the extension codes              "
+              f"{', '.join(state['state_extensions'])}")
         print(f"  publishes a sequence column      {str(state['publishes_sequence']):>8}")
         print()
         print("Prince William County — what could actually join\n")
@@ -375,10 +384,10 @@ def probe(quiet: bool = False) -> dict:
               f"{len(reach['matched_via_state_extension']):>8}"
               "   <- not SCED alignment")
         print("\n  matched — courses that already had a national identity\n")
-        for title in reach["matched_titles"][:8]:
+        for title in reach["matched_titles"]:
             print(f"    {title}")
         print("\n  unmatched — what a district is distinctive for\n")
-        for title in reach["unmatched_titles"][:8]:
+        for title in reach["unmatched_titles"]:
             print(f"    {title}")
         print()
         print(f"  titles NY publishes twice        "
@@ -391,16 +400,67 @@ def probe(quiet: bool = False) -> dict:
             "new_york": state, "district": reach}
 
 
+#: A trimmed record of one measured run, committed so the page can be checked
+#: without reaching the network. `docs/sources/sced.md` quotes figures and
+#: names from a district catalogue that `pwcs_source.read()` fetches — 960
+#: pages from one school district — and `conftest.py` refuses that traffic
+#: from CI in as many words. Asserting the page against this instead makes
+#: the check hermetic; a second test re-runs against live sources where the
+#: cache exists and diffs against it, so upstream drift surfaces once as "the
+#: record is stale" rather than as prose edits on an unrelated commit.
+RECORD = Path(__file__).resolve().parents[1] / "docs" / "sources" / "sced-measured.json"
+
+
+def record(state: dict, reach: dict) -> dict:
+    """The subset of a run the page is checked against.
+
+    Trimmed deliberately: every field here is quoted on the page, and a record
+    carrying more would drift in ways nothing reads.
+    """
+    return {
+        "_": ("A trimmed record of one measured run, committed so the page can "
+              "be checked without reaching the network. Refresh with "
+              "`python -m etl.probe_sced --record`."),
+        "new_york": {k: state[k] for k in
+                     ("columns", "rows", "courses", "sced_codes",
+                      "state_extensions", "publishes_sequence")},
+        "district": {
+            **{k: reach[k] for k in
+               ("district_courses", "reachable_by_name",
+                "reachable_without_the_parenthetical_rule",
+                "matched_via_state_extension",
+                "matched_titles", "unmatched_titles")},
+            "ambiguous_titles": len(reach["ambiguous_titles"]),
+            # The CTE programmes the page names as what SCED misses. That is
+            # the argument rather than an illustration, so it is recorded as
+            # measured data — the sample above may not happen to include them.
+            "named_cte_unmatched": sorted(
+                t for t in reach["all_unmatched"]
+                if any(m in t.lower() for m in
+                       ("turfgrass", "landscaping", "horticulture",
+                        "greenhouse"))),
+        },
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     summary = (__doc__ or "").splitlines()
     parser = argparse.ArgumentParser(description=summary[0] if summary else None)
     parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    parser.add_argument("--record", action="store_true",
+                        help=f"Refresh {RECORD.name} from a live run.")
     args = parser.parse_args(argv)
     try:
-        result = probe(quiet=args.json)
+        result = probe(quiet=args.json or args.record)
     except MalformedSource as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
+    if args.record:
+        RECORD.write_text(
+            json.dumps(record(result["new_york"], result["district"]),
+                       indent=2, ensure_ascii=False) + "\n")
+        print(f"wrote {RECORD.relative_to(Path.cwd())}")
+        return 0
     if args.json:
         print(json.dumps(result, indent=2))
     return 0

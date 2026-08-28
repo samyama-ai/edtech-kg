@@ -18,7 +18,6 @@ import pathlib
 import pytest
 
 from etl import new_york_catalog as catalog
-from etl import probe_sced as probe
 from tests.workbook_support import workbook as cipsoc_workbook
 
 DOC = pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources" / "sced.md"
@@ -42,8 +41,7 @@ def test_a_state_suffix_is_not_counted_as_a_sced_code(monkeypatch):
         ["01001", "ELA I"],
         ["01003CC", "ELA III (Common Core)"],
     ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    got = probe.new_york(probe.fetch(probe.NEW_YORK))
+    got = catalog.new_york(book)
     assert got["courses"] == 2
     assert got["sced_codes"] == 1, "the state extension was counted as a SCED code"
     assert got["state_extensions"] == ["01003CC"]
@@ -57,8 +55,7 @@ def test_a_sequence_column_would_be_reported_if_a_state_published_one(monkeypatc
         ["Course Code (Course ID)", "Course Code Description", "Sequence of Course"],
         ["01001", "ELA I", "1 of 2"],
     ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    assert probe.new_york(probe.fetch(probe.NEW_YORK))["publishes_sequence"] is True
+    assert catalog.new_york(book)["publishes_sequence"] is True
 
 
 def test_a_row_that_omits_a_cell_does_not_shift_the_columns(monkeypatch):
@@ -78,8 +75,7 @@ def test_a_row_that_omits_a_cell_does_not_shift_the_columns(monkeypatch):
         # description must not slide into the title column.
         ["01003CC", "", "another English course"],
     ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    got = probe.new_york(probe.fetch(probe.NEW_YORK))
+    got = catalog.new_york(book)
     assert got["courses"] == 2
     assert got["state_extensions"] == ["01003CC"], (
         "the untitled row's code was misread — the reader is placing cells by "
@@ -96,9 +92,8 @@ def test_a_reordered_export_is_refused_rather_than_read_positionally(monkeypatch
         ["Course Code Description", "Course Code (Course ID)"],
         ["ELA I", "01001"],
     ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    with pytest.raises(probe.MalformedSource, match="has been restructured"):
-        probe.new_york(probe.fetch(probe.NEW_YORK))
+    with pytest.raises(catalog.MalformedSource, match="has been restructured"):
+        catalog.new_york(book)
 
 
 def test_a_sheet_whose_header_row_starts_blank_is_refused(monkeypatch):
@@ -119,9 +114,8 @@ def test_a_sheet_whose_header_row_starts_blank_is_refused(monkeypatch):
         ["", "Course Code Description", "Notes"],
         ["01001", "ELA I", "x"],
     ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    with pytest.raises(probe.MalformedSource, match="opens with a blank row"):
-        probe.new_york(probe.fetch(probe.NEW_YORK))
+    with pytest.raises(catalog.MalformedSource, match="opens with a blank row"):
+        catalog.new_york(book)
 
 
 def test_a_repeated_course_code_does_not_make_the_table_stop_adding_up(monkeypatch):
@@ -135,15 +129,20 @@ def test_a_repeated_course_code_does_not_make_the_table_stop_adding_up(monkeypat
     book = workbook({"All courses": [
         ["Course Code (Course ID)", "Course Code Description"],
         ["01001", "ELA I"],
+        # The same FIVE-DIGIT code twice. It was a repeated extension code,
+        # where the row count and the distinct count agree either way — so
+        # `sced_codes` could go back to counting rows and this stayed green.
+        ["01001", "ELA I, second listing"],
         ["01003CC", "ELA III (Common Core)"],
-        # The same extension code twice — two rows, one code.
+        # And the same extension code twice, for the other half.
         ["01003CC", "ELA III (Common Core), second listing"],
     ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    got = probe.new_york(probe.fetch(probe.NEW_YORK))
+    got = catalog.new_york(book)
 
-    assert got["rows"] == 3, "the row count no longer reports rows"
+    assert got["rows"] == 4, "the row count no longer reports rows"
     assert got["courses"] == 2, "the course count is still counting rows"
+    assert got["sced_codes"] == 1, (
+        f"a repeated five-digit code was counted twice: {got['sced_codes']}")
     assert got["courses"] == got["sced_codes"] + len(got["state_extensions"]), (
         f"the table does not add up: {got['courses']} courses against "
         f"{got['sced_codes']} SCED codes and "
@@ -194,3 +193,27 @@ def test_no_published_code_is_dropped_before_the_resolver_sees_it():
     assert titles["Geometry"] == ["02072", "02072CC"], (
         "both codes for one title must survive, sorted so the value does not "
         "depend on the order of the sheet")
+
+
+def test_a_sheet_that_parses_to_no_courses_is_refused():
+    """Zero courses is not a measurement — the page's whole argument is that
+    New York is the ONE state directory keyed to SCED, and an empty read would
+    report that it publishes nothing rather than that the read failed."""
+    book = workbook({"All courses": [
+        ["Course Code (Course ID)", "Course Code Description"]]})
+    with pytest.raises(catalog.MalformedSource, match="catalogue of nothing"):
+        catalog.new_york(book)
+
+
+def test_a_workbook_with_no_course_sheet_is_refused():
+    """Guessing at a sheet is how the figures come to describe a different
+    table.
+
+    The MESSAGE is matched, not just the type. Falling back to the first sheet
+    still raises — the fallback sheet has no data rows — so a bare
+    `pytest.raises(MalformedSource)` was satisfied by the wrong refusal and the
+    mutation survived.
+    """
+    book = workbook({"Notes": [["a"], ["b"]], "Something Else": [["c"], ["d"]]})
+    with pytest.raises(catalog.MalformedSource, match="no course sheet"):
+        catalog.new_york(book)
