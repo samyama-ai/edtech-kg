@@ -22,13 +22,15 @@ import urllib.request
 
 USER_AGENT = "edtech-kg research probe (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
-#: An A or AAAA answer, as `dig +short` prints one. Anything else in that
-#: output is a CNAME, a message, or part of a chain.
-#: Parsed, not pattern-matched. `[0-9a-fA-F:]{3,}` also matches `abc`,
-#: `deadbeef` and any hex-ish token `dig` happens to print, and whatever it
-#: matched went onto the page as the address a resolver returned.
 
 def is_address(text: str) -> bool:
+    """Is this an A or AAAA answer, as `dig +short` prints one?
+
+    PARSED, not pattern-matched. `[0-9a-fA-F:]{3,}` also matches `abc`,
+    `deadbeef` and any hex-ish token in that output, and whatever it matched
+    went onto the page as the address a resolver returned. Anything else `dig`
+    prints is a CNAME, a message, or part of a chain.
+    """
     try:
         ipaddress.ip_address(text)
     except ValueError:
