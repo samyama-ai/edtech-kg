@@ -33,6 +33,10 @@ import sys
 import urllib.error
 import urllib.request
 import zipfile
+
+# The licence READING lives next door; this module measures. The split is
+# the one the module docstring already draws.
+from etl.clusters_licence import MalformedSource, career_clusters
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,8 +53,6 @@ ONET_MEMBER = "OccupationalListings/Crosswalks/2019_to_SOC_Crosswalk.xlsx"
 # the one the document's own corroborating sentence describes, and it was never
 # fetched — so "0 machine-readable files" was counted on one page while the
 # sentence beside it pointed at another.
-CLUSTERS = "https://careertech.org/career-clusters/"
-CLUSTER_CROSSWALKS = "https://careertech.org/crosswalks/"
 
 USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
@@ -64,19 +66,32 @@ FAMILY = re.compile(r"\A\d{2}\.0000\Z")
 SERIES = re.compile(r"\A\d{2}\.\d{2}00\Z")
 
 
-class MalformedSource(Exception):
-    """A source that answered, but not with what it publishes."""
+#: A redirect guard, not a size prediction: an unbounded `read()` on a
+#: 180-second timeout pulls whatever it is pointed at into memory.
+MAX_DOWNLOAD = 64 * 1024 * 1024
 
 
 def download(url: str, into: Path) -> bytes:
     """Cached on disk. `data/` is gitignored, so this is a local cache and
     never a committed artefact."""
     if into.exists():
-        return into.read_bytes()
+        # CHECKED, not trusted on existence. A truncated write or an HTML
+        # error page saved under the archive's name was returned to every
+        # later run, and only `main()`'s BadZipFile handler noticed — which
+        # cannot say WHICH file, because by then the bytes have no name.
+        cached = into.read_bytes()
+        if cached.startswith(b"PK") and len(cached) > 1024:
+            return cached
+        into.unlink()
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
-            payload = response.read()
+            payload = response.read(MAX_DOWNLOAD + 1)
+        if len(payload) > MAX_DOWNLOAD:
+            raise MalformedSource(
+                f"{url} returned more than {MAX_DOWNLOAD // (1024 * 1024)} MB; "
+                f"these archives are a few MB, so this is a redirect to "
+                f"something else rather than a bigger file.")
     except urllib.error.HTTPError as exc:
         raise MalformedSource(f"{url} returned HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -164,12 +179,10 @@ def cip_hierarchy(mapped: list[tuple[str, str]] | None = None) -> dict:
             "distinct_families": len(prefixes),
             "families_with_a_row": len(with_row),
             "families_without_a_row": sorted(prefixes - with_row),
-            # The question #36 asks in a parenthesis. Named for what it
-            # measures — every family having a rollup ROW — rather than
-            # `family_names_derivable`, which read as the opposite of the
-            # argument: the family CODE is always derivable from the string,
-            # and it is the NAME that is missing without a row. That is what
-            # makes the separate NCES hierarchy file necessary.
+            # Named for what it measures — every family having a rollup ROW.
+            # `family_names_derivable` read as the opposite of the argument:
+            # the family CODE is always derivable from the string, and it is
+            # the NAME that is missing without a row.
             "every_family_has_a_row": not (prefixes - with_row)}
 
 
@@ -180,10 +193,21 @@ def column_named(header: list[str], *must_contain: str, avoid: str = "") -> int:
     heading that has moved is a layout change, and reading the old index would
     keep working while counting the wrong column.
     """
+    # Case- and space-insensitive. Matching the header text as typed refused
+    # the whole run over `SOC CODE` or `soc code` — a re-cased heading is a
+    # cosmetic change and this reads headings precisely so a cosmetic change
+    # does not matter.
+    def squashed(text: str) -> str:
+        return re.sub(r"[^a-z0-9*]", "", text.lower())
+
+    wanted = [squashed(t) for t in must_contain]
+    skip = squashed(avoid) if avoid else ""
+
     matched = []
     for i, cell in enumerate(header):
-        if all(token in cell for token in must_contain):
-            if avoid and avoid in cell:
+        flat = squashed(cell)
+        if all(token in flat for token in wanted):
+            if skip and skip in flat:
                 continue
             matched.append(i)
     if len(matched) > 1:
@@ -220,14 +244,11 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
                 f"{archive.namelist()[:6]}. The layout has changed.") from exc
 
     with zipfile.ZipFile(io.BytesIO(member)) as book:
-        # The SAME reader `probe_cipsoc` uses, not a second one. It places
-        # cells by their `r` attribute; a reader that appends in document
-        # order puts the 2018 SOC *Title* in the column the header calls
-        # 2018 SOC Code the moment a row omits its title cell, and every
-        # figure below stays plausible and is wrong. Measured on the file as
-        # it stands today: every row is dense and the two readers agree
-        # exactly, so this is a latent defect rather than a live one — which
-        # is precisely why it needs the shared reader and not a comment.
+        # The SAME reader `probe_cipsoc` uses. It places cells by their `r`
+        # attribute; one that appends in document order puts the SOC *Title*
+        # under the heading `SOC Code` the moment a row omits a cell, and
+        # every figure below stays plausible and is wrong. Latent today —
+        # every row is dense — which is why it needs the reader, not a note.
         parts = crosswalk.sheets(book)
         if len(parts) != 1:
             raise MalformedSource(
@@ -240,12 +261,10 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
     if head is None:
         raise MalformedSource("no header row in the O*NET crosswalk")
 
-    # BOTH columns found by name. The O*NET column was looked up by heading
-    # while the SOC column was read at a hardcoded `r[2]` — so the file was
-    # half-trusted to keep its layout, and the half that was trusted is the
-    # one carrying the codes every figure below rests on. This file has four
-    # columns today, and reading the third by index keeps working, wrongly, if
-    # a fifth arrives.
+    # BOTH columns by name. One was read at a hardcoded `r[2]`, so the file
+    # was half-trusted to keep its layout — and the trusted half carried the
+    # codes every figure below rests on. Reading by index keeps working,
+    # wrongly, the moment a column is added.
     onet_at = column_named(rows[head], "O*NET-SOC", "Code")
     soc_at = column_named(rows[head], "SOC", "Code", avoid="O*NET")
 
@@ -254,13 +273,22 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
     if not body:
         raise MalformedSource("the O*NET crosswalk parsed to zero rows")
 
-    # The SOC title too, so the example the page gives is printed rather than
-    # written down. The page named `15-1299 Computer Occupations, All Other`
-    # and the probe emitted only the count — so the one concrete illustration
-    # of the fan-out was the one figure on the page nobody could reproduce.
-    title_at = column_named(rows[head], "SOC", "Title", avoid="O*NET")
-    titles = {r[soc_at].strip(): r[title_at].strip() for r in body
-              if len(r) > title_at}
+    # The SOC title, so the page's example — `15-1299 Computer Occupations,
+    # All Other` — is printed rather than written down. OPTIONAL: it feeds one
+    # illustrative string, and refusing every measured figure over a missing
+    # label is the wrong trade.
+    try:
+        title_at = column_named(rows[head], "SOC", "Title", avoid="O*NET")
+    except MalformedSource:
+        title_at = None
+    if title_at == soc_at:
+        # ONE column satisfying both lookups — "SOC Code and Title" does.
+        # Reading a code as a title maps every SOC code to itself, which
+        # looks like data rather than like a failure.
+        title_at = None
+    titles = ({} if title_at is None else
+              {r[soc_at].strip(): r[title_at].strip() for r in body
+               if len(r) > title_at})
 
     onet_codes = {r[onet_at].strip() for r in body}
     rolled = {r[soc_at].strip() for r in body}
@@ -288,140 +316,6 @@ def onet_to_soc(ours: set[str] | None = None) -> dict:
             "largest_fan_out": max(fan.values()) if fan else 0,
             "widest_soc": widest,
             "widest_soc_title": titles.get(widest) if widest else None}
-
-
-def page_text(url: str) -> str:
-    """One page, or a refusal naming it."""
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return response.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise MalformedSource(f"{url} did not answer ({exc})") from exc
-
-
-def data_files(page: str) -> list[str]:
-    """Links to a machine-readable data file on one page.
-
-    Either quote style, and a query string or fragment allowed after the
-    extension. The tight pattern (double quotes, extension at the very end)
-    reported zero for `href='/x.xlsx?v=2'` — and a zero here feeds a licence
-    conclusion, so a false negative is the wrong way round, the same way round
-    as the copyright pattern.
-
-    The opening quote is backreferenced, so `href="a.csv'` no longer matches.
-    """
-    return sorted(set(match[1] for match in re.findall(
-        # `(?!\1)` rather than `[^"']`: a double-quoted href may contain an
-        # apostrophe — `href="/o'brien.csv"` — and excluding both quote
-        # characters missed it. Only the delimiter that opened the attribute
-        # can close it, and a missed file is a false zero.
-        r"""href=(["'])((?:(?!\1)[^\s>])*\.(?:xlsx|xls|csv|json))"""
-        r"""(?:[?#](?:(?!\1)[^\s>])*)?\1""",
-        page, re.I)))
-
-
-def career_clusters() -> dict:
-    """Read rather than measured — the licence question edtech-kg#35 asks.
-
-    Everything here is quoted from the page as it stood on the retrieval date,
-    because a licence position is a fact about a document and not about data.
-
-    Deliberately not cached on disk, unlike the two workbooks: a licence
-    position is exactly the thing that should be re-read rather than served
-    from a copy taken months ago. The cost is one request per run.
-    """
-    page = page_text(CLUSTERS)
-    crosswalks = page_text(CLUSTER_CROSSWALKS)
-    flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page))
-    # Periods allowed: the notice reads "© 2023 Advance CTE: State Leaders
-    # Connecting Learning to Work. All rights reserved.", and stopping at the
-    # first full stop reported no notice on a page that carries one.
-    notice = re.search(r"(©\s*\d{4}[^©]{0,160}?All rights reserved)", flat)
-    structure = re.search(r"(\d+) Clusters and (\d+) Sub-Clusters", flat)
-    # Either quote style, and a query string or fragment allowed after the
-    # extension. The tight pattern (double quotes, extension at the very end)
-    # reported zero for href='/x.xlsx?v=2' — and the zero here feeds a licence
-    # conclusion, so a false negative is the wrong way round, the same way
-    # round as the copyright pattern above.
-    # REFUSED when the page carries neither landmark.
-    #
-    # Nothing here validated what came back, unlike `download()`, which checks
-    # for the PK magic before believing it has a workbook. A redirect, a cookie
-    # wall or a JavaScript shell returns HTTP 200 and no content: `notice` and
-    # `structure` are both None, `data_files` is empty, and the probe printed
-    # "None clusters, None sub-clusters" and "data files ... 0" without
-    # complaint.
-    #
-    # That zero is what `docs/sources/code-sets.md` rests its "NOT cleared"
-    # licence position on. A genuine absence of machine-readable files and a
-    # failed fetch produce the same zero, and nothing on the page or in the
-    # output tells a reader — or a re-run six months from now — which one it
-    # saw. A licence conclusion is the last thing that should rest on a number
-    # with two meanings.
-    #
-    # BOTH must be missing to refuse, not either. Advance CTE can reword a
-    # copyright line or restate the cluster count without the page having
-    # failed to load, and refusing on one missing landmark would turn an
-    # ordinary edit into a broken probe.
-    # BOTH pages. The guard below covered `CLUSTERS` only, and the crosswalks
-    # page is where both corroborating figures come from — a failed load there
-    # returned two empty lists, so the zero the licence position rests on was
-    # still reachable from a page that never loaded. Guarding one of two pages
-    # that feed a conclusion is not guarding the conclusion.
-    #
-    # It carries no cluster count and no copyright line, so it is checked on
-    # what it does carry: links to published files. None at all is the same
-    # failed-fetch signal.
-    # Query string or fragment allowed, like `data_files` and the PDF regex.
-    # Without it a page whose links all look like `/wheel.pdf?ver=3` is
-    # refused as carrying none — a false refusal of a page that loaded.
-    if not re.search(
-            r"""href=["'][^"']+\.(?:pdf|xlsx|xls|csv|json|docx?)(?:[?#][^"']*)?["']""",
-            crosswalks, re.I):
-        raise MalformedSource(
-            f"{CLUSTER_CROSSWALKS} carried no links to published files at all "
-            f"({len(crosswalks)} characters). That page is where the PDF count "
-            f"and the crosswalks-page zero both come from, so a failed load "
-            f"there produces the same numbers as a genuine absence — and the "
-            f"licence position is argued from exactly those numbers.")
-
-    if notice is None and structure is None:
-        raise MalformedSource(
-            f"{CLUSTERS} carried neither the copyright notice nor the "
-            f"'N Clusters and M Sub-Clusters' line ({len(flat)} characters of "
-            f"text). Both are on the page this probe reads, so their joint "
-            f"absence means what came back is not that page — a redirect, a "
-            f"cookie wall or a script shell. Refusing rather than reporting "
-            f"the zero it would otherwise produce, because that zero is what "
-            f"the licence position is argued from.")
-
-    machine_readable = data_files(page)
-    on_crosswalks = data_files(crosswalks)
-    return {"source": CLUSTERS,
-            "crosswalks_source": CLUSTER_CROSSWALKS,
-            "copyright_notice": notice.group(1).strip() if notice else None,
-            "clusters": int(structure.group(1)) if structure else None,
-            "sub_clusters": int(structure.group(2)) if structure else None,
-            # Per page. The conclusion rests on the crosswalks page, so the
-            # count from that page is the one the document quotes.
-            "machine_readable_files": machine_readable,
-            "machine_readable_on_crosswalks": on_crosswalks,
-            # What IS published there, which is the corroboration: the
-            # document says PDFs, so the PDFs are counted rather than
-            # described.
-            # Backreferenced, and a query string or fragment allowed after
-            # the extension — the same two rules as `data_files`, which this
-            # regex is the corroborating half of. It carried a comment
-            # claiming parity with `data_files` while missing the query-string
-            # allowance, so `/wheel.pdf?ver=3` was not counted and the "6 PDFs"
-            # could under-report the thing that corroborates the zero.
-            "pdfs_on_crosswalks": sorted({
-                match[1].rsplit("/", 1)[-1].split("?")[0].split("#")[0]
-                for match in re.findall(
-                    r"""href=(["'])((?:(?!\1)[^\s>])*\.pdf(?:[?#](?:(?!\1)[^\s>])*)?)\1""",
-                    crosswalks, re.I)}),
-            "measured_or_read": "read"}
 
 
 def probe(quiet: bool = False) -> dict:

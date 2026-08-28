@@ -55,7 +55,9 @@ class _body:
     def __init__(self, payload): self._payload = payload
     def __enter__(self): return self
     def __exit__(self, *exc): return False
-    def read(self): return self._payload
+
+    def read(self, limit=None):
+        return self._payload if limit is None else self._payload[:limit]
 
 
 def test_an_html_page_is_refused_rather_than_read_as_an_empty_archive(monkeypatch, tmp_path):
@@ -325,15 +327,59 @@ def test_two_columns_matching_one_lookup_are_refused_rather_than_guessed():
         ["O*NET-SOC 2019 Code", "2018 SOC Code"], "2018", "Code") == 1
 
 
-def test_a_published_file_with_an_apostrophe_in_its_name_is_counted():
-    """`[^"']*` excluded both quote characters from the href.
+def test_a_missing_soc_title_column_does_not_abort_the_measurement(monkeypatch):
+    """A cosmetic field aborted the whole probe.
 
-    A double-quoted href may legitimately contain an apostrophe, so
-    `href="/o'brien.csv"` counted as no published file — and a missed file is
-    a false zero, which is the direction that manufactures the licence
-    conclusion. Only the delimiter that opened the attribute can close it.
+    The SOC title feeds one illustrative string — `15-1299 Computer
+    Occupations, All Other` — and `column_named` raises, so a renamed or
+    dropped title column took every measured figure on the page down with it.
+    Refusing a measurement over a label is the wrong trade.
+
+    A header where ONE column satisfies both lookups is the same case: reading
+    a code as a title maps every SOC code to itself, which looks like data.
     """
-    assert probe.data_files('''href="/o'brien.csv"''') == ["/o'brien.csv"]
-    assert probe.data_files("href='/x.xlsx?v=2'") == ["/x.xlsx"]
-    # And a genuinely mismatched quote is still not a link.
-    assert probe.data_files('''href="a.csv'"''') == []
+    header = ["O*NET-SOC 2019 Code", "2018 SOC Code"]
+    book = workbook([header, ["11-1011.00", "11-1011"]])
+    monkeypatch.setattr(probe, "download",
+                        lambda url, into: archived(probe.ONET_MEMBER, book))
+
+    got = probe.onet_to_soc(ours={"11-1011"})
+    assert got["soc_codes_they_roll_up_to"] == 1, (
+        "the measurement was abandoned because the title column is absent")
+    assert got["widest_soc"] == "11-1011"
+    assert got["widest_soc_title"] is None, (
+        "a title was reported from a file that has no title column")
+
+
+def test_one_column_cannot_be_read_as_both_the_code_and_the_title(monkeypatch):
+    """`SOC Code and Title` satisfies both lookups.
+
+    The earlier fix here refused two columns matching one lookup, which is a
+    different shape and left this open — so the title would have been the code,
+    mapping every SOC code to itself.
+    """
+    header = ["O*NET-SOC 2019 Code", "SOC Code and Title"]
+    book = workbook([header, ["11-1011.00", "11-1011"]])
+    monkeypatch.setattr(probe, "download",
+                        lambda url, into: archived(probe.ONET_MEMBER, book))
+
+    got = probe.onet_to_soc(ours={"11-1011"})
+    assert got["widest_soc_title"] is None, (
+        "the code column was read as the title column, so every SOC code "
+        "maps to itself and it looks like data")
+
+
+def test_a_recased_heading_does_not_refuse_the_run():
+    """`column_named` matched the header text as typed.
+
+    `SOC CODE` or `soc code` refused the whole run — and this function reads
+    headings by name precisely so that a cosmetic change does not matter.
+    """
+    for heading in ("2018 SOC Code", "2018 SOC CODE", "2018 soc code",
+                    "2018  SOC_Code"):
+        assert probe.column_named([heading], "SOC", "Code") == 0, (
+            f"{heading!r} was refused; a re-cased heading is a cosmetic change")
+
+    # And a heading that genuinely does not name it is still refused.
+    with pytest.raises(probe.MalformedSource):
+        probe.column_named(["Occupation"], "SOC", "Code")

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from etl import probe_codesets as probe
+from etl import clusters_licence as probe
 
 
 #: A crosswalks page that looks like the real one: links to published files.
@@ -25,15 +25,26 @@ CROSSWALKS_PAGE = (b'<html><body>'
                    b'</body></html>')
 
 
-def serve(monkeypatch, page: bytes, *, crosswalks: bytes = CROSSWALKS_PAGE):
-    """Answer every fetch, per URL, with ONE stub.
+def serve(monkeypatch, page, *, crosswalks=CROSSWALKS_PAGE):
+    """Answer BOTH pages, per URL, through the real transport.
 
-    There were six copies of a three-line `Response` class, each answering
-    every URL with the same body — so a test aiming a fixture at the framework
-    page was also answering the crosswalks page with it, and no test could
-    tell the two apart. `career_clusters` reads both.
+    One strategy for the whole file. Some tests faked `urlopen` and others
+    faked `page_text`, so half of them exercised the decoding and the guards
+    in `page_text` and half skipped straight past — two suites in one file,
+    disagreeing about how much of the code they cover.
+
+    `urlopen` is the lower of the two, so everything above it runs.
+
+    A URL this does not know is a FAILURE, not the framework page. It fell
+    back to `page`, so a test aiming a fixture at one page silently answered
+    a third fetch with it — which is the bug the six duplicated stubs had, in
+    one place instead of six.
     """
-    bodies = {probe.CLUSTERS: page, probe.CLUSTER_CROSSWALKS: crosswalks}
+    def encoded(body):
+        return body if isinstance(body, bytes) else body.encode()
+
+    bodies = {probe.CLUSTERS: encoded(page),
+              probe.CLUSTER_CROSSWALKS: encoded(crosswalks)}
 
     class Response:
         def __init__(self, body): self._body = body
@@ -43,7 +54,11 @@ def serve(monkeypatch, page: bytes, *, crosswalks: bytes = CROSSWALKS_PAGE):
 
     def urlopen(request, *a, **k):
         url = request if isinstance(request, str) else request.full_url
-        return Response(bodies.get(url, page))
+        if url not in bodies:
+            raise AssertionError(
+                f"the probe fetched {url}, which this fixture does not serve. "
+                f"Add it — a new fetch is what these tests must not miss.")
+        return Response(bodies[url])
 
     monkeypatch.setattr(probe.urllib.request, "urlopen", urlopen)
 
@@ -107,7 +122,8 @@ def test_the_licence_zero_is_counted_on_the_page_the_prose_describes(monkeypatch
         probe.CLUSTER_CROSSWALKS: ("<html><a href='/grid.pdf'>a</a>"
                                    "<a href='/wheel.pdf'>b</a></html>"),
     }
-    monkeypatch.setattr(probe, "page_text", lambda url: pages[url])
+    serve(monkeypatch, pages[probe.CLUSTERS],
+          crosswalks=pages[probe.CLUSTER_CROSSWALKS])
 
     got = probe.career_clusters()
     assert got["machine_readable_files"] == ["/framework.xlsx"], (
@@ -140,7 +156,8 @@ def test_a_pdf_link_with_a_mismatched_quote_is_not_counted(monkeypatch):
         probe.CLUSTER_CROSSWALKS: ("<html><a href='/good.pdf'>a</a>"
                                    "<a href=\"/bad.pdf'>b</a></html>"),
     }
-    monkeypatch.setattr(probe, "page_text", lambda url: pages[url])
+    serve(monkeypatch, pages[probe.CLUSTERS],
+          crosswalks=pages[probe.CLUSTER_CROSSWALKS])
     got = probe.career_clusters()
     assert got["pdfs_on_crosswalks"] == ["good.pdf"], (
         f"a mismatched quote pair was counted as a published PDF: "
@@ -258,3 +275,65 @@ def test_a_crosswalks_page_whose_links_carry_query_strings_is_not_refused(monkey
     serve(monkeypatch, good,
           crosswalks=b'<html><a href="/files/wheel.pdf?ver=3">a</a></html>')
     assert probe.career_clusters()["pdfs_on_crosswalks"] == ["wheel.pdf"]
+
+
+def test_the_three_link_patterns_agree_about_what_a_link_is():
+    """`data_files`, the PDF scan and the crosswalks LOAD GUARD each carry
+    their own regex, and they have diverged twice already — a query-string
+    allowance landed in two of the three, and a backreference in one of two.
+
+    The guard's is the one that matters most and is the least visible: it
+    decides whether the page loaded at all, so a pattern stricter than the
+    counters refuses a page they would happily read. Driven against the same
+    hrefs rather than compared as text.
+    """
+    good = (b"<html><footer>\xc2\xa9 2023 Advance CTE. All rights reserved."
+            b"</footer><p>14 Clusters and 72 Sub-Clusters</p></html>")
+
+    for href in ('<a href="/x.pdf?ver=3">a</a>',
+                 "<a href='/x.pdf#page2'>a</a>",
+                 '<a href="/o\'brien.pdf">a</a>'):
+        with pytest.MonkeyPatch.context() as mp:
+            serve(mp, good, crosswalks=href.encode())
+            got = probe.career_clusters()
+        assert got["pdfs_on_crosswalks"], (
+            f"{href} counted as a PDF by neither the guard nor the scan — the "
+            f"guard would have refused the page if the scan found nothing")
+
+    # And a page with no links at all is still refused by the guard.
+    with pytest.MonkeyPatch.context() as mp:
+        serve(mp, good, crosswalks=b"<html><div id=root></div></html>")
+        with pytest.raises(probe.MalformedSource, match="no links"):
+            probe.career_clusters()
+
+
+def test_the_framework_page_is_checked_before_the_crosswalks_page(monkeypatch):
+    """Both fail, and only one message can be shown.
+
+    The framework page carries the cluster count and the copyright notice —
+    the two things the licence position is read FROM — so its failure is the
+    one a reader needs named. The crosswalks page only corroborates.
+    """
+    serve(monkeypatch,
+          b"<html><div id=root></div></html>",
+          crosswalks=b"<html><div id=root></div></html>")
+
+    with pytest.raises(probe.MalformedSource) as refused:
+        probe.career_clusters()
+    assert "career-clusters" in str(refused.value), (
+        f"with both pages down the run reported the crosswalks page, which "
+        f"only corroborates: {refused.value}")
+
+
+def test_a_published_file_with_an_apostrophe_in_its_name_is_counted():
+    """`[^"']*` excluded both quote characters from the href.
+
+    A double-quoted href may legitimately contain an apostrophe, so
+    `href="/o'brien.csv"` counted as no published file — and a missed file is
+    a false zero, which is the direction that manufactures the licence
+    conclusion. Only the delimiter that opened the attribute can close it.
+    """
+    assert probe.data_files('''href="/o'brien.csv"''') == ["/o'brien.csv"]
+    assert probe.data_files("href='/x.xlsx?v=2'") == ["/x.xlsx"]
+    # And a genuinely mismatched quote is still not a link.
+    assert probe.data_files('''href="a.csv'"''') == []
