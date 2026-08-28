@@ -187,3 +187,9 @@ def test_the_page_does_not_call_the_registry_data_cleared():
     page = PAGE.read_text().lower()
     assert "not cleared. do not load." in page
     assert "cc by 4.0 (#28)" in page
+    # The operative sentence, not just the table. Dropping the "not" from it
+    # left every other assertion here green while the document told a reader
+    # the opposite of what it was written to say.
+    assert ("loading registry records into a published graph is not permitted"
+            in page)
+    assert "#58 should not proceed on the assumption that it may" in page
