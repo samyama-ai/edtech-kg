@@ -1,0 +1,65 @@
+{
+  "retrieved_at": "2026-08-28",
+  "departments": {
+    "Florida \u2014 fldoe.org": {
+      "root": "https://www.fldoe.org",
+      "homepage": {
+        "outcome": "refused",
+        "detail": "HTTP 403"
+      },
+      "robots_txt": {
+        "outcome": "refused",
+        "detail": "HTTP 403"
+      },
+      "recommendation": "manual-only"
+    },
+    "Virginia \u2014 doe.virginia.gov": {
+      "root": "https://www.doe.virginia.gov",
+      "homepage": {
+        "outcome": "refused",
+        "detail": "HTTP 403"
+      },
+      "robots_txt": {
+        "outcome": "refused",
+        "detail": "HTTP 403"
+      },
+      "recommendation": "manual-only"
+    },
+    "California \u2014 cde.ca.gov": {
+      "root": "https://www.cde.ca.gov",
+      "homepage": {
+        "outcome": "redirect_loop",
+        "detail": "HTTP 303"
+      },
+      "robots_txt": {
+        "outcome": "redirect_loop",
+        "detail": "HTTP 303"
+      },
+      "recommendation": "manual-only"
+    },
+    "Texas \u2014 tea.texas.gov": {
+      "root": "https://tea.texas.gov",
+      "homepage": {
+        "outcome": "served",
+        "detail": "HTTP 200"
+      },
+      "robots_txt": {
+        "outcome": "served",
+        "detail": "HTTP 200"
+      },
+      "recommendation": "automatable"
+    },
+    "New York \u2014 nysed.gov": {
+      "root": "https://www.nysed.gov",
+      "homepage": {
+        "outcome": "tls_failure",
+        "detail": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local "
+      },
+      "robots_txt": {
+        "outcome": "tls_failure",
+        "detail": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local "
+      },
+      "recommendation": "manual-only"
+    }
+  }
+}

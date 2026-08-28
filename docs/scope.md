@@ -115,6 +115,10 @@ Two of those are open questions, and they are open in this document rather than
 discovered later. **Neither the Urban Institute wrapper nor the PWCS catalogue
 should be treated as cleared until someone has cleared them.**
 
+**Reachability is a separate question from permission**, and three of five
+state education departments do not answer an automated request at all — see
+[`sources/state-access.md`](sources/state-access.md), measured 2026-08-28.
+
 Raw data is never committed. The repo ships downloaders, loaders, schema and a
 bounded demo, and cites its sources — the convention across every `*-kg` repo.
 
