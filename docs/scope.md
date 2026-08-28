@@ -110,6 +110,7 @@ anything is published from it.
 | College Scorecard | US Dept of Education | US-government public domain |
 | Urban Institute Education Data API | Urban Institute | Republishes the federal data above; **wrapper's own terms not yet checked** |
 | PWCS course catalogue | Prince William County Public Schools | **A public catalogue, but reuse permission is a human decision — not settled.** See #4 |
+| Credential Registry **data** | many publishers, operated by Credential Engine | **Not cleared — do not load.** Terms of use grant internal use only and route any application or redistribution through a signed Developer Agreement, checked 2026-08-28 — [`sources/registry-data-licence.md`](sources/registry-data-licence.md). The CC BY 4.0 finding is about CTDL the **vocabulary** (#28), not this. |
 
 Two of those are open questions, and they are open in this document rather than
 discovered later. **Neither the Urban Institute wrapper nor the PWCS catalogue

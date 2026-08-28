@@ -1,0 +1,24 @@
+{
+  "retrieved_at": "2026-08-28",
+  "terms_of_use": {
+    "source": "https://credentialengine.org/terms/",
+    "grant": "Credential Engine grants you a personal, limited, revocable, nonexclusive, and nontransferable license to view, access, and use the Websites and the Credential Registry, solely for your personal use and internal use within your organization",
+    "restriction": "You may not reproduce, publish, distribute, display, modify, create derivative works from, sell in any way, in whole or in part, or make commercial use of the Credential Registry or any content on the Websites without the separate prior consent of Credential Engine",
+    "developer_agreement": "develop software applications that access and use data from the Websites and the Credential Registry; or (ii) aggregate, publish, transmit or otherwise reproduce, transfer, distribute or disseminate data from the Websites and the Credential Registry to third parties, whether for commercial or noncommercial purposes; must in addition to these Terms of Use agree to and sign our Developer Agreement",
+    "read_or_measured": "read"
+  },
+  "rights_terms_in_ctdl": [
+    "ceterms:License",
+    "ceterms:RightsAction",
+    "ceterms:copyrightHolder",
+    "ceterms:rightSource"
+  ],
+  "records": {
+    "envelopes": 300,
+    "carrying_a_rights_field": 0,
+    "fields_looked_for": [
+      "ceterms:copyrightHolder"
+    ],
+    "read_or_measured": "measured"
+  }
+}
