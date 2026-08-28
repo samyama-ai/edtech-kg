@@ -139,20 +139,31 @@ and it counts titles, not codes.
 
 ### And the 8% is the wrong 8%
 
+Both lists below are printed by the probe — an evenly spaced sample of each
+set, so they cover the alphabet rather than being eight names chosen to suit
+the argument.
+
 The courses that match are the ones that were already national:
 
-    AP Biology · AP Calculus AB · IB Physics (SL) · AP U.S. History
-    Concert Band · Accounting · Geometry · Trigonometry
+    AICE Biology (A Level) · AICE Sociology · AP Chemistry · AP Physics 2
+    AP World History · Discrete Mathematics · IB Psychology
+    Physical Science (Science 8)
 
-The courses that do not are the ones a district is distinctive for:
+The courses that do not are the district's own:
 
-    Greenhouse Plant Production & Management · Turfgrass Management
-    Landscaping 1 · Landscaping 2 · Horticulture Sciences
+    3D Sculpture 1 · Advanced Russian Language 3
+    Chemistry 2: Forensic Sciences and Chemical Analysis
+    English Language Development for English 12
+    Gifted Seminar: Philosophy (1 credit) · IBMYP Language Arts 7
+    Journalism 4 · Psychology 1
 
 That is the shape of the result. SCED reaches the courses that already had a
-national identity — an AP exam, a standard maths sequence — and misses the
-local CTE programmes, which are exactly the part of a catalogue that a family
-cannot find anywhere else.
+national identity — an AP or AICE exam, a standard maths sequence — and misses
+the district's own: its CTE programmes (**Turfgrass Management**,
+**Landscaping 1**, **Horticulture Sciences** and **Greenhouse Plant Production
+& Management** are all unmatched, asserted in the tests), its levelled variants
+and its locally designed seminars. Those are exactly the part of a catalogue a
+family cannot find anywhere else.
 
 ## What this means for the schema
 

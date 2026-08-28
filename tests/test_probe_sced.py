@@ -103,75 +103,6 @@ def test_sheets_are_resolved_through_relationships_not_filename_order():
     assert probe.rows(book, found["SCED 13.0"])[1] == ["Algebra"]
 
 
-def test_a_state_suffix_is_not_counted_as_a_sced_code(monkeypatch):
-    """New York publishes eleven codes with its own suffix — `01003CC` is a
-    Common Core variant, New York extending SCED rather than using it.
-    Counting them as aligned would overstate how portable a Course is, which is
-    the one figure this probe exists to keep honest."""
-    book = workbook({"All courses": [
-        ["Course Code (Course ID)", "Course Code Description"],
-        ["01001", "ELA I"],
-        ["01003CC", "ELA III (Common Core)"],
-    ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    got = probe.new_york()
-    assert got["courses"] == 2
-    assert got["sced_codes"] == 1, "the state extension was counted as a SCED code"
-    assert got["state_extensions"] == ["01003CC"]
-
-
-def test_a_sequence_column_would_be_reported_if_a_state_published_one(monkeypatch):
-    """The claim on the page is that no state publishes the sequence element.
-    A test that only ever sees files without one proves nothing, so this drives
-    the case the data does not have."""
-    book = workbook({"All courses": [
-        ["Course Code (Course ID)", "Course Code Description", "Sequence of Course"],
-        ["01001", "ELA I", "1 of 2"],
-    ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    assert probe.new_york()["publishes_sequence"] is True
-
-
-def test_a_row_that_omits_a_cell_does_not_shift_the_columns(monkeypatch):
-    """Excel omits a blank cell rather than writing an empty one, so a course
-    with no title arrives as `<c r="A3">…</c><c r="C3">…</c>`. A reader that
-    appends in document order would put column C's value where column B is
-    read, and `sced_codes`, the extensions list and the title map would all
-    stay plausible and be wrong, with nothing raising.
-
-    This is why the probe uses `probe_cipsoc.rows`, which places cells by
-    their `r` attribute, rather than a reader of its own.
-    """
-    book = workbook({"All courses": [
-        ["Course Code (Course ID)", "Course Code Description", "Course Description"],
-        ["01001", "ELA I", "an English course"],
-        # No title. `01003CC` must still be read as the code, and the long
-        # description must not slide into the title column.
-        ["01003CC", "", "another English course"],
-    ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    got = probe.new_york()
-    assert got["courses"] == 2
-    assert got["state_extensions"] == ["01003CC"], (
-        "the untitled row's code was misread — the reader is placing cells by "
-        "document order again")
-    assert "another English course" not in got["titles"], (
-        "the long description was read as a course title")
-
-
-def test_a_reordered_export_is_refused_rather_than_read_positionally(monkeypatch):
-    """The code and title are read by position, so the position is checked.
-    New York restructuring its export would otherwise be read in silence and
-    every figure below would be a count of the wrong column."""
-    book = workbook({"All courses": [
-        ["Course Code Description", "Course Code (Course ID)"],
-        ["ELA I", "01001"],
-    ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    with pytest.raises(probe.MalformedSource, match="has been restructured"):
-        probe.new_york()
-
-
 def test_the_element_split_is_read_from_the_sheets_own_banner_rows(monkeypatch):
     """What a SCED record may carry — and the failure that hid inside it.
 
@@ -229,29 +160,6 @@ def test_an_elements_sheet_whose_banners_changed_is_refused(monkeypatch):
     monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="banner rows"):
         probe.master()
-
-
-def test_a_sheet_whose_header_row_starts_blank_is_refused(monkeypatch):
-    """`header[0]` was read before anything checked it had content.
-
-    The review described this as an IndexError on a blank first row. Driven,
-    that exact case does not reach it — `probe_cipsoc.rows` drops a row with no
-    values at all, so an entirely blank row never becomes `body[0]`. What DOES
-    reach it is a header whose first cell is empty and whose later cells are
-    not: the reader pads, so `header[0]` is `""` rather than missing, and the
-    column check then compares an empty string and reports a restructured
-    export in a message about column names.
-
-    The guard is worth having either way, and this is the shape that gets
-    there.
-    """
-    book = workbook({"All courses": [
-        ["", "Course Code Description", "Notes"],
-        ["01001", "ELA I", "x"],
-    ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    with pytest.raises(probe.MalformedSource, match="opens with a blank row"):
-        probe.new_york()
 
 
 def test_the_master_sheet_gets_the_same_blank_header_guard_as_new_york(monkeypatch):
@@ -326,7 +234,7 @@ def test_the_json_payload_still_carries_the_new_york_titles(monkeypatch):
         {"SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
          "Elements and Attributes": [["Element Name"], ["Course Title"],
                                      ["Attribute Name"], ["Course Level"]]}))
-    monkeypatch.setattr(probe, "new_york", lambda: {
+    monkeypatch.setattr(probe, "new_york", lambda payload: {
         "source": "x", "columns": ["a"], "rows": 1, "courses": 1,
         "sced_codes": 1, "state_extensions": [], "subject_prefixes": 1,
         "publishes_sequence": False, "titles": {"Algebra I": ["02052"]}})
@@ -383,8 +291,11 @@ def test_a_second_sequence_definition_is_visible_rather_than_last_wins(monkeypat
         "Elements and Attributes": [
             ["Element Name"],
             ["Sequence", "a consecutive sequence of courses, first"],
+            # BOTH in the element bucket — an attribute carrying the phrase
+            # is a different case and is covered separately.
+            ["Other", "a consecutive sequence of courses, second"],
             ["Attribute Name"],
-            ["Other", "a consecutive sequence of courses, second"]]})
+            ["Course Level", "how advanced"]]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
     monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
 
@@ -428,44 +339,52 @@ def test_a_reordered_master_sheet_is_refused_rather_than_counted(monkeypatch):
         probe.master()
 
 
-def test_a_repeated_course_code_does_not_make_the_table_stop_adding_up(monkeypatch):
-    """`courses` and `sced_codes` counted ROWS while `state_extensions` counted
-    distinct codes, so the printed lines reconciled against each other only
-    because this file happens to carry no repeated extension code.
+def test_a_sequence_definition_in_the_attribute_bucket_is_not_an_element(monkeypatch):
+    """The page says SCED's ELEMENT list includes Sequence of Course.
 
-    A catalogue that repeats one produced `courses` larger than
-    `sced_codes + state_extensions`, with nothing on the page saying why.
+    The match ran against any bucket, so an attribute carrying the phrase
+    would be quoted as an element — the answer to edtech-kg#48, about the
+    wrong thing.
     """
-    book = workbook({"All courses": [
-        ["Course Code (Course ID)", "Course Code Description"],
-        ["01001", "ELA I"],
-        ["01003CC", "ELA III (Common Core)"],
-        # The same extension code twice — two rows, one code.
-        ["01003CC", "ELA III (Common Core), second listing"],
-    ]})
+    book = workbook({
+        "SCED 13.0": [["Course Title", "SCED Course Code"], ["Algebra I", "02052"]],
+        "Elements and Attributes": [
+            ["Element Name"], ["Course Code", "a code"],
+            ["Attribute Name"],
+            ["Something", "part of a consecutive sequence of courses"]]})
     monkeypatch.setattr(probe, "fetch", lambda url: book)
-    got = probe.new_york()
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
 
-    assert got["rows"] == 3, "the row count no longer reports rows"
-    assert got["courses"] == 2, "the course count is still counting rows"
-    assert got["courses"] == got["sced_codes"] + len(got["state_extensions"]), (
-        f"the table does not add up: {got['courses']} courses against "
-        f"{got['sced_codes']} SCED codes and "
-        f"{len(got['state_extensions'])} extensions")
+    got = probe.master()
+    assert got["sequence_element"] is None, (
+        "an ATTRIBUTE definition was reported as the sequence element")
 
 
-def test_the_new_york_table_is_a_table_and_not_prose():
-    """A paragraph inserted mid-table orphaned the last row.
-
-    `| Publishes a sequence column | **No** |` ended up after an intervening
-    paragraph, so it rendered as literal text — and it is the section's
-    headline answer. A broken table is invisible in a diff and obvious on the
-    page.
+def test_a_repeated_header_row_is_not_counted_as_a_course(monkeypatch):
+    """Any non-empty column 0 counted, so a sheet that repeats its header —
+    which is how a long table is paged — inflates the count the page quotes.
     """
-    page = DOC.read_text(encoding="utf-8")
-    lines = page.splitlines()
-    sequence = next(i for i, l in enumerate(lines)
-                    if l.startswith("| Publishes a sequence column"))
-    assert lines[sequence - 1].startswith("|"), (
-        f"the sequence row is orphaned — the line above it is prose "
-        f"({lines[sequence - 1][:60]!r}), so the row renders as literal text")
+    book = workbook({
+        "SCED 13.0": [["Course Title", "SCED Course Code"],
+                      ["Algebra I", "02052"],
+                      ["Course Title", "SCED Course Code"],
+                      ["Biology", "03051"]],
+        "Elements and Attributes": [["Element Name"], ["Course Title"],
+                                    ["Attribute Name"], ["Course Level"]]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
+
+    assert probe.master()["courses"] == 2, "a repeated header counted as a course"
+
+
+def test_the_workbook_url_must_be_https_on_the_nces_host(monkeypatch):
+    """`urljoin` takes whatever scheme the fetched page offers."""
+    monkeypatch.setattr(probe, "fetch_text", lambda url: (
+        '<a href="file:///etc/passwd/SCEDv99File_x.xlsx">x</a>'))
+    with pytest.raises(probe.MalformedSource, match="not https"):
+        probe.master_file()
+
+    monkeypatch.setattr(probe, "fetch_text", lambda url: (
+        '<a href="https://evil.example/SCEDv99File_x.xlsx">x</a>'))
+    with pytest.raises(probe.MalformedSource, match="same host"):
+        probe.master_file()

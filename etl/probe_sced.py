@@ -36,32 +36,26 @@ import urllib.request
 import zipfile
 from datetime import datetime, timezone
 
-# The workbook reader is `probe_cipsoc`'s, not a second one written here.
-# `sheets` resolves a sheet through the relationship table rather than
-# trusting filename order, and `rows` places cells by their `r` attribute
-# rather than by document order — Excel omits a blank cell instead of writing
-# one, so appending in order shifts every later column left. Carrying a second
-# reader is how this file came to miss ` Course Title`, below.
+# `probe_cipsoc`'s reader, not a second one. `sheets` resolves through the
+# relationship table rather than filename order, and `rows` places cells by
+# their `r` attribute — Excel omits a blank cell, so appending in order shifts
+# every later column left. A second reader is how this file missed
+# ` Course Title`.
 from etl.probe_cipsoc import rows, sheets
 # The reach measurement lives next door; this module reads the sources and
 # prints the page. `MalformedSource` is raised by both, so it stays here.
-from etl.sced_reach import MalformedSource, SCED_CODE, district_reach
+from etl.new_york_catalog import NEW_YORK, new_york
+from etl.sced_reach import MalformedSource, district_reach
 
 LANDING = "https://nces.ed.gov/forum/sced.asp"
 
-# v13, not the v12 edtech-kg#34 names — the issue was written against the page
-# as it stood, and NCES has published a version since.
+# The workbook URL is READ from the landing page, not pinned — a pinned one
+# reports SCED 13.0 for ever once NCES ships v14, which is the stale constant
+# this page's corrections section exists to avoid.
 #
-# READ from the landing page, which is what this comment claimed and the code
-# did not do. `MASTER` was a hard-pinned v13 URL and `LANDING` was fetched
-# nowhere, so "the next version is a changed figure and not a stale constant"
-# described a mechanism that did not exist: when NCES ships v14 the probe would
-# have reported SCED 13.0 indefinitely, which is precisely the stale constant
-# the page's own corrections section claims to avoid.
-#
-# Kept below as the URL this was pinned to, for the record and for nothing
-# else. It is not a fallback: a fallback that kicks in silently when the
-# landing page changes shape is the stale constant again, wearing a guard.
+# Below is the URL it was pinned to, for the record. NOT a fallback: one that
+# kicks in when the landing page changes shape is the stale constant again,
+# wearing a guard.
 PINNED_WAS = ("https://nces.ed.gov/sites/default/files/"
               "national-forum-education-statistics-nfes/document/2025/11/"
               "SCEDv13File_508.xlsx")
@@ -78,20 +72,8 @@ MASTER_LINK = re.compile(r"""href=["']([^"']*SCEDv(\d+)File[^"']*\.xlsx)["']""",
 #: a substring: a sheet called `SCED Elements` would satisfy both.
 SCED_SHEET = re.compile(r"\ASCED\s+\d+(?:\.\d+)*\Z")
 
-NEW_YORK = ("https://www.p12.nysed.gov/irs/courseCatalog/"
-            "sced-course-codes-2024-25.xlsx")
 
 USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
-
-# A five-digit SCED code and nothing else. New York publishes eleven codes with
-# a state suffix (`01003CC`), which are NOT SCED codes — they are New York
-# extending the taxonomy, and counting them as SCED would overstate alignment.
-# What the first two New York columns must be called for the positional reads
-# below to mean what they say. Taken from the published file rather than
-# guessed: the course NAME is under "Course Code Description", and "Course
-# Description" — the long text — is a different column, two along.
-NY_CODE_HEADER = "course code (course id)"
-NY_TITLE_HEADER = "course code description"
 
 
 def fetch(url: str) -> bytes:
@@ -144,7 +126,18 @@ def master_file() -> tuple[str, int]:
             f"{sorted(at_highest)}. This reads one and cannot choose between "
             f"them.")
     href, version = at_highest.pop(), highest
-    return urllib.parse.urljoin(LANDING, href), int(version)
+    # PINNED to https on the NCES host. `urljoin` takes whatever scheme the
+    # fetched HTML offers, so a page carrying
+    # `file:///etc/passwd/SCEDv99File_x.xlsx` would be downloaded and read. A
+    # thin threat model — this reads one government page — and one line.
+    resolved = urllib.parse.urljoin(LANDING, href)
+    parts = urllib.parse.urlparse(resolved)
+    if parts.scheme != "https" or parts.netloc != urllib.parse.urlparse(LANDING).netloc:
+        raise MalformedSource(
+            f"{LANDING} points the master workbook at {resolved} — not https "
+            f"on the same host. This reads one government page and will not "
+            f"follow it somewhere else.")
+    return resolved, int(version)
 
 
 def fetch_text(url: str) -> str:
@@ -175,18 +168,13 @@ def master() -> dict:
 
 def _master(book: zipfile.ZipFile, url: str, version: int) -> dict:
     parts = sheets(book)
-    # ALL matches, then exactly one. `next(...)` took the first of however
-    # many matched, so a workbook carrying `SCED 13.0` and `SCED 14.0` — which
-    # is how NCES would ship a transition — silently picked whichever came
-    # first in the archive, and every figure below would describe a version
-    # the page does not name.
-    # `SCED <version>`, matched by SHAPE. `startswith("SCED ")` also matches
-    # anything else beginning with the word — and the sibling filter below
-    # takes any sheet with "Element" in it, so a sheet called "SCED Elements"
-    # would satisfy both: the course-sheet check would see two candidates and
-    # refuse the whole run over a name that is not a second version at all.
-    # Today's names do not collide ("SCED 13.0" and "Elements and
-    # Attributes"), so this is a false refusal waiting on a rename.
+    # ALL matches, then exactly one — `next(...)` took the first, so a
+    # workbook carrying SCED 13.0 and 14.0 picked by archive order and every
+    # figure would describe a version the page does not name.
+    #
+    # Matched by SHAPE, since the sibling filter below takes any sheet with
+    # "Element" in it: `SCED Elements` would satisfy both and trip this
+    # refusal over a name that is not a second version.
     named = [n for n in parts if SCED_SHEET.match(n)]
     if len(named) > 1:
         raise MalformedSource(
@@ -205,7 +193,13 @@ def _master(book: zipfile.ZipFile, url: str, version: int) -> dict:
         raise MalformedSource(
             f"the SCED sheet {catalogue!r} has no data rows — refusing to "
             f"report a taxonomy of nothing")
-    header, courses = body[0], [r for r in body[1:] if r and r[0].strip()]
+    # The header row EXCLUDED wherever it repeats, not just at the top. Any
+    # non-empty column 0 counted as a course, so a sheet that repeats its
+    # header — which is how NCES pages a long table — inflates the count the
+    # page quotes.
+    header = body[0]
+    courses = [r for r in body[1:]
+               if r and r[0].strip() and r[0].strip() != header[0].strip()]
     if not courses:
         raise MalformedSource("the SCED course sheet parsed to zero rows")
     # The same guard `new_york()` got, on the same shape in the same file. It
@@ -301,12 +295,13 @@ def elements_and_attributes(book: zipfile.ZipFile, parts: dict[str, str]) -> dic
         if not key or bucket is None:
             continue
         bucket.append(key)
-        if "consecutive sequence of courses" in definition:
-            # COLLECTED, not overwritten. This was `sequence = definition`, so
-            # a workbook defining the phrase twice kept whichever came last
-            # and said nothing — and the page quotes this definition as the
-            # answer to edtech-kg#48. Which of two definitions it quoted would
-            # have been an artefact of row order.
+        if bucket is elements and "consecutive sequence of courses" in definition:
+            # From the ELEMENT bucket only. Any bucket matched, so an
+            # attribute carrying the phrase would be quoted as "SCED's element
+            # list includes Sequence of Course" — which is the page's answer
+            # to edtech-kg#48 and would be about the wrong thing.
+            #
+            # Collected, not overwritten: two kept whichever row came last.
             sequence.append(definition)
 
     if not elements:
@@ -321,103 +316,12 @@ def elements_and_attributes(book: zipfile.ZipFile, parts: dict[str, str]) -> dic
             "sequence_definitions": len(sequence)}
 
 
-def _titles(courses) -> dict:
-    """Course title to EVERY code published under it.
-
-    A dict keyed by title loses duplicates silently, and this file's whole
-    finding is about which of several codes a title resolves to. It was
-    `{title: code}`, so New York's 2,012 rows collapsed to 1,839 entries and
-    173 codes were gone before `resolve_titles` — which exists to decide
-    between exactly those — could see them. A rule cannot be applied to a
-    value the dict feeding it already discarded.
-
-    Sorted, so the value does not depend on the order of the sheet. That
-    dependence was the defect one layer down.
-    """
-    out: dict[str, set] = {}
-    for row in courses:
-        if len(row) > 1 and row[1].strip():
-            out.setdefault(row[1].strip(), set()).add(row[0].strip())
-    return {title: sorted(codes) for title, codes in out.items()}
-
-
-def new_york() -> dict:
-    """The one state directory this repo has found that is SCED-keyed."""
-    with zipfile.ZipFile(io.BytesIO(fetch(NEW_YORK))) as book:
-        return _new_york(book)
-
-
-def _new_york(book: zipfile.ZipFile) -> dict:
-    parts = sheets(book)
-    name = next((n for n in parts if "all courses" in n.lower()), None)
-    if name is None:
-        raise MalformedSource(
-            f"no course sheet in the New York catalogue — it has {sorted(parts)}")
-
-    body = rows(book, parts[name])
-    if len(body) < 2:
-        raise MalformedSource(
-            f"the New York sheet {name!r} has no data rows — refusing to report "
-            f"a catalogue of nothing")
-    header, courses = body[0], [r for r in body[1:] if r and r[0].strip()]
-    if not courses:
-        raise MalformedSource(f"the New York sheet {name!r} parsed to zero courses")
-    # The header row itself must have content. A blank first row passes the
-    # length guard above and then `header[0]` raises IndexError from inside the
-    # check that exists to catch a restructured export — a traceback instead of
-    # the message.
-    if not header or not header[0].strip():
-        raise MalformedSource(
-            f"the New York sheet {name!r} opens with a blank row, so its "
-            f"columns cannot be checked — the export has been restructured")
-
-    # Column 0 is the code and column 1 the title. Checked rather than assumed:
-    # a reordered export would otherwise be read silently, and every figure
-    # below would be a plausible count of the wrong column.
-    if not (header[0].strip().lower() == NY_CODE_HEADER
-            and len(header) > 1 and header[1].strip().lower() == NY_TITLE_HEADER):
-        raise MalformedSource(
-            f"the New York columns are {header[:3]}, not a code column followed "
-            f"by a title column — the export has been restructured and the "
-            f"figures need re-checking rather than re-reading")
-
-    codes = [r[0].strip() for r in courses]
-    pure = [c for c in codes if SCED_CODE.match(c)]
-
-    # ONE unit throughout: distinct codes. `courses` and `sced_codes` counted
-    # ROWS while `state_extensions` counted distinct codes, so the printed
-    # table only reconciled against `courses` by the accident of this file
-    # carrying no repeated extension code. Rows are still reported, separately
-    # and named as rows, because a catalogue that repeats a code is worth
-    # seeing rather than silently collapsing.
-    distinct, distinct_pure = set(codes), set(pure)
-    return {"source": NEW_YORK, "columns": header,
-            "rows": len(codes),
-            "courses": len(distinct),
-            "sced_codes": len(distinct_pure),
-            "state_extensions": sorted(distinct - distinct_pure),
-            "subject_prefixes": len({c[:2] for c in distinct_pure}),
-            # The question #34 asks, answered against a real published file
-            # rather than against the standard.
-            "publishes_sequence": any("sequence" in h.lower() for h in header),
-            # EVERY code per title, not the last one to appear.
-            #
-            # This was `{title: code}`, so New York's 2,012 rows collapsed to
-            # 1,839 entries and 173 codes were gone before anything downstream
-            # could see them — including `resolve_titles`, which exists to
-            # decide between exactly those. The rule it applies (a five-digit
-            # SCED code beats a state extension) cannot run on a value that was
-            # already thrown away by the dict that fed it.
-            "titles": _titles(courses)}
-
-
 def probe(quiet: bool = False) -> dict:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     taxonomy = master()
-    state = new_york()
+    state = new_york(fetch(NEW_YORK))
     # `titles` STAYS in the payload. `pop` removed it from the dict the caller
-    # is handed, and building a copy without it did the same thing more
-    # quietly — the mutation went and the omission stayed, so `--json` still
+    # is handed, and a copy without it did the same more quietly — so `--json`
     # reported a New York block missing the one field the reach measurement
     # is computed from. A machine-readable payload that drops its own input
     # cannot be re-checked, which is the only reason to emit one.
@@ -470,6 +374,13 @@ def probe(quiet: bool = False) -> dict:
         print(f"  ... via a NY state extension     "
               f"{len(reach['matched_via_state_extension']):>8}"
               "   <- not SCED alignment")
+        print("\n  matched — courses that already had a national identity\n")
+        for title in reach["matched_titles"][:8]:
+            print(f"    {title}")
+        print("\n  unmatched — what a district is distinctive for\n")
+        for title in reach["unmatched_titles"][:8]:
+            print(f"    {title}")
+        print()
         print(f"  titles NY publishes twice        "
               f"{len(reach['ambiguous_titles']):>8}"
               "   <- resolved to the SCED code")

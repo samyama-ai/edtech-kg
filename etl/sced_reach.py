@@ -97,6 +97,20 @@ def resolve_titles(ny_titles: dict[str, list[str]],
     return resolved, sorted(ambiguous)
 
 
+def spread(titles: list[str], count: int = 8) -> list[str]:
+    """An evenly spaced sample, not the first `count`.
+
+    Sorted alphabetically, both lists open with eight AICE courses and show
+    nothing — and the page's claim is about the SHAPE of each set. Every
+    `len/count`-th entry covers the alphabet, is deterministic, and is not a
+    choice anyone made about which examples flatter the argument.
+    """
+    if len(titles) <= count:
+        return titles
+    step = len(titles) / count
+    return [titles[int(i * step)] for i in range(count)]
+
+
 def district_reach(ny_titles: dict[str, list[str]],
                    extensions: set[str] | None = None) -> dict:
     """How much of a real district's catalogue can reach a SCED code.
@@ -221,4 +235,14 @@ def district_reach(ny_titles: dict[str, list[str]],
             # Normalised titles New York publishes under more than one code
             # even after preferring the SCED one. Reported, not resolved.
             "ambiguous_titles": ambiguous,
-            "examples": dict(sorted(matched.items())[:8])}
+            "examples": dict(sorted(matched.items())[:8]),
+            # RAW district titles, not the normalised keys. The page shows
+            # `AP Biology` and `IB Physics (SL)`; normalising strips exactly
+            # those markers, so an exhibit carrying them cannot have come from
+            # `examples` — and the unmatched list had no producer at all. This
+            # is the "wrong 8%" argument, which is the finding, so it has to be
+            # reproducible rather than recalled.
+            "matched_titles": spread(sorted(t for t, k in zip(titles, keys)
+                                            if k in by_name)),
+            "unmatched_titles": spread(sorted(
+                t for t, k in zip(titles, keys) if k not in by_name))}

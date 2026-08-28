@@ -17,6 +17,17 @@ from pathlib import Path
 DOC = Path(__file__).resolve().parents[1] / "docs" / "sources" / "sced.md"
 
 
+def plain() -> str:
+    """The page as one line, emphasis stripped.
+
+    A name that WRAPS does not contain the newline and one that gains bold no
+    longer matches — both silently turn a text assertion into no assertion.
+    The same shape fixed on the apprenticeship pages.
+    """
+    text = DOC.read_text(encoding="utf-8")
+    return " ".join(text.replace("*", "").replace("`", "").split())
+
+
 def test_the_document_quotes_only_figures_the_probe_produces():
     """Every figure on `docs/sources/sced.md` comes from the probe, and each
     pin names its own ROW.
@@ -70,3 +81,56 @@ def test_the_document_does_not_claim_sced_solves_prerequisites():
         "the page no longer explains what the sequence element means")
     assert re.search(r"not a (relationship|prerequisite) between", page), (
         "the page no longer says the sequence element is not a prerequisite")
+
+
+def test_the_exhibits_on_the_page_are_the_ones_the_probe_prints():
+    """The page promised nothing is typed and its two exhibit blocks were.
+
+    `district_reach` emits NORMALISED keys, so `AP Biology` and `IB Physics
+    (SL)` — which normalise to `biology` and `physics` — cannot have come from
+    it, and the unmatched list had no producer at all. The lists were true,
+    which is a lesser sin than wrong, and still not reproducible.
+
+    Both are printed now, and this asserts the page shows what the run does.
+    """
+    from etl import new_york_catalog, probe_sced, sced_reach
+
+    page = plain()
+    ny = new_york_catalog.new_york(
+        probe_sced.fetch(new_york_catalog.NEW_YORK))
+    reach = sced_reach.district_reach(ny["titles"], set(ny["state_extensions"]))
+
+    for title in reach["matched_titles"]:
+        assert title in page, (
+            f"the page's matched exhibit does not carry {title!r}, which the "
+            f"probe prints — so the block was written rather than generated")
+    for title in reach["unmatched_titles"]:
+        assert title in page, (
+            f"the page's unmatched exhibit does not carry {title!r}")
+
+
+def test_the_cte_courses_the_page_names_really_are_unmatched():
+    """The prose names four CTE programmes as what SCED misses.
+
+    That is the argument, not an illustration, so it is asserted against the
+    catalogue rather than remembered — and the four were correct when checked,
+    which is why the claim stays.
+    """
+    from etl import new_york_catalog, probe_sced, sced_reach
+    from etl import pwcs_source
+
+    ny = new_york_catalog.new_york(
+        probe_sced.fetch(new_york_catalog.NEW_YORK))
+    by_name, _ = sced_reach.resolve_titles(ny["titles"],
+                                           set(ny["state_extensions"]))
+    catalogue = [c["title"] for c in pwcs_source.read()["courses"]]
+    page = plain()
+
+    for name in ("Turfgrass Management", "Landscaping 1",
+                 "Horticulture Sciences",
+                 "Greenhouse Plant Production & Management"):
+        assert name in page, f"the page no longer names {name!r}"
+        found = [t for t in catalogue if name.lower() in t.lower()]
+        assert found, f"{name!r} is not in the loaded catalogue at all"
+        assert all(sced_reach.normalise(t) not in by_name for t in found), (
+            f"{name!r} is named as unmatched and SCED reaches it")
