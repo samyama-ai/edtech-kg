@@ -1,0 +1,199 @@
+# SCED — the national course taxonomy
+
+**School Courses for the Exchange of Data**, published by NCES through the
+National Forum on Education Statistics. US government, public domain.
+
+Every figure on this page comes from `python -m etl.probe_sced`. Nothing is
+typed in.
+
+Two issues asked about it and they are one question. **edtech-kg#34** asked
+what SCED is and whether it carries a sequence field. **edtech-kg#48** asked
+whether enough states align to it that a `Course` keyed on SCED would be
+portable. SCED is only worth a node if a real district's catalogue can reach
+it, so both are answered by the same measurement.
+
+## The short answer
+
+**SCED defines a sequence element. Nobody publishes it. And the one district
+this repo has loaded cannot reach SCED at all.**
+
+## What SCED is
+
+| | |
+|---|---|
+| Current version | **SCED 13.0** |
+| Courses | **1,791** |
+| Columns the master file publishes | Course Title · SCED Course Code · Course Description · Change Status |
+| Elements a record may carry | **6** |
+| Attributes it may also carry | **17** |
+| Landing page | <https://nces.ed.gov/forum/sced.asp> |
+
+The standard names far more than the master file publishes, and it draws its
+own line between the two: six **elements** — the code, subject area, level,
+grade span, Carnegie credit, and sequence — and seventeen **attributes**,
+which is where Course Title and Course Description sit. That distinction is
+read from the sheet's own banner rows rather than assembled here, because an
+earlier version of this probe assembled it and got a right-looking total over
+the wrong members.
+
+Note the version: **13.0**, where edtech-kg#34 says 12. The issue was written
+against the page as it stood and NCES has published a version since.
+
+The probe finds the workbook by reading the NCES **landing page** and taking
+the highest `SCEDv<N>File` link on it — v12 and v13 are both published there —
+rather than holding a URL to one file. So the next release shows up as a
+changed figure rather than as a stale constant, and a restructured landing page
+stops the run instead of silently re-reporting last year's taxonomy. The
+version in the table is the one in the filename that was downloaded; the sheet
+name inside it is reported beside it, because a restructure can move one
+without the other.
+
+A SCED code is five digits: the first two are the subject area, the rest
+identify the course within it.
+
+## The sequence element — and why it does not help
+
+SCED's element list includes **Sequence of Course**, defined as:
+
+> Where a specific course lies when it is part of a consecutive sequence of
+> courses. This element should be interpreted as "part 'n' of 'm' parts."
+
+That is worth reading twice, because the name invites the wrong conclusion.
+**"Part n of m" is one course split across terms** — Algebra 1 taught over two
+semesters is part 1 of 2. It is not a relationship between two different
+courses, and it says nothing about what a student must pass first.
+
+So a reader who hears "SCED has a sequence field" and concludes it solves the
+prerequisite problem has been misled by the name. It does not. `docs/scope.md`
+§3's conclusion — that no national machine-readable source carries
+prerequisites — survives SCED intact.
+
+And the master file does not publish the element at all. Its four columns are
+above; sequence is not among them. It is a thing a district *may* record when
+it reports its own data, not a thing the taxonomy ships.
+
+## Does any state publish it?
+
+New York's Comprehensive Course Catalog is the one SCED-keyed state directory
+this repo has found — `docs/sources/state-course-directories.md` records the
+five that were checked.
+
+| | |
+|---|---|
+| Rows in the sheet | **2,012** |
+| Distinct course codes | **2,012** |
+| Five-digit SCED codes | **2,001** |
+| New York extensions | **11** |
+| Publishes a sequence column | **No** |
+
+The rows and the distinct codes are both given, and they agree here: 2,001 SCED
+codes plus 11 extensions is 2,012. They are reported separately because the
+table used to mix them — two lines counted rows and one counted distinct codes,
+so it added up only because this file repeats no code.
+
+The eleven extensions are New York adding to the taxonomy, not using it —
+`01003CC` is a Common Core variant of SCED `01003`. Counting them as SCED
+alignment would overstate it, so the probe separates them.
+
+**New York publishes 8 columns and none is a sequence.** The
+element exists in the standard and is absent from the one state that keys to
+it. The columns, printed by the run:
+
+    Course Code (Course ID) · Course Code Description · Course Description · Course Level
+    Course Subject Area · CTE Indicator · AP Indicator · IB Indicator
+
+And the 11 extension codes, which are New York adding to the taxonomy
+rather than using it:
+
+    01003CC · 02056CC · 02072CC · 03001L · 03051L · 03101L · 03151L · 04052NF · 04101F · 22201W · 22202W
+
+## The measurement that decides it
+
+A taxonomy nothing can join to is a document, not an identifier. So: how much
+of a real district's catalogue can reach a SCED code?
+
+| | |
+|---|---|
+| PWCS courses loaded | **791** |
+| Publishing a SCED code | **0** |
+| Reachable by name alone | **67 — 8%** |
+
+**Prince William County publishes no SCED code for any course.** Not one. So
+there is no join to New York's catalogue to be had; the 8% is what remains if
+you fall back to matching on course titles, which is a guess rather than a key.
+
+The 8% is also generous, deliberately. It is measured after stripping
+programme markers — `AP`, `IB`, `AICE`, `honors` — and parenthetical
+qualifiers, so `AICE Biology (AS Level)` gets its best chance against
+`Biology`. A stricter comparison returns less: the probe prints both, and
+without the parenthetical rule it is **58** rather than 67. That difference is
+the measure of how much of the match depends on being lenient.
+
+Two things the probe also reports, because the count would otherwise be
+counting something the page argues against:
+
+| | |
+|---|---:|
+| Matches resolving to a New York **state extension** | **0** |
+| Titles New York publishes under more than one code | **203** |
+
+New York's eleven `CC` and `L` codes are the state adding to the taxonomy, not
+using it — as *What SCED is* sets out above — and counting one as SCED
+alignment would overstate the reach. Normalising a title also collapses `Geometry` and
+`Geometry (Common Core)` onto the same key, so a title can have several codes
+behind it. A five-digit SCED code beats an extension, the lowest code breaks a
+remaining tie, and the **203** titles where a tie survives both rules are
+reported rather than quietly resolved — that is the count in the table above,
+and it counts titles, not codes.
+
+### And the 8% is the wrong 8%
+
+Both lists below are printed by the probe — an evenly spaced sample of each
+set, so they cover the alphabet rather than being eight names chosen to suit
+the argument.
+
+The courses that match are the ones that were already national:
+
+    AICE Biology (A Level) · AICE Sociology · AP Chemistry · AP Physics 2
+    AP World History · Discrete Mathematics · IB Psychology
+    Physical Science (Science 8)
+
+The courses that do not are the district's own:
+
+    3D Sculpture 1 · Advanced Russian Language 3
+    Chemistry 2: Forensic Sciences and Chemical Analysis
+    English Language Development for English 12
+    Gifted Seminar: Philosophy (1 credit) · IBMYP Language Arts 7
+    Journalism 4 · Psychology 1
+
+That is the shape of the result. SCED reaches the courses that already had a
+national identity — an AP or AICE exam, a standard maths sequence — and misses
+the district's own: its CTE programmes (**Turfgrass Management**,
+**Landscaping 1**, **Horticulture Sciences** and **Greenhouse Plant Production
+& Management** are all unmatched, asserted in the tests), its levelled variants
+and its locally designed seminars. Those are exactly the part of a catalogue a
+family cannot find anywhere else.
+
+## What this means for the schema
+
+**Do not key `Course` on SCED.** The key would be null for every course in the
+only catalogue currently loaded.
+
+What SCED is worth is a **second, optional identifier** — a `sced_code`
+property that is populated where a district publishes one, and absent where it
+does not. That makes a future join possible without pretending one exists
+today, and it keeps `url` as the key that actually resolves.
+
+The honest summary for `docs/scope.md`: SCED gives a national vocabulary for
+naming a course. It does not give prerequisites, it does not give a usable
+sequence, and it does not give this graph a join — because the district that is
+loaded does not speak it.
+
+## What was not established
+
+- **How many states publish a SCED-aligned course list.** Five were checked in
+  edtech-kg#40 and one is SCED-keyed; three of the five block automated access
+  (edtech-kg#50), so the denominator is unknown rather than small.
+- **Whether a district's own codes map cleanly to SCED, or approximately.**
+  PWCS publishes none, so there was nothing to compare.
+- **Whether SCED versions drift between states.** One state is not a sample.

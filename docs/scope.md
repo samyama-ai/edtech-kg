@@ -68,6 +68,11 @@ course prerequisites:
   exchange data with their own vendors, not a public feed
 - State course directories publish titles and descriptions; prerequisites
   appear in prose if at all
+- **SCED**, the national course taxonomy, defines a `Sequence of Course`
+  element — and it means "part *n* of *m* parts", one course split across
+  terms, not a prerequisite between two courses. Neither the master file nor
+  the one SCED-keyed state directory publishes it anyway. See
+  [`sources/sced.md`](sources/sced.md)
 
 What does exist: individual districts publishing a program of studies. **Prince
 William County Public Schools** publishes 982 course pages with an explicit
