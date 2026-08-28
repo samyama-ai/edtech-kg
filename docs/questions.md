@@ -44,13 +44,13 @@ credible.
 
 - **Section A came off ❌.** Course prerequisites were listed as unpublished.
   `docs/sources/course-prerequisites.md` measures 240 resolvable prerequisite
-  edges across 960 PWCS courses, every link resolving. Those questions are now
+  edges across 791 PWCS courses, every link resolving. Those questions are now
   the tier-4 showcase.
 - **Pay and outlook came off ✅.** `docs/sources/education-data.md` lists BLS,
   O\*NET and College Scorecard as *"named but not counted"* — no probe measures
   them. They are ⚠️ until one does (#37, #21).
 
-**On prerequisites, the scope is one district.** PWCS, 960 courses. Questions
+**On prerequisites, the scope is one district.** PWCS, 791 courses. Questions
 that traverse prerequisites are written district-scoped and say so; #40 showed
 statewide directories publish none, and whether a second district resolves as
 cleanly is #19, still open. The caveat travels with the answer rather than being
@@ -69,7 +69,7 @@ hidden behind a national phrasing.
 **Q5.** How many CIP-SOC mappings exist? ✅ — 5,903 measured, from 6,097 rows; 194 state that there is no mapping (#70)
 **Q6.** How many distinct programmes appear in the crosswalk? ✅ — 2,143, of which 1,949 map to an occupation
 **Q7.** How many distinct occupations? ✅ — 867 (`99-9999 NO MATCH` is a sentinel, not an occupation — #70)
-**Q8.** How many courses does this district publish? ✅ — 960
+**Q8.** How many courses does this district publish? ✅ — **791**, out of 960 catalogue pages
 **Q9.** What are this course's grade levels and length? ✅
 **Q10.** Which schools teach this course? ✅
 **Q11.** What award levels does this institution grant? ✅
@@ -93,7 +93,7 @@ prerequisite? ✅ — 138 measured, and they are not edges
 **Q23.** Which colleges near me offer this programme? ✅
 **Q24.** Of those, which actually graduate people in it, rather than listing it? ✅
 **Q25.** Which institutions award this programme at certificate level? ✅
-**Q26.** Which courses in this district list a prerequisite at all? ✅ — 229 of 960
+**Q26.** Which courses in this district list a prerequisite at all? ✅ — 229 of 791 (29.0%)
 **Q27.** What is the immediate prerequisite of this course? ✅ — district-scoped
 **Q28.** Which courses name this one as their prerequisite? ✅ — the reverse edge
 **Q29.** How many people graduated in this programme nationally last year? ✅

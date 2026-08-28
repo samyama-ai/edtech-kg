@@ -20,8 +20,9 @@ exactly rather than crawled blind. All of it was read — not a sample.
 
 | | Courses | |
 |---|---:|---|
-| Course pages in the sitemap | **960** | the whole catalogue |
-| Linking at least one prerequisite | **229** | 24% |
+| Pages in the sitemap | **960** | the whole catalogue: 127 subject indexes, **791 courses**, 42 CTE pathways |
+| Course pages | **791** | the denominator every rate below is quoted against |
+| Linking at least one prerequisite | **229** | **29.0%** of 791 courses |
 | …where **every** link resolves | **229** | **100% of those** |
 | …where some links resolve | 0 | |
 | …where no link resolves | 0 | |
@@ -29,6 +30,29 @@ exactly rather than crawled blind. All of it was read — not a sample.
 | Dangling links | **0** | |
 | Prerequisite field rendered but unreadable | **0** | the parser is not silently missing any |
 | Pages that could not be read | **0** | excluded, never counted as having no prerequisite |
+
+### What the earlier 960 counted
+
+An earlier version of this page quoted **229 of 960 — 24%**. That denominator
+was every page in the sitemap, and the sitemap is not a list of courses. It
+carries three levels, visible in the path:
+
+| depth | example | what it is | count |
+|---|---:|---|---:|
+| 1 | `/band` | subject index | 127 |
+| 2 | `/band/concert-band` | course | 795 |
+| 3 | `/career-and-technical-education-cte/career-pathways/finance-accounting` | CTE pathway | 38 |
+
+Those are DEPTHS. The classified counts are **127 / 791 / 42**, because four
+pages publish a pathway's course table at course depth and their own markup
+wins over their URL (#87). 791 is the figure quoted above; 795 is what depth
+alone would say, and edtech-kg#74 asked for 795 before that override existed.
+
+**The 240 edges are unaffected**, and that is now asserted rather than
+assumed: no page classified as anything but a course states a prerequisite,
+and every prerequisite link lands on a page classified as a course
+(`tests/test_pwcs_classify.py`, against the cached catalogue). Only the
+denominator moved — from 23.9% to **29.0%**.
 | Carrying free-text requirements as well | 138 | not edges — see below |
 
 ## Why it resolves, and the FDA comparison
@@ -82,20 +106,20 @@ An earlier draft of this page, written from an ad-hoc parse of 40 courses,
 claimed **45% state a prerequisite and 89% of those resolve**. Writing the probe
 corrected all three of its figures:
 
-1. **45% → 24%.** The earlier parse flattened each page to text and matched
+1. **45% → 29.0%.** The earlier parse flattened each page to text and matched
    `Prerequisite:\s*(...)`, which ran the value into the page footer — the
    school's street address became part of the course name — and counted
    *"Prerequisite: None"* as a stated prerequisite.
 2. **89% → 100%.** Reading the links instead of the prose removes the guesswork
    entirely. Nothing dangles.
-3. **40 courses → 960.** The whole catalogue, so the rate is the rate.
+3. **40 courses → 791.** The whole catalogue, so the rate is the rate.
 
 The direction of the finding survived; none of the numbers did.
 
 ## What this does and does not license
 
 **It does mean the demo can be prerequisite chains.** 240 resolvable edges over
-960 courses is a real graph, in the domain a student actually asks about, and it
+791 courses is a real graph, in the domain a student actually asks about, and it
 is the graph-native story that `docs/questions.md` says section A needs.
 
 **It does not mean this generalises.** One district, not the country. #40
@@ -112,7 +136,7 @@ demo leans on the word "chain".
 **Method.** Every figure from:
 
 ```bash
-python -m etl.probe_pwcs                # the full sweep, all 960 pages
+python -m etl.probe_pwcs                # the full sweep, all 960 catalogue pages
 python -m etl.probe_pwcs --json         # machine-readable, with timestamp
 python -m etl.probe_pwcs --limit 50     # a quick run — the output says it is partial
 ```

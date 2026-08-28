@@ -35,7 +35,7 @@ def cache_is_complete() -> bool:
     if not CACHE.exists():
         return False
     try:
-        urls = source.course_urls(True)
+        urls = source.catalogue_urls(True)
     except Exception:                      # noqa: BLE001 — no cached sitemap
         return False
     return bool(urls) and all(source.cached_path(u).exists() for u in urls)
@@ -388,3 +388,57 @@ def test_a_few_reclassified_pages_are_still_loaded_normally():
                       fetch=lambda u: table if u.endswith("course-0") else plain)
     assert got["reclassified"] == ["https://catalog.pwcs.edu/band/course-0"]
     assert len(got["courses"]) == 19
+
+
+# --------------------------------------------------------------------------
+# the invariant #74 rests on, measured rather than assumed
+# --------------------------------------------------------------------------
+
+@needs_cache
+def test_no_page_that_is_not_a_course_states_a_prerequisite():
+    """edtech-kg#74 leaves the 240 edges alone ONLY because of this.
+
+    The fix narrows the denominator from 960 pages to 791 courses. That is
+    safe if — and only if — none of the 169 pages it removes was contributing
+    a prerequisite. The issue asserted that from a one-off measurement. This
+    checks it against the cached catalogue, so the day a subject index starts
+    publishing the field, the change is a failure here rather than a silent
+    drop of real edges.
+    """
+    from etl import probe_pwcs as probe
+
+    offenders = []
+    for url in source.catalogue_urls(True):
+        markup = source.cached_path(url).read_text(encoding="utf-8")
+        if reader.classify(url, markup) == "course":
+            continue
+        parsed = probe.parse_course(markup, url)
+        if parsed and (parsed.get("prerequisite_links")
+                       or parsed.get("field_present_no_links")):
+            offenders.append(url)
+    assert offenders == []
+
+
+@needs_cache
+def test_every_prerequisite_points_at_a_page_classified_as_a_course():
+    """The other half, and the reason resolution may narrow too.
+
+    A link landing on a subject index would have resolved against the old
+    960-path set and then written no edge — counted as resolved, absent from
+    the graph, with nothing to say why.
+    """
+    from etl import probe_pwcs as probe
+
+    urls = source.catalogue_urls(True)
+    kind = {probe.path_of(u): reader.classify(
+        u, source.cached_path(u).read_text(encoding="utf-8")) for u in urls}
+    targets = []
+    for url in urls:
+        markup = source.cached_path(url).read_text(encoding="utf-8")
+        if reader.classify(url, markup) != "course":
+            continue
+        parsed = probe.parse_course(markup, url)
+        for link in (parsed or {}).get("prerequisite_links") or []:
+            targets.append(kind.get(probe.path_of(link["href"]), "OFF-CATALOGUE"))
+    assert targets, "no prerequisite links found — the cache is not the catalogue"
+    assert set(targets) == {"course"}

@@ -181,7 +181,7 @@ def test_catalogue_furniture_is_not_treated_as_a_course():
     import etl.probe_pwcs as m
     original, m.fetch = m.fetch, fetch
     try:
-        urls = probe.course_urls()
+        urls = probe.catalogue_urls()
     finally:
         m.fetch = original
     assert len(urls) == 2
@@ -191,14 +191,14 @@ def test_catalogue_furniture_is_not_treated_as_a_course():
 def test_a_sitemap_that_is_not_a_sitemap_is_refused(monkeypatch):
     serve(monkeypatch, {probe.SITEMAP: "<html>503 Service Unavailable</html>"})
     with pytest.raises(probe.MalformedSource, match="no <loc> entries"):
-        probe.course_urls()
+        probe.catalogue_urls()
 
 
 def test_a_sitemap_with_no_course_pages_is_refused(monkeypatch):
     serve(monkeypatch, {probe.SITEMAP:
                         "<urlset><loc>https://catalog.pwcs.edu/high-school-course-catalog/x</loc></urlset>"})
     with pytest.raises(ValueError, match="refusing"):
-        probe.course_urls()
+        probe.catalogue_urls()
 
 
 def test_a_page_that_cannot_be_read_is_reported_not_dropped(monkeypatch):
@@ -220,7 +220,7 @@ def test_a_partial_run_says_it_is_partial(monkeypatch):
     partial = probe.probe(limit=1, quiet=True)
     full = probe.probe(quiet=True)
     assert "partial run, not the catalogue" in partial["coverage"]
-    assert "every course page" in full["coverage"]
+    assert "every catalogue page" in full["coverage"]
 
 
 def test_no_courses_parsed_is_refused(monkeypatch):
@@ -243,7 +243,7 @@ def test_a_malformed_sitemap_exits_three(monkeypatch):
 
 
 def test_an_unreachable_source_exits_two(monkeypatch):
-    monkeypatch.setattr(probe, "course_urls",
+    monkeypatch.setattr(probe, "catalogue_urls",
                         lambda use_cache=True: (_ for _ in ()).throw(RuntimeError("dns")))
     assert probe.main([]) == 2
 
@@ -389,3 +389,107 @@ def test_a_cache_write_is_atomic(monkeypatch, tmp_path):
     probe.fetch("https://catalog.pwcs.edu/a/b")
     assert renamed == [".partial"], "wrote straight to the cache key"
     assert not list(tmp_path.glob("*.partial")), "left a partial behind"
+
+
+# --------------------------------------------------------------------------
+# what the pages ARE — edtech-kg#74
+# --------------------------------------------------------------------------
+
+SUBJECT_INDEX = """<html><body><h1 class="page-title">Agriculture</h1>
+<div class="views-row"><a href="/agriculture/landscaping-1">Landscaping 1</a></div>
+</body></html>"""
+
+PATHWAY_PAGE = """<html><body><h1 class="page-title">Finance Pathway</h1>
+<div class="field--name-field-degree-section-courses">
+<article about="/agriculture/landscaping-1" class="degree-row"></article>
+</div></body></html>"""
+
+
+def test_only_pages_the_classifier_calls_courses_reach_the_denominator(monkeypatch):
+    """The defect #74 names, asserted on the number the documents quote.
+
+    A subject index parses perfectly well as a course — it has a title and no
+    prerequisite field — so `parse_course` returning a record was never
+    evidence of anything. Three pages are served here and only one is a
+    course; before the fix all three counted.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset><loc>https://catalog.pwcs.edu/agriculture</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+            '<loc>https://catalog.pwcs.edu/cte/career-pathways/finance</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture": SUBJECT_INDEX,
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+        "https://catalog.pwcs.edu/cte/career-pathways/finance": PATHWAY_PAGE})
+    result = probe.probe(quiet=True)
+    assert result["population"] == 3
+    assert (result["subjects"], result["courses"], result["pathways"]) == (1, 1, 1)
+    assert result["unclassified"] == 0
+
+
+def test_a_course_page_publishing_a_pathway_table_is_not_counted_as_a_course(monkeypatch):
+    """Markup beats depth, in the probe as it already does in the loader.
+
+    Four real pages do this (#87). Counted by depth they inflate the
+    denominator, which is the same error #74 fixes one level up.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: ('<urlset>'
+                        '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+                        '<loc>https://catalog.pwcs.edu/agriculture/ib-programme</loc>'
+                        '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+        # course DEPTH, pathway MARKUP
+        "https://catalog.pwcs.edu/agriculture/ib-programme": PATHWAY_PAGE})
+    result = probe.probe(quiet=True)
+    assert (result["courses"], result["pathways"]) == (1, 1)
+
+
+def test_prerequisites_resolve_against_courses_and_not_against_every_page(monkeypatch):
+    """`published_paths` must BE the set resolution ran against.
+
+    It was every sitemap page, so the printed line said the links had been
+    checked against 960 paths when 791 were eligible — a claim wider than the
+    check behind it.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset><loc>https://catalog.pwcs.edu/agriculture</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-2</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture": SUBJECT_INDEX,
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+        "https://catalog.pwcs.edu/agriculture/landscaping-2": COURSE})
+    result = probe.probe(quiet=True)
+    assert result["published_paths"] == result["courses"] == 2
+
+
+def test_the_summary_names_the_denominator_it_used(capsys, monkeypatch):
+    """The print block is where the reader meets the number.
+
+    Asserted on the printed text because a correct `result` dict printed
+    against the old label is exactly the failure this issue is about.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset><loc>https://catalog.pwcs.edu/agriculture</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture": SUBJECT_INDEX,
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": COURSE})
+    probe.probe()
+    printed = capsys.readouterr().out
+    assert "every rate below is quoted against this" in printed
+    assert "subject indexes" in printed
+
+
+def test_the_rate_carries_the_digit_that_distinguishes_the_denominators():
+    """24% and 29% round apart; 28.8% and 29.0% do not.
+
+    The documents quote this figure, so the decimal is what says which
+    denominator produced it.
+    """
+    assert probe.pct(229, 791) == "29.0%"
+    assert probe.pct(229, 960) == "23.9%"

@@ -38,7 +38,7 @@ def cache_is_complete() -> bool:
     if not CACHE.exists():
         return False
     try:
-        urls = source.course_urls(True)
+        urls = source.catalogue_urls(True)
     except Exception:                      # noqa: BLE001 — no cached sitemap
         return False
     return bool(urls) and all(source.cached_path(u).exists() for u in urls)
