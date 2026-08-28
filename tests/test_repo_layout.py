@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -47,8 +48,24 @@ def test_no_tracked_file_still_carries_a_template_placeholder():
     placeholder = re.compile(r"\{\{[A-Z][A-Z0-9_]*\}\}")
     found = []
     for name in tracked():
+        # THE NAME ITSELF. A template ships `{{KG_SLUG}}_loader.py` as readily
+        # as it ships one inside a file, and scanning only contents could not
+        # see it.
+        if placeholder.search(name):
+            found.append(f"{name}: in the FILENAME")
         path = ROOT / name
         if not path.is_file():
+            continue
+        # `tests/` is exempt, and it is the ONLY exemption. Every legitimate
+        # occurrence in this repo is here: this file writes the markers in its
+        # own docstrings and fixtures, and `test_packaging.py` quotes the
+        # broken `name = "{{KG_SLUG}}-kg"` it exists to have fixed. Measured —
+        # 8 occurrences across exactly two files, and nothing else in the tree.
+        #
+        # A DIRECTORY rather than the two file names: a third test about this
+        # guard should not need an edit here to be written, and a two-name
+        # list is the kind that rots into exempting something nobody meant.
+        if name.startswith("tests/"):
             continue
         # BINARIES skipped. `errors="replace"` means a `.gif` never raises —
         # it decodes to mojibake and gets scanned, which is slow and can only
@@ -60,36 +77,71 @@ def test_no_tracked_file_still_carries_a_template_placeholder():
             body = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for line in _prose_stripped(body, name):
-            for hit in set(placeholder.findall(line)):
-                found.append(f"{name}: {hit}")
+        for hit in sorted(set(placeholder.findall(body))):
+            found.append(f"{name}: {hit}")
     assert not found, (
         f"template placeholders still in the repo: {sorted(found)}. This is a "
         f"public repo; a reader sees them before they see anything else.")
 
 
-def test_a_placeholder_in_a_markdown_heading_is_not_stripped_as_a_comment():
-    """The hole the guard had, in the file type most likely to carry one.
+@pytest.mark.parametrize("placement,text", [
+    ("a Python comment", "# a {{KG_NAME}} in a comment"),
+    ("a Python docstring", '"""A {{KG_NAME}} in a docstring."""'),
+    ("a YAML comment", "# build the {{KG_NAME}} image"),
+    ("a Cypher // line", "// the {{KG_NAME}} schema"),
+    ("a Markdown heading", "# The {{KG_NAME}} Benchmarks"),
+    ("a Python value", 'NAME = "{{KG_SLUG}}-kg"'),
+    ("a JSON value", '{"name": "{{KG_SLUG}}"}'),
+])
+def test_the_guard_catches_a_placeholder_wherever_it_is_written(
+        placement, text, tmp_path, monkeypatch):
+    """Seven placements, and the guard used to miss four of them.
 
-    `#` opens a comment in Python and a HEADING in Markdown. Stripping it for
-    every file type meant `# The {KG_NAME} Benchmarks` — written with real
-    braces — was skipped, in a guard whose own docstring says it still catches
-    headings. A placeholder in a heading is the most visible one there is.
+    It stripped comments and docstrings before matching, on the argument that
+    a placeholder in prose is prose ABOUT the placeholder. That argument does
+    not survive contact with what ships: a comment and a docstring are both
+    read by anyone browsing the repo or calling `help()`, which is the guard's
+    own stated reason for existing.
+
+    Measured against the eight template files this repo actually had:
+    `etl/download_data.py` was not reported at all — its only placeholder was
+    in a comment — and `mcp_server/server.py` was caught only incidentally,
+    because a second one sat in a value. Its module docstring was invisible.
+
+    The parametrised text is written with real braces because this file is
+    exempt from the guard; every other file in the tree is not.
     """
-    heading = "# The {{%s}} Benchmarks" % "KG_NAME"
-    assert _prose_stripped(heading, "benchmarks/README.md") == [heading], (
-        "a Markdown heading was stripped as a comment — a placeholder in the "
-        "largest text on the page would ship unnoticed")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    (tmp_path / "shipped.py").write_text(text, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "tracked", lambda: ["shipped.py"])
+    with pytest.raises(AssertionError, match="template placeholders"):
+        test_no_tracked_file_still_carries_a_template_placeholder()
 
-    # Still stripped where `#` really is a comment, which is the reason the
-    # stripping exists: prose ABOUT a placeholder must not trip the guard.
-    comment = "# a %s in a comment" % ("{{%s}}" % "KG_NAME")
-    assert _prose_stripped(comment, "etl/x.py") == []
-    assert _prose_stripped(comment, ".github/workflows/ci.yml") == []
 
-    # And a placeholder in a VALUE is caught in every file type.
-    value = 'NAME = "{{%s}}-kg"' % "KG_SLUG"
-    assert _prose_stripped(value, "etl/x.py") == [value]
+def test_a_placeholder_in_a_filename_is_caught(tmp_path, monkeypatch):
+    """A template ships `{{KG_SLUG}}_loader.py` as readily as it ships one
+    inside a file, and a guard that reads only contents cannot see it."""
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "tracked",
+                        lambda: ["etl/{{KG_SLUG}}_loader.py"])
+    with pytest.raises(AssertionError, match="in the FILENAME"):
+        test_no_tracked_file_still_carries_a_template_placeholder()
+
+
+def test_only_tests_are_exempt(tmp_path, monkeypatch):
+    """The exemption is a directory, and it has to be exactly that directory.
+
+    Widening it to anything containing "test" would exempt `etl/testing.py`;
+    dropping it makes this file fail against itself.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    for name in ("tests/x.py", "etl/testing.py"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text('N = "{{KG_SLUG}}"', encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "tracked",
+                        lambda: ["tests/x.py", "etl/testing.py"])
+    with pytest.raises(AssertionError, match="etl/testing.py"):
+        test_no_tracked_file_still_carries_a_template_placeholder()
 
 
 #: Read from `pyproject.toml`, never restated. A second copy of this list is
@@ -104,8 +156,6 @@ def test_the_shared_layout_is_present(name):
 
 
 @pytest.mark.parametrize("name", EXPECTED_DIRS)
-
-
 def test_no_directory_in_the_layout_is_silently_empty(name):
     """An empty directory reads as "nothing to do here", the opposite of
     what it means. `benchmarks/` and `mcp_server/` hold only a README, and
@@ -147,50 +197,6 @@ def test_the_contributing_notes_carry_the_rules_that_cost_rounds():
         assert phrase in flat, (
             f"CONTRIBUTING.md's {heading!r} section no longer says {phrase!r}, "
             f"which is how it covers {why}")
-
-
-def _prose_stripped(body: str, name: str) -> list[str]:
-    """The lines a placeholder would actually ship in.
-
-    A `{{KG_NAME}}` inside a comment or docstring is prose ABOUT the
-    placeholder, and this repo carries several such passages because the
-    removal is what is being explained — the first version of this guard
-    flagged them all, including its own docstring, and failed on the commit
-    that fixed the defect.
-
-    What it catches is the case that matters: a placeholder in a value or a
-    heading. Headings are load-bearing there — see the gating below.
-    """
-    lines = body.splitlines()
-    skip = set()
-    # Markdown is the exception, and it is the whole of this gate. `#` opens a
-    # comment in Python, YAML, TOML and shell, but it opens a HEADING in
-    # Markdown — so stripping it everywhere skipped a placeholder sitting in
-    # the largest text on the page, in the file type most likely to carry one,
-    # inside a guard whose own docstring claims it still catches headings.
-    #
-    # The cost is that Markdown prose ABOUT a placeholder now trips this. For a
-    # public repo that is the safer direction: a false positive is one
-    # rewording, a false negative is a template placeholder on the front page.
-    if not name.endswith(".md"):
-        for i, line in enumerate(lines):
-            if line.lstrip().startswith(("#", "//")):
-                skip.add(i)
-    if name.endswith(".py"):
-        try:
-            tree = ast.parse(body)
-        except SyntaxError:
-            tree = None
-        if tree is not None:
-            for node in ast.walk(tree):
-                doc = ast.get_docstring(node, clean=False) if isinstance(
-                    node, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                           ast.AsyncFunctionDef)) else None
-                if doc is None:
-                    continue
-                first = node.body[0]
-                skip.update(range(first.lineno - 1, (first.end_lineno or first.lineno)))
-    return [line for i, line in enumerate(lines) if i not in skip]
 
 
 def test_the_short_meeting_set_is_the_same_in_every_place_it_appears():
@@ -260,8 +266,6 @@ def test_no_module_leaves_a_helper_or_constant_behind():
     invisible to a green suite and a clean style run. `_`-prefixed names and
     `pytest_*` hooks are exempt.
     """
-    import ast
-
     sources = {name: (ROOT / name).read_text(encoding="utf-8", errors="replace")
                for name in tracked()
                if name.endswith(".py") and not name.endswith("__init__.py")}
@@ -279,8 +283,21 @@ def test_no_module_leaves_a_helper_or_constant_behind():
         defined |= {t.id for n in tree.body if isinstance(n, ast.Assign)
                     for t in n.targets
                     if isinstance(t, ast.Name) and not t.id.startswith("_")}
+        # `ORPHAN: int = 7` is an AnnAssign, not an Assign, and was collected
+        # by neither branch — so the annotated form of the thing this test
+        # exists to catch was invisible to it.
+        defined |= {n.target.id for n in tree.body
+                    if isinstance(n, ast.AnnAssign)
+                    and isinstance(n.target, ast.Name)
+                    and not n.target.id.startswith("_")}
 
-        used = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        # `ast.Load` ONLY. `ast.walk` visits the assignment TARGET as well, so
+        # every assigned constant appeared in `used` by construction and the
+        # constant half of this test could never fire: `defined` and `used`
+        # both held the name, and `dead` was empty for a name nothing reads.
+        # Functions were caught because a `def` produces no `ast.Name` at all.
+        used = {node.id for node in ast.walk(tree)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
         used |= {node.attr for node in ast.walk(tree)
                  if isinstance(node, ast.Attribute)}
         # Read once per file, not once per name: that was twelve seconds.

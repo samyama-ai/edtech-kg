@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 import tempfile
 from pathlib import Path
 
@@ -101,6 +102,32 @@ def test_the_package_metadata_is_valid_enough_to_install():
         f"and setuptools rejected the file before reading anything else.")
 
 
+def _directory_for(extra: str) -> str:
+    """The top-level package an optional extra exists for.
+
+    `[mcp]` is the dependency group for `mcp_server/`. The mapping is by
+    convention and stated here rather than guessed at with a `startswith`,
+    which would have made `[m]` cover every directory beginning with an m.
+    """
+    return {"mcp": "mcp_server"}.get(extra, extra)
+
+
+def _package_name(requirement: str) -> str:
+    """The package a PEP 508 requirement names.
+
+    `tomllib` gives the entries whole, so there is no splitting on `,` — which
+    was the bug: an ordinary range pin like `x>=1,<3` was cut in half and the
+    fragment `<3` failed with "cannot read a package name". The extras parser
+    had the same split and silently dropped the fragment instead, so one TOML
+    shape was handled two different ways in one file.
+    """
+    found = re.match(r"[A-Za-z0-9_.-]+", requirement.strip())
+    if not found:
+        raise AssertionError(
+            f"cannot read a package name from the requirement {requirement!r}")
+    return found.group(0).lower()
+
+
 def test_the_declared_dependencies_are_ones_something_imports():
     """The template declared `samyama`, `requests`, `rich`, `click` and
     `fastmcp`. Nothing imported any of them: `click` came from a placeholder
@@ -115,23 +142,9 @@ def test_the_declared_dependencies_are_ones_something_imports():
     vacuous pass CONTRIBUTING.md names — while the converse cannot go vacuous.
     Names go through `ALIASES`, since `PyYAML` imports as `yaml`.
     """
-    pyproject = (ROOT / "pyproject.toml").read_text()
-    block = re.search(r"^dependencies = \[(.*?)\]", pyproject, re.M | re.S)
-    assert block, "no dependencies field"
-    # Guarded like the extras parser below. `.group(0)` on a miss is an
-    # AttributeError raised from inside the check that exists to produce a
-    # readable failure — and an entry starting with anything unexpected (a
-    # marker, an environment condition) is exactly when that happens.
-    declared = set()
-    for entry in block.group(1).split(","):
-        entry = entry.strip().strip('"\'')
-        if not entry:
-            continue
-        found = re.match(r"[A-Za-z0-9_.-]+", entry)
-        if not found:
-            raise AssertionError(
-                f"cannot read a package name from the dependency {entry!r}")
-        declared.add(found.group(0).lower())
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    declared = {_package_name(entry)
+                for entry in project.get("dependencies", [])}
 
     # Parsed, not pattern-matched. The line regex also matched English — a
     # docstring reading "import the catalogue first" put `the` in the set —
@@ -143,6 +156,9 @@ def test_the_declared_dependencies_are_ones_something_imports():
     # requests` in an `etl` module plus `requests` in dev passed, the exact
     # install-succeeds-then-import-fails case this exists to prevent.
     imported, test_only = set(), set()
+    # WHERE each import was written, not only that it was. An extra excuses an
+    # import inside the package that extra exists for and nowhere else.
+    imported_in: dict[str, set[str]] = {}
     for name in tracked():
         if not name.endswith(".py"):
             continue
@@ -160,6 +176,7 @@ def test_the_declared_dependencies_are_ones_something_imports():
             test_only |= found
         else:
             imported |= found
+            imported_in[name] = found
 
     # Through the alias map, so `PyYAML` in pyproject and `import yaml` in
     # the code are one package rather than two separate complaints.
@@ -177,33 +194,39 @@ def test_the_declared_dependencies_are_ones_something_imports():
     # swept in every later array — `[tool.setuptools.packages.find]`'s
     # `include`, and anything added below it — so an unrelated entry silently
     # counted as a declared extra and excused an undeclared import.
-    tail = pyproject.split("[project.optional-dependencies]")
-    extras, dev_only, other_extras = set(), set(), set()
-    if len(tail) > 1:
-        # Up to the next table header, wherever that is.
-        block = re.split(r"^\[", tail[1], maxsplit=1, flags=re.M)[0]
-        for name, group in re.findall(r"^(\w[\w-]*) = \[(.*?)\]", block, re.M | re.S):
-            for item in group.split(","):
-                item = item.strip().strip('"\'')
-                # `.group(0)` on a miss is an AttributeError, from inside the
-                # check that exists to produce a readable failure.
-                found = re.match(r"[A-Za-z0-9_.-]+", item)
-                if found:
-                    extras.add(found.group(0).lower())
-                    (dev_only if name == "dev" else other_extras).add(
-                        found.group(0).lower())
+    extras, dev_only, by_extra = set(), set(), {}
+    for group, entries in project.get("optional-dependencies", {}).items():
+        for item in entries:
+            package = _package_name(item)
+            extras.add(package)
+            by_extra.setdefault(group, set()).add(package)
+            if group == "dev":
+                dev_only.add(package)
 
     stdlib = set(sys.stdlib_module_names)
     # Runtime modules get `dependencies` and the extras, and NOT the dev
     # group: a package that installs without `[dev]` must still import.
     undeclared = sorted(
-        # `other_extras`, not `extras - dev_only`. A package listed in `dev`
-        # AND in another group was removed by the subtraction and then flagged
-        # as undeclared for a runtime import — punished for being in two
-        # lists.
-        imported - stdlib - first_party
-        - {ALIASES.get(d, d) for d in declared}
-        - {ALIASES.get(d, d) for d in other_extras})
+        # SCOPED to where the import was written. An extra excuses an import
+        # only inside the directory that extra exists for — `[mcp]` covers
+        # `mcp_server/`, not `etl/`. Subtracting every extra from every module
+        # let an unconditional `import fastmcp` in an `etl` module pass, which
+        # is exactly the install-succeeds-then-fails-on-import case named
+        # above.
+        #
+        # `dev` excuses nothing here: a package that installs without `[dev]`
+        # must still import. And a package in `dev` AND another group is not
+        # removed by a subtraction and then punished for being in two lists —
+        # the groups are read individually rather than differenced.
+        {module
+         for name, found in imported_in.items() for module in found
+         if module not in stdlib and module not in first_party
+         and ALIASES.get(module, module) not in {ALIASES.get(d, d) for d in declared}
+         and ALIASES.get(module, module) not in {
+             ALIASES.get(d, d)
+             for group, names in by_extra.items()
+             if group != "dev" and name.split("/")[0] == _directory_for(group)
+             for d in names}})
     assert not undeclared, (
         f"imported but declared nowhere: {undeclared}. An install that "
         f"succeeds and then fails on import is worse than one that refuses.")

@@ -23,6 +23,13 @@ is the exception.
 No number reaches a document by being typed. Probes print figures; documents quote what the
 probes printed; tests assert the two agree.
 
+**Scoped to figures measured from a source or the graph.** Narrative history — the counts in
+this file, a round tally in a PR body — is prose about what happened and has no probe to print
+it. The distinction is whether a reader could act on the number being wrong: a source count in
+`docs/sources/` changes what the graph claims, and a sentence recalling that a review took four
+rounds does not. A **test count is neither**, and is not worth stating at all: it changes on
+every commit and says nothing about whether the tests are good.
+
 This is the rule the repo has broken most often, and the failures are instructive: **427**
 courses outside every chain where the measured answer was **395**, arrived at by arithmetic;
 **868** occupations where the crosswalk's own `NO MATCH` sentinel made it **867**; **795 of
@@ -56,7 +63,7 @@ SAMYAMA_TEST_URL=http://localhost:8201 SAMYAMA_URL=http://localhost:8201 \
   SAMYAMA_REQUIRE_ENGINE=1 python -m pytest -q
 
 python -m pyflakes <changed files>
-python -m flake8 --select=E301,E302,E303,E741,F <changed files>
+python -m flake8 --select=E301,E302,E303,E304,E741,F <changed files>
 ```
 
 **Run the style pass last.** A PR was reported style-clean and then edited further; the

@@ -16,7 +16,14 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = sorted(ROOT.glob("docs/**/*.md")) + sorted(ROOT.glob("*.md"))
+# Every README too, not only `docs/` and the root. `mcp_server/README.md`,
+# `demo/README.md` and `benchmarks/README.md` sat outside both the link check
+# and the figure cross-checks — a second copy of numbers with nothing holding
+# them to the first. `__pycache__` and `data/` are excluded: neither is
+# tracked prose.
+DOCS = sorted(set(
+    list(ROOT.glob("docs/**/*.md")) + list(ROOT.glob("*.md"))
+    + [p for p in ROOT.glob("*/README.md") if p.parent.name != "docs"]))
 
 # `[text](path)` and bare `path` in backticks, skipping URLs and anchors.
 LINK = re.compile(r"\[[^\]]*\]\((?!https?:|#)([^)#]+)")

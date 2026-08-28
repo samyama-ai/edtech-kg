@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 name = "edtech-kg"
 version = "0.1.0"
 description = "Education-to-career pathways knowledge graph built on Samyama-Graph"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 # EMPTY, and measured rather than assumed: outside the standard library this
 # package imports nothing. The probes read .xlsx by unzipping XML, talk HTTP
