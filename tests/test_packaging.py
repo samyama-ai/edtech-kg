@@ -272,3 +272,73 @@ def test_every_module_the_readme_tells_you_to_run_is_packaged():
         f"`pip install .` does not ship them — from any directory other than "
         f"the repo root that is a ModuleNotFoundError. Add them to "
         f"`[tool.setuptools.packages.find] include`.")
+
+
+def _fake_project(tmp_path, monkeypatch, files: dict, toml: str):
+    (tmp_path / "pyproject.toml").write_text(toml, encoding="utf-8")
+    for name, body in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(body, encoding="utf-8")
+        (tmp_path / name).parent.joinpath("__init__.py").touch()
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "tracked", lambda: list(files))
+
+
+TOML = """[project]
+name = "edtech-kg"
+dependencies = []
+[project.optional-dependencies]
+mcp = ["fastmcp"]
+dev = ["pytest"]
+"""
+
+
+def test_an_extra_does_not_excuse_an_import_outside_its_own_package(
+        tmp_path, monkeypatch):
+    """The survivor in this file, and it has teeth.
+
+    Every extra was subtracted from every module, so an unconditional
+    `import fastmcp` in an `etl` module passed — `pip install edtech-kg`
+    without `[mcp]`, then `import etl.engine`, which is precisely the
+    install-succeeds-then-fails-on-import case this file exists to prevent.
+    """
+    _fake_project(tmp_path, monkeypatch,
+                  {"etl/engine.py": "import fastmcp\n"}, TOML)
+    with pytest.raises(AssertionError, match="fastmcp"):
+        test_the_declared_dependencies_are_ones_something_imports()
+
+
+def test_an_extra_does_excuse_an_import_inside_its_own_package(
+        tmp_path, monkeypatch):
+    """The other direction. `[mcp]` names `fastmcp` deliberately, for a server
+    that is allowed to need it — a guard that refused this would be wrong."""
+    _fake_project(tmp_path, monkeypatch,
+                  {"mcp_server/server.py": "import fastmcp\n"}, TOML)
+    test_the_declared_dependencies_are_ones_something_imports()
+
+
+def test_the_extra_is_matched_to_its_directory_by_name_not_by_luck(
+        tmp_path, monkeypatch):
+    """`[mcp]` is the group for `mcp_server/`, and the names differ.
+
+    Dropping the mapping and comparing the group to the directory directly
+    makes `mcp_server/` unmatched, so the deliberate `fastmcp` import starts
+    failing — a guard that cries wolf on correct code is one that gets
+    switched off.
+    """
+    assert _directory_for("mcp") == "mcp_server"
+    assert _directory_for("dev") == "dev"
+    _fake_project(tmp_path, monkeypatch,
+                  {"mcp_server/server.py": "import fastmcp\n"}, TOML)
+    test_the_declared_dependencies_are_ones_something_imports()
+
+
+def test_a_range_pin_is_read_as_one_package(tmp_path, monkeypatch):
+    """`x>=1,<3` was split on the comma, so `<3` reached the name parser.
+
+    One list raised "cannot read a package name" and the other silently
+    dropped the fragment — the same TOML shape handled two ways in one file.
+    """
+    assert _package_name("packaging>=21,<25") == "packaging"
+    assert _package_name('  "PyYAML >= 6, < 7"  '.strip().strip('"')) == "pyyaml"
+

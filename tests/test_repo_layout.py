@@ -309,3 +309,41 @@ def test_no_module_leaves_a_helper_or_constant_behind():
     assert not offenders, (
         f"defined and used nowhere — {offenders}. A split leaves these behind "
         f"and no linter this repo runs reports them.")
+
+
+@pytest.mark.parametrize("orphan", ["ORPHAN_LIMIT = 7", "ORPHAN_LIMIT: int = 9"])
+def test_a_constant_nothing_reads_is_caught(orphan, tmp_path, monkeypatch):
+    """The half of the guard above that could not fire.
+
+    `ast.walk` visits the assignment TARGET as well as every use, so an
+    assigned constant was in `used` by construction and `dead` was empty for a
+    name nothing reads. Functions were caught only incidentally — a `def`
+    produces no `ast.Name` at all — so the test passed while doing half of
+    what its docstring promised.
+
+    Both forms, because the annotated one is an `AnnAssign` and was collected
+    by neither branch.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    (tmp_path / "etl").mkdir()
+    (tmp_path / "etl" / "thing.py").write_text(orphan + "\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "tracked", lambda: ["etl/thing.py"])
+    with pytest.raises(AssertionError, match="ORPHAN_LIMIT"):
+        test_no_module_leaves_a_helper_or_constant_behind()
+
+
+def test_a_constant_another_module_reads_is_not_flagged(tmp_path, monkeypatch):
+    """The false positive the fix must not introduce.
+
+    A constant read from a sibling module is not dead, and a guard that says
+    it is gets switched off.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    (tmp_path / "etl").mkdir()
+    (tmp_path / "etl" / "thing.py").write_text("SHARED = 7\n", encoding="utf-8")
+    (tmp_path / "etl" / "user.py").write_text(
+        "from etl.thing import SHARED\nprint(SHARED)\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "tracked",
+                        lambda: ["etl/thing.py", "etl/user.py"])
+    test_no_module_leaves_a_helper_or_constant_behind()
+
