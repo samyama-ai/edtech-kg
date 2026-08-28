@@ -3,7 +3,7 @@
 ![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
 
 **1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
-you can walk — plus eight measured public sources for the college and career side.**
+you can walk — plus nine measured public sources for the college and career side.**
 
 > Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
 > This repo holds the loader and source-data specifics for the KG.
@@ -119,6 +119,7 @@ Every figure below is printed by a probe in `etl/`. None is hand-typed.
 | schema.org | `probe_schemaorg` | 14 of the 14 terms this graph needs are present |
 | State course directories | `probe_state_courses` | statewide directories publish **no** prerequisites |
 | College Scorecard | `probe_scorecard` | median earnings for **25.5%** of programme rows — 58,112 of 169,868 |
+| Registered Apprenticeship | `probe_apprenticeship` | **419** occupations reachable by apprenticeship, **0** of them missing from the crosswalk this repo loads — the two published CIP-SOC crosswalks disagree by **63** |
 
 ---
 
