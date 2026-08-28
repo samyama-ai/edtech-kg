@@ -129,8 +129,8 @@ counting something the page argues against:
 | Titles New York publishes under more than one code | **203** |
 
 New York's eleven `CC` and `L` codes are the state adding to the taxonomy, not
-using it — as §2 above sets out — and counting one as SCED alignment would
-overstate the reach. Normalising a title also collapses `Geometry` and
+using it — as *What SCED is* sets out above — and counting one as SCED
+alignment would overstate the reach. Normalising a title also collapses `Geometry` and
 `Geometry (Common Core)` onto the same key, so a title can have several codes
 behind it. A five-digit SCED code beats an extension, the lowest code breaks a
 remaining tie, and the **203** titles where a tie survives both rules are

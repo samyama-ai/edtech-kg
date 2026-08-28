@@ -230,9 +230,9 @@ def test_a_catalogue_this_module_cannot_read_is_refused_at_every_level():
 
     for catalogue, expected in (
             ({"rows": []}, "no `courses` key"),
-            ({"courses": [{"url": "x"}]}, "empty or missing `title`"),
-            ({"courses": [{"title": "   "}]}, "empty or missing `title`"),
-            ({"courses": [{"title": None}]}, "empty or missing `title`")):
+            ({"courses": [{"url": "x"}]}, "missing or empty `title`"),
+            ({"courses": [{"title": "   "}]}, "missing or empty `title`"),
+            ({"courses": [{"title": None}]}, "missing or empty `title`")):
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(pwcs_source, "read", lambda c=catalogue: c)
             with pytest.raises(probe.MalformedSource, match=expected):

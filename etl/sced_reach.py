@@ -116,20 +116,17 @@ def district_reach(ny_titles: dict[str, list[str]],
         raise MalformedSource(
             f"the loaded catalogue has no `courses` key — it carries "
             f"{sorted(loaded)}. The district loader has changed shape.")
+    # `.get`, so a MISSING title and a blank one are one check. They were two,
+    # and the second could not fire: `c.get("title") or ""` is already empty
+    # for a course with no title at all, so the branch below it was dead.
     blank = sum(1 for c in loaded["courses"]
                 if not str(c.get("title") or "").strip())
     if blank:
         raise MalformedSource(
             f"{blank} of {len(loaded['courses'])} loaded courses have an "
-            f"empty or missing `title`, so there is nothing to match a SCED "
+            f"missing or empty `title`, so there is nothing to match a SCED "
             f"code against. A blank title normalises to the empty string and "
             f"would match every other blank one.")
-    if any("title" not in c for c in loaded["courses"]):
-        raise MalformedSource(
-            f"{sum(1 for c in loaded['courses'] if 'title' not in c)} of "
-            f"{len(loaded['courses'])} loaded courses carry no `title` field, "
-            f"so there is nothing to match a SCED code against. The catalogue "
-            f"loader has changed shape.")
     titles = [c["title"] for c in loaded["courses"]]
     if not titles:
         raise MalformedSource(

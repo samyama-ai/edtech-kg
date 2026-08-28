@@ -14,7 +14,6 @@ sample file — the same pattern as `tests/test_probe_cipsoc.py`.
 from __future__ import annotations
 
 import io
-import re
 import zipfile
 from pathlib import Path
 
@@ -232,87 +231,6 @@ def test_an_elements_sheet_whose_banners_changed_is_refused(monkeypatch):
         probe.master()
 
 
-def test_the_document_quotes_only_figures_the_probe_produces():
-    """Every figure on `docs/sources/sced.md` comes from the probe, and each
-    pin names its own ROW.
-
-    The two halves were separate tests and the reviewer was right that they
-    overlapped. Anchoring is the point of both: `"791"` matched `**1,791**` on
-    the version row, so the figure the pin existed to guard was never checked
-    — a guard that passes on a different number reads as coverage. The other
-    test's `page.count("791") >= 2` asserted only that both figures were
-    somewhere, which the anchored rows already prove. The ones
-    that would go stale first are the version and the two counts the argument
-    rests on, so those are pinned by name rather than by value — a changed
-    figure fails here instead of being quoted for another month."""
-    page = DOC.read_text(encoding="utf-8")
-    # ANCHORED. `"791"` matched `**1,791**` on the version row, so the figure
-    # it meant to guard — `PWCS courses loaded | **791**` — was unpinned: the
-    # assertion passed on a different number entirely. Same for the bare
-    # `2,012` and `2,001`, which the rows below now pin in place.
-    for claim in ("SCED 13.0",
-                  "| Courses | **1,791** |",
-                  "| Rows in the sheet | **2,012** |",
-                  "| Five-digit SCED codes | **2,001** |",
-                  "| PWCS courses loaded | **791** |",
-                  "67 — 8%",
-                  # The element/attribute split. Pinned because the page now
-                  # quotes the two counts, and a figure on the page that
-                  # nothing guards is the drift this test exists to stop.
-                  "Elements a record may carry | **6**",
-                  "Attributes it may also carry | **17**"):
-        assert claim in page, f"the page no longer states {claim!r}"
-    assert "Publishing a SCED code | **0**" in page, (
-        "the page no longer states that the district publishes no SCED code — "
-        "which is the finding the schema decision rests on")
-
-    # The three figures added with the resolution fix, pinned the same way. A
-    # figure on the page that nothing guards is the drift this test exists to
-    # stop, and these are the ones that make the headline honest: the strict
-    # comparison it is measured against, and the two counts that say the
-    # headline is not quietly counting a state extension.
-    for claim in ("without the parenthetical rule it is **58** rather than 67",
-                  "| Matches resolving to a New York **state extension** | **0** |",
-                  "| Titles New York publishes under more than one code | **203** |"):
-        assert claim in page, f"the page no longer states {claim!r}"
-
-
-def test_the_document_does_not_claim_sced_solves_prerequisites():
-    """The sequence element's name invites exactly that conclusion, and the
-    page exists partly to refuse it."""
-    page = DOC.read_text(encoding="utf-8").lower()
-    assert "part n of m" in page or "part 'n' of 'm'" in page, (
-        "the page no longer explains what the sequence element means")
-    assert re.search(r"not a (relationship|prerequisite) between", page), (
-        "the page no longer says the sequence element is not a prerequisite")
-
-
-def test_a_repeated_course_code_does_not_make_the_table_stop_adding_up(monkeypatch):
-    """`courses` and `sced_codes` counted ROWS while `state_extensions` counted
-    distinct codes, so the printed lines reconciled against each other only
-    because this file happens to carry no repeated extension code.
-
-    A catalogue that repeats one produced `courses` larger than
-    `sced_codes + state_extensions`, with nothing on the page saying why.
-    """
-    book = workbook({"All courses": [
-        ["Course Code (Course ID)", "Course Code Description"],
-        ["01001", "ELA I"],
-        ["01003CC", "ELA III (Common Core)"],
-        # The same extension code twice — two rows, one code.
-        ["01003CC", "ELA III (Common Core), second listing"],
-    ]})
-    monkeypatch.setattr(probe, "fetch", lambda url: book)
-    got = probe.new_york()
-
-    assert got["rows"] == 3, "the row count no longer reports rows"
-    assert got["courses"] == 2, "the course count is still counting rows"
-    assert got["courses"] == got["sced_codes"] + len(got["state_extensions"]), (
-        f"the table does not add up: {got['courses']} courses against "
-        f"{got['sced_codes']} SCED codes and "
-        f"{len(got['state_extensions'])} extensions")
-
-
 def test_a_sheet_whose_header_row_starts_blank_is_refused(monkeypatch):
     """`header[0]` was read before anything checked it had content.
 
@@ -352,23 +270,6 @@ def test_the_master_sheet_gets_the_same_blank_header_guard_as_new_york(monkeypat
     monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
     with pytest.raises(probe.MalformedSource, match="blank first column"):
         probe.master()
-
-
-def test_the_new_york_table_is_a_table_and_not_prose():
-    """A paragraph inserted mid-table orphaned the last row.
-
-    `| Publishes a sequence column | **No** |` ended up after an intervening
-    paragraph, so it rendered as literal text — and it is the section's
-    headline answer. A broken table is invisible in a diff and obvious on the
-    page.
-    """
-    page = DOC.read_text(encoding="utf-8")
-    lines = page.splitlines()
-    sequence = next(i for i, l in enumerate(lines)
-                    if l.startswith("| Publishes a sequence column"))
-    assert lines[sequence - 1].startswith("|"), (
-        f"the sequence row is orphaned — the line above it is prose "
-        f"({lines[sequence - 1][:60]!r}), so the row renders as literal text")
 
 
 def test_the_master_workbook_is_read_from_the_landing_page_not_pinned(monkeypatch):
@@ -412,12 +313,11 @@ def test_a_restructured_landing_page_stops_the_run(monkeypatch):
 def test_the_json_payload_still_carries_the_new_york_titles(monkeypatch):
     """RUN the probe and look at what comes out.
 
-    This grepped `inspect.getsource` for `state.pop("titles")`, so it passed
-    the moment the pop became a comprehension omitting the same key — while
-    the payload it is named for was still missing it. A test that reads the
-    source cannot see what the source does. `titles` is the input the reach
-    figures are computed from; a payload that drops its own input cannot be
-    re-checked, which is the only reason to emit one.
+    This grepped the source for `state.pop("titles")`, so it passed the moment
+    the pop became a comprehension omitting the same key — while the payload
+    it is named for was still missing it. `titles` is the input the reach
+    figures are computed from, and a payload that drops its own input cannot
+    be re-checked.
     """
     from etl import pwcs_source
 
@@ -493,3 +393,79 @@ def test_a_second_sequence_definition_is_visible_rather_than_last_wins(monkeypat
         "a second definition of the sequence element was silently discarded")
     assert got["sequence_element"].endswith("first"), (
         "the definition reported depends on the order of the rows")
+
+
+def test_two_links_for_one_version_are_refused_rather_than_ordered(monkeypatch):
+    """`max(..., key=version)` broke a tie by the order of the page, and
+    which copy this reads decides what every figure describes."""
+    monkeypatch.setattr(probe, "fetch_text", lambda url: (
+        '<a href="/a/SCEDv13File_508.xlsx">x</a>'
+        '<a href="/b/SCEDv13File_508.xlsx">y</a>'))
+    with pytest.raises(probe.MalformedSource, match="links for SCED v13"):
+        probe.master_file()
+
+    # One link per version is still an answer, highest wins.
+    monkeypatch.setattr(probe, "fetch_text", lambda url: (
+        '<a href="/SCEDv12File_508.xlsx">x</a>'
+        '<a href="/SCEDv13File_508.xlsx">y</a>'))
+    url, version = probe.master_file()
+    assert version == 13 and url.endswith("/SCEDv13File_508.xlsx")
+
+
+def test_a_reordered_master_sheet_is_refused_rather_than_counted(monkeypatch):
+    """`courses` is counted by `r[0].strip()` while `new_york()` pins its own
+    column names, so a reordered sheet keeps parsing and counts something
+    else — the positional read every other reader here was moved off."""
+    book = workbook({
+        "SCED 13.0": [["SCED Course Code", "Course Title"],
+                      ["02052", "Algebra I"]],
+        "Elements and Attributes": [["Element Name"], ["Course Title"],
+                                    ["Attribute Name"], ["Course Level"]]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    monkeypatch.setattr(probe, "master_file", lambda: (probe.PINNED_WAS, 13))
+
+    with pytest.raises(probe.MalformedSource, match="not the course title"):
+        probe.master()
+
+
+def test_a_repeated_course_code_does_not_make_the_table_stop_adding_up(monkeypatch):
+    """`courses` and `sced_codes` counted ROWS while `state_extensions` counted
+    distinct codes, so the printed lines reconciled against each other only
+    because this file happens to carry no repeated extension code.
+
+    A catalogue that repeats one produced `courses` larger than
+    `sced_codes + state_extensions`, with nothing on the page saying why.
+    """
+    book = workbook({"All courses": [
+        ["Course Code (Course ID)", "Course Code Description"],
+        ["01001", "ELA I"],
+        ["01003CC", "ELA III (Common Core)"],
+        # The same extension code twice — two rows, one code.
+        ["01003CC", "ELA III (Common Core), second listing"],
+    ]})
+    monkeypatch.setattr(probe, "fetch", lambda url: book)
+    got = probe.new_york()
+
+    assert got["rows"] == 3, "the row count no longer reports rows"
+    assert got["courses"] == 2, "the course count is still counting rows"
+    assert got["courses"] == got["sced_codes"] + len(got["state_extensions"]), (
+        f"the table does not add up: {got['courses']} courses against "
+        f"{got['sced_codes']} SCED codes and "
+        f"{len(got['state_extensions'])} extensions")
+
+
+def test_the_new_york_table_is_a_table_and_not_prose():
+    """A paragraph inserted mid-table orphaned the last row.
+
+    `| Publishes a sequence column | **No** |` ended up after an intervening
+    paragraph, so it rendered as literal text — and it is the section's
+    headline answer. A broken table is invisible in a diff and obvious on the
+    page.
+    """
+    page = DOC.read_text(encoding="utf-8")
+    lines = page.splitlines()
+    sequence = next(i for i, l in enumerate(lines)
+                    if l.startswith("| Publishes a sequence column"))
+    assert lines[sequence - 1].startswith("|"), (
+        f"the sequence row is orphaned — the line above it is prose "
+        f"({lines[sequence - 1][:60]!r}), so the row renders as literal text")

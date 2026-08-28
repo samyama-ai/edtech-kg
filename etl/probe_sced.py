@@ -133,7 +133,17 @@ def master_file() -> tuple[str, int]:
             f"landing page has to stop the run. It was pinned to "
             f"{PINNED_WAS} when this was written; check whether that still "
             f"resolves before re-pinning anything.")
-    href, version = max(found, key=lambda pair: int(pair[1]))
+    highest = max(int(v) for _, v in found)
+    at_highest = {href for href, v in found if int(v) == highest}
+    if len(at_highest) > 1:
+        # A tie broken by the order of the page is not a choice. Two hrefs for
+        # one version means NCES publishes it twice — mirrored, or moved — and
+        # which copy this reads decides what every figure describes.
+        raise MalformedSource(
+            f"{LANDING} lists {len(at_highest)} links for SCED v{highest}: "
+            f"{sorted(at_highest)}. This reads one and cannot choose between "
+            f"them.")
+    href, version = at_highest.pop(), highest
     return urllib.parse.urljoin(LANDING, href), int(version)
 
 
@@ -206,6 +216,21 @@ def _master(book: zipfile.ZipFile, url: str, version: int) -> dict:
         raise MalformedSource(
             f"the SCED sheet {catalogue!r} opens with a blank first column, so "
             f"its layout cannot be checked — NCES has restructured the file")
+
+    # And the column NAMES, as `new_york()` pins its own. `courses` is counted
+    # by `r[0].strip()` — column 0 assumed to be the title — so a reordered
+    # sheet would keep parsing and count something else, which is the
+    # positional read every other reader in this repo was moved off. Matched
+    # loosely, because a re-cased or re-spaced heading is a cosmetic change.
+    def squashed(text: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", text.lower())
+
+    if squashed(header[0]) != "coursetitle":
+        raise MalformedSource(
+            f"the SCED sheet {catalogue!r} opens with {header[0]!r}, not the "
+            f"course title. Its rows are counted by column 0, so a reordered "
+            f"sheet would count something else and keep going. Header: "
+            f"{header}")
 
     # `split`, not `named` — that name already held the list of candidate
     # course sheets forty lines up, and rebinding it to an unrelated dict in

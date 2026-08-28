@@ -332,3 +332,33 @@ def test_a_crosswalk_with_no_sentinel_at_all_still_reports_zero(tmp_path):
     assert r["declared_no_match"] == 0
     assert r["mappings"] == r["rows_on_the_sheet"] == 3
     assert r["distinct_cip"] == r["cip_with_an_occupation"] == 2
+
+
+def test_the_builder_reaches_past_column_z_and_escapes_its_values():
+    """`chr(65 + col)` produced `[` at column 26.
+
+    A fixture wide enough to reach it built a workbook with cell references
+    no reader can place — and the readers here place cells BY reference, so
+    the test would have been exercising a file Excel could not have written.
+
+    Values and sheet names are escaped for the same reason: `&` and `<` are
+    legal in a real workbook, and unescaped they produced XML the reader
+    could not parse, so a fixture testing an awkward value failed on the
+    fixture rather than on the code.
+    """
+    import io
+    import zipfile
+
+    from tests.workbook_support import workbook as build
+
+    header = [f"col{i}" for i in range(30)]
+    header[27] = "R&D <units>"
+    buffer = io.BytesIO()
+    build(buffer, {"A & B": [header, ["x"] * 30]})
+
+    with zipfile.ZipFile(buffer) as book:
+        got = probe.rows(book, probe.sheets(book)["A & B"])
+
+    assert len(got[0]) == 30, "columns past Z were dropped or misplaced"
+    assert got[0][27] == "R&D <units>", (
+        "an ampersand or angle bracket did not survive the round trip")
