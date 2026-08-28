@@ -27,6 +27,7 @@ USER_AGENT = "edtech-kg research probe (+https://git.samyama.ai/Samyama.ai/edtec
 #: Parsed, not pattern-matched. `[0-9a-fA-F:]{3,}` also matches `abc`,
 #: `deadbeef` and any hex-ish token `dig` happens to print, and whatever it
 #: matched went onto the page as the address a resolver returned.
+
 def is_address(text: str) -> bool:
     try:
         ipaddress.ip_address(text)
