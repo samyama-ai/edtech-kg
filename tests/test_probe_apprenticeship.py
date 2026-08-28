@@ -452,3 +452,47 @@ def test_a_renamed_crosswalk_sheet_is_refused_not_a_traceback(monkeypatch, tmp_p
     with pytest.raises(probe.MalformedSource, match="no 'CIP-SOC' sheet"):
         probe.our_soc()
     assert zipfile  # the import is what makes the fixture a real archive
+
+
+def test_a_truncated_response_is_refused_rather_than_a_traceback(monkeypatch, tmp_path):
+    """`IncompleteRead` derives from `HTTPException` ALONE, not `OSError`, so
+    it missed the handler and came out as a traceback. onetcenter.org serves
+    chunked and has truncated in practice — observed, not defensive."""
+    import http.client
+
+    class Truncated:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self, limit=None):
+            raise http.client.IncompleteRead(b"PK\x03\x04", 9000)
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Truncated())
+    with pytest.raises(probe.MalformedSource, match="did not answer"):
+        probe.download("https://onetcenter.org/x.zip", tmp_path / "x.zip")
+
+
+def test_the_sentinel_is_filtered_on_the_ours_side_too(monkeypatch, tmp_path):
+    """The test named "every side" drove two of three — it STUBBED `our_soc`,
+    so removing that function's own filter survived. A sentinel counted there
+    inflates `our_crosswalk_soc` and makes `apprenticeship_only_vs_ours`
+    measure against a set with a fiction in it."""
+    import io
+    import zipfile
+
+    book = tmp_path / "crosswalk.xlsx"
+    buffer = io.BytesIO()
+    cipsoc_workbook(buffer, {"CIP-SOC": [
+        ["CIP Code", "CIP Title", "SOC Code", "SOC Title"],
+        ["46.0302", "Electrician", "47-2111", "Electricians"],
+        ["99.9999", "No match", probe.NO_MATCH, "No match"],
+    ]})
+    book.write_bytes(buffer.getvalue())
+    monkeypatch.setattr(probe.crosswalk, "LOCAL", book)
+    assert zipfile
+
+    got = probe.our_soc()
+    assert probe.NO_MATCH not in got, (
+        "the sentinel is counted as an occupation this repo's crosswalk "
+        "reaches, so our_crosswalk_soc is one too many and the gap against it "
+        "is measured against a set with a fiction in it")
+    assert got == {"47-2111"}

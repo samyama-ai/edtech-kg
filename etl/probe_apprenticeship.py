@@ -24,6 +24,7 @@ shifting every column after it.
 from __future__ import annotations
 
 import argparse
+import http.client
 import io
 import json
 import re
@@ -105,7 +106,14 @@ def download(url: str, into: Path) -> bytes:
                 f"something else rather than a bigger file.")
     except urllib.error.HTTPError as exc:
         raise MalformedSource(f"{url} returned HTTP {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError,
+            http.client.HTTPException) as exc:
+        # `http.client.HTTPException` too. `IncompleteRead` derives from it
+        # ALONE — not from OSError — so a truncated chunked response escaped
+        # every handler here and came out as a traceback. onetcenter.org
+        # serves chunked and has truncated in practice, so this is observed
+        # rather than defensive: on pages arguing that failures arrive as a
+        # stated `refused:`, a transient truncation read as a broken probe.
         raise MalformedSource(f"{url} did not answer ({exc})") from exc
     if not payload.startswith(b"PK"):
         raise MalformedSource(

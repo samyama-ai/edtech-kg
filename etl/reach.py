@@ -13,6 +13,7 @@ where it is.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import socket
 import subprocess
@@ -197,5 +198,8 @@ def attempt(url: str, agent: str | None) -> str:
             # About the METHOD. A bare "405" sits beside 403 and 404.
             return "405 (HEAD not allowed — says nothing about GET)"
         return str(exc.code)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError,
+            http.client.HTTPException) as exc:
+        # Mirrored from `probe_apprenticeship.download` — `IncompleteRead`
+        # derives from HTTPException alone and would escape as a traceback.
         return f"no connection ({getattr(exc, 'reason', exc)})"

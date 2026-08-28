@@ -230,3 +230,22 @@ def test_a_hex_ish_token_from_dig_is_not_taken_as_an_address():
     for text in ("deadbeef", "abc", "www.example.com.", "; timed out", "cafe"):
         assert not probe.is_address(text), (
             f"{text!r} would be reported as the address a resolver returned")
+
+
+def test_the_control_hosts_the_pages_cite_are_in_the_run():
+    """`REACH`'s contents were unpinned.
+
+    Both reach tests monkeypatch it away, and a doc test checks the page NAMES
+    the control hosts — so dropping `careertech.org` from the run leaves both
+    green while the page keeps citing a host nothing reached. The controls are
+    what make "this is not a general egress failure" an argument rather than an
+    assertion, so they are pinned to the list the run actually walks.
+    """
+    urls = " ".join(url for _, url in probe.REACH if url)
+    for host in ("onetcenter.org", "nces.ed.gov", "careertech.org"):
+        assert host in urls, (
+            f"{host} is cited on both pages as a control reached in the same "
+            f"session, and is not in REACH — so the claim is unbacked")
+
+    for host in ("careeronestop.org", "apprenticeship.gov", "data.gov"):
+        assert host in urls, f"{host} is a source both pages report on"
