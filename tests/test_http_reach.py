@@ -17,7 +17,7 @@ import subprocess
 
 import pytest
 
-from etl import reach as probe
+from etl import http_reach as probe
 
 
 def test_a_host_that_does_not_resolve_is_told_apart_from_one_that_refuses(monkeypatch):

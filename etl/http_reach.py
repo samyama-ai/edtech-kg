@@ -1,4 +1,9 @@
-"""Whether a source answers, and what its silence is allowed to mean.
+"""Whether a source answers over HTTP, and what its silence may mean.
+
+Named `http_reach` and not `reach`: `etl/sced_reach.py` sits beside it doing
+something entirely different — matching a course title to a code — and two
+modules a letter apart with unrelated jobs is a trap for whoever reads them
+next.
 
 Split from `etl/probe_apprenticeship.py` when that file passed the 500-line
 review limit, on the same line its tests were already split along.

@@ -41,7 +41,7 @@ from etl.probe_cipsoc import rows, sheets
 # Whether a source answers lives next door; this module is the crosswalk
 # arithmetic. `USER_AGENT` comes from there so both halves identify
 # themselves the same way.
-from etl.reach import USER_AGENT, reachable
+from etl.http_reach import USER_AGENT, reachable
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
