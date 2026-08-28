@@ -115,12 +115,19 @@ rests on, and there are two ways a zero can be wrong. A pattern that is too
 strict misses a link that is there; a page that did not load has no links at
 all. Both would read as "no data files published".
 
-The first is handled by matching either quote style and allowing a query string
-after the extension. The second is refused outright: the probe checks that the
-page carries the copyright notice **and** the "14 Clusters and 72 Sub-Clusters"
-line before believing anything it counted, so a redirect, a cookie wall or a
-script shell stops the run instead of producing a zero that reads like a
-finding. The zero in the table above is a page that loaded and has no data files on it.
+The first is handled by matching either quote style and allowing a query
+string after the extension. The second is refused outright: the probe stops if
+the page carries **neither** the copyright notice **nor** the "14 Clusters and
+72 Sub-Clusters" line, so a redirect, a cookie wall or a script shell — which
+carry neither — halts the run instead of producing a zero that reads like a
+finding.
+
+Neither, not either. Advance CTE can reword a copyright line or restate the
+cluster count without the page having failed to load, and refusing on one
+missing landmark would turn an ordinary edit into a broken probe. Losing the
+reading is a cost too; this refuses the failure and not the page.
+
+The zero in the table above is a page that loaded and has no data files on it.
 
 The prose is the third corroboration: the files that *are* published were read,
 and they are PDFs.
@@ -132,8 +139,9 @@ a trademarked framework, "all rights reserved", distributed as branded PDFs.
 position in writing with a date, and this is it: nothing on the site grants
 reuse, and the copyright notice withholds it. The date is the reading's, not the
 notice's — the notice says 2023 — and it is here rather than only in the probe
-output because a position taken in writing has to carry the day it was taken. Using Career Clusters requires asking Advance
-CTE — the same route as the Urban Institute and O\*NET licence questions in
+output because a position taken in writing has to carry the day it was taken.
+Using Career Clusters requires asking Advance CTE — the same route as the
+Urban Institute and O\*NET licence questions in
 edtech-kg#13 and edtech-kg#14.
 
 **This matters more than it looks.** CIP is not the language a high school

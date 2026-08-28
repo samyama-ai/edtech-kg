@@ -383,3 +383,54 @@ def test_a_recased_heading_does_not_refuse_the_run():
     # And a heading that genuinely does not name it is still refused.
     with pytest.raises(probe.MalformedSource):
         probe.column_named(["Occupation"], "SOC", "Code")
+
+
+def test_a_code_of_an_unknown_shape_is_counted_rather_than_absorbed():
+    """`leaf_rows` was `codes - families - series`, so a code of any other
+    shape became a leaf by subtraction — and `prefixes` took `c[:2]` of the
+    same stray, so it also became a family with no rollup row.
+
+    Both figures §1 of the page argues from — 49 families, 39 without a row —
+    and nothing would have said so. Every level is matched positively now and
+    what matches none of them is reported.
+    """
+    got = probe.cip_hierarchy([(c, "11-1011") for c in
+                               ("XX", "11.0000", "11.0700", "11.0701")])
+
+    assert got["family_rows"] == 1
+    assert got["series_rows"] == 1
+    assert got["leaf_rows"] == 1, (
+        f"a code of an unknown shape was counted as a leaf: {got['leaf_rows']}")
+    assert got["non_conforming"] == ["XX"], (
+        "the stray was absorbed rather than reported")
+    assert got["distinct_families"] == 1, (
+        "the stray's first two characters were counted as a family")
+    assert got["families_without_a_row"] == [], (
+        "a phantom family was reported as one missing its rollup row")
+
+
+def test_a_download_larger_than_the_cap_is_refused(monkeypatch, tmp_path):
+    """The cap had no test — `if False:` left the suite green.
+
+    An unbounded `read()` on a 180-second timeout pulls whatever a redirect
+    points at into memory. Both halves asserted: the refusal, and that the
+    read was BOUNDED — a length check after an unbounded read has already
+    spent the memory.
+    """
+    asked = []
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *exc): return False
+        def read(self, limit=None):
+            asked.append(limit)
+            body = b"PK" + b"x" * (probe.MAX_DOWNLOAD + 10)
+            return body if limit is None else body[:limit]
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", lambda *a, **k: Response())
+    with pytest.raises(probe.MalformedSource, match="more than"):
+        probe.download("https://example.invalid/x.zip", tmp_path / "big.zip")
+
+    assert asked == [probe.MAX_DOWNLOAD + 1], (
+        f"the body was read with limit {asked}; the cap is checked after the "
+        f"whole response is already in memory")

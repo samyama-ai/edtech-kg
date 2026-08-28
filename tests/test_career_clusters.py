@@ -337,3 +337,24 @@ def test_a_published_file_with_an_apostrophe_in_its_name_is_counted():
     assert probe.data_files("href='/x.xlsx?v=2'") == ["/x.xlsx"]
     # And a genuinely mismatched quote is still not a link.
     assert probe.data_files('''href="a.csv'"''') == []
+
+
+def test_the_page_describes_the_rule_the_code_applies():
+    """The page said the probe requires the notice AND the cluster line; the
+    code refuses only when BOTH are absent.
+
+    The OR is the better trade — Advance CTE can reword one without the page
+    having failed — so the sentence was wrong, not the code. It matters
+    because that paragraph is what the "not cleared" position rests on, and a
+    page describing a stricter guard than it has is claiming more than it
+    checks.
+    """
+    from pathlib import Path
+
+    doc = Path(__file__).resolve().parents[1] / "docs" / "sources" / "code-sets.md"
+    page = " ".join(doc.read_text(encoding="utf-8").replace("*", "").split())
+
+    assert "carries neither the copyright notice nor" in page, (
+        "the page no longer states the rule the code applies")
+    assert "Neither, not either" in page, (
+        "the page does not say why one missing landmark is not enough")

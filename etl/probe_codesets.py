@@ -63,6 +63,12 @@ NO_MATCH = "99-9999"
 # A CIP code that names a whole 2-digit family, and one that names a 4-digit
 # series. Both are ROLLUP rows rather than programmes.
 FAMILY = re.compile(r"\A\d{2}\.0000\Z")
+#: `11.0701` — a programme. The SHAPE, matched positively so a code of any
+#: other shape cannot become a leaf by subtraction. Excluding the two rollup
+#: forms is what makes it a leaf rather than just four digits: `11.0000` and
+#: `11.0700` are both `\d{2}\.\d{4}` too.
+LEAF = re.compile(r"\A\d{2}\.\d{4}\Z")
+
 SERIES = re.compile(r"\A\d{2}\.\d{2}00\Z")
 
 
@@ -167,15 +173,31 @@ def cip_hierarchy(mapped: list[tuple[str, str]] | None = None) -> dict:
     mapped = mapped if mapped is not None else crosswalk_pairs()
     codes = sorted({cip for cip, _ in mapped})
 
+    # Every level matched POSITIVELY, and what matches none of them counted
+    # rather than absorbed. `leaf_rows` was `codes - families - series`, so a
+    # code of any other shape became a leaf by subtraction — and `prefixes`
+    # took `c[:2]` of it, so the same stray also became a family with no
+    # rollup row. Both figures §1 argues from, both polluted, and nothing
+    # would have said so.
     families = sorted({c for c in codes if FAMILY.match(c)})
     series = sorted({c for c in codes if SERIES.match(c) and not FAMILY.match(c)})
-    prefixes = {c[:2] for c in codes}
+    leaves = sorted({c for c in codes
+                     if LEAF.match(c) and not SERIES.match(c)})
+    other = sorted(set(codes) - set(families) - set(series) - set(leaves))
+
+    # Families are counted from CONFORMING codes only, for the same reason.
+    conforming = set(families) | set(series) | set(leaves)
+    prefixes = {c[:2] for c in conforming}
     with_row = {c[:2] for c in families}
 
     return {"codes": len(codes),
             "family_rows": len(families),
             "series_rows": len(series),
-            "leaf_rows": len(codes) - len(families) - len(series),
+            "leaf_rows": len(leaves),
+            # Reported, not absorbed. Zero in this file today; a non-zero one
+            # means NCES has published a shape this reader does not know, and
+            # every figure beside it should be read with that in mind.
+            "non_conforming": other,
             "distinct_families": len(prefixes),
             "families_with_a_row": len(with_row),
             "families_without_a_row": sorted(prefixes - with_row),
