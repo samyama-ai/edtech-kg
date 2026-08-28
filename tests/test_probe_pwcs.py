@@ -466,6 +466,35 @@ def test_prerequisites_resolve_against_courses_and_not_against_every_page(monkey
     assert result["published_paths"] == result["courses"] == 2
 
 
+PREREQ_ON_A_SUBJECT_INDEX = """<html><body><h1 class="page-title">Landscaping 2</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/agriculture">Agriculture</a></div></body></html>"""
+
+
+def test_a_prerequisite_pointing_at_a_subject_index_is_dangling_not_resolved(monkeypatch):
+    """The narrowing of the RESOLUTION set, not just of the count.
+
+    `published_paths` alone did not pin this: it is derived from the course
+    list, so swapping the set passed to `resolve()` back to all 960 left every
+    assertion green. The behaviour that actually changes needs a link pointing
+    at a page that is published but is not a course — resolved under the old
+    set, and then silently absent from the graph, because the loader only ever
+    writes course-to-course edges.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset><loc>https://catalog.pwcs.edu/agriculture</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-2</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture": SUBJECT_INDEX,
+        "https://catalog.pwcs.edu/agriculture/landscaping-2": PREREQ_ON_A_SUBJECT_INDEX})
+    result = probe.probe(quiet=True)
+    assert result["stating_a_prerequisite"] == 1
+    assert result["resolvable_edges"] == 0
+    assert result["dangling_links"] == 1
+    assert result["no_link_resolves"] == 1
+
+
 def test_the_summary_names_the_denominator_it_used(capsys, monkeypatch):
     """The print block is where the reader meets the number.
 

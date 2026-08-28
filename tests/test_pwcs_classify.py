@@ -442,3 +442,36 @@ def test_every_prerequisite_points_at_a_page_classified_as_a_course():
             targets.append(kind.get(probe.path_of(link["href"]), "OFF-CATALOGUE"))
     assert targets, "no prerequisite links found — the cache is not the catalogue"
     assert set(targets) == {"course"}
+
+
+@needs_cache
+def test_the_document_quotes_the_figures_the_probe_produces():
+    """`docs/sources/course-prerequisites.md` is where these numbers are read.
+
+    Nothing tied the page to the probe, so putting the old 229-of-960 back
+    into the table left the whole suite green — the fix was in the code and
+    the wrong number was still on the page a reader opens. Every figure below
+    is pulled out of the document by pattern and compared to a run over the
+    cached catalogue.
+    """
+    import re
+
+    from etl import probe_pwcs as probe
+
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "sources"
+           / "course-prerequisites.md").read_text()
+    result = probe.probe(quiet=True)
+
+    def figure(pattern: str) -> str:
+        found = re.search(pattern, doc)
+        assert found, f"the page no longer states {pattern!r}"
+        return found.group(1).replace(",", "")
+
+    assert int(figure(r"\| Course pages \| \*\*([\d,]+)\*\*")) == result["courses"]
+    assert int(figure(r"\| Pages in the sitemap \| \*\*([\d,]+)\*\*")) == result["population"]
+    assert int(figure(r"\| Linking at least one prerequisite \| \*\*([\d,]+)\*\*")) \
+        == result["stating_a_prerequisite"]
+    assert figure(r"\| Linking at least one prerequisite \|[^|]*\|[^|]*?\*\*([\d.]+%)\*\*") \
+        == probe.pct(result["stating_a_prerequisite"], result["courses"])
+    assert int(figure(r"\| \*\*Resolvable prerequisite edges\*\* \| \*\*([\d,]+)\*\*")) \
+        == result["resolvable_edges"]
