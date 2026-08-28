@@ -145,6 +145,15 @@ def test_the_comparison_table_states_what_the_record_measured(record):
     assert f"**{record['case']['terms']} terms**" in page
     assert f"Measured **{record['retrieved_at']}**" in page
 
+    # The comparison row that carries #31's whole answer. Changing "none" to
+    # "yes" in that cell left every assertion above green, and the table is
+    # the part a reader of #69 acts on.
+    row = re.search(r"^\| \*\*Citable term URIs\*\* \|([^|]*)\|([^|]*)\|",
+                    page, re.M)
+    assert row, "the page no longer compares citable term URIs"
+    ed_fi_cell = row.group(2).strip()
+    assert (ed_fi_cell == "**none**") == (record["ed_fi"]["term_uris"] is None)
+
 
 def test_the_page_quotes_the_licence_sentence_the_record_holds(record):
     # Blockquote markers stripped BEFORE whitespace is squashed. A markdown
