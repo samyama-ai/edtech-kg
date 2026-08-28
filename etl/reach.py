@@ -13,17 +13,26 @@ where it is.
 
 from __future__ import annotations
 
-import re
+import ipaddress
 import socket
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 
 USER_AGENT = "edtech-kg research probe (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 #: An A or AAAA answer, as `dig +short` prints one. Anything else in that
 #: output is a CNAME, a message, or part of a chain.
-ADDRESS = re.compile(r"\A(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]{3,})\Z")
+#: Parsed, not pattern-matched. `[0-9a-fA-F:]{3,}` also matches `abc`,
+#: `deadbeef` and any hex-ish token `dig` happens to print, and whatever it
+#: matched went onto the page as the address a resolver returned.
+def is_address(text: str) -> bool:
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return True
 
 #: Asked as well as the system resolver, because "does not resolve" is a claim
 #: about DNS and not about this network.
@@ -90,7 +99,7 @@ def resolves_anywhere(host: str) -> dict:
         # taken as an answer whatever it said — and that string then appears
         # on the page as the address a resolver returned.
         found = [line for line in out.stdout.split()
-                 if ADDRESS.match(line)]
+                 if is_address(line)]
         answers[name] = found[0] if found else None
 
     # The strong claim needs a PUBLIC resolver to have answered. A local
@@ -104,7 +113,7 @@ def resolves_anywhere(host: str) -> dict:
             "resolves_nowhere": bool(public) and all(v is None for v in answered)}
 
 
-def reachable(rapids_url: str | None = None,) -> list[dict]:
+def reachable(rapids_url: str | None = None) -> list[dict]:
     """What answers a request, and what does not — attempted, not remembered.
 
     DNS is resolved separately from the connection, because they fail
@@ -136,8 +145,19 @@ def reachable(rapids_url: str | None = None,) -> list[dict]:
             out.append(record)
             continue
         if record["dns"] is None:
-            record["status"] = ("name does not resolve here (another resolver "
-                                "does, so this is local)")
+            # THREE states, not two. "the system resolver failed" splits into
+            # "a public resolver answered, so this is local" and "no public
+            # resolver could be ASKED, so we know nothing" — and both fell
+            # into the first message. On a machine with no `dig`, or no route
+            # to 8.8.8.8, the page would have claimed another resolver
+            # answered when none was reached.
+            asked = [v for k, v in dns["by_resolver"].items()
+                     if k != "system" and v != "unknown"]
+            record["status"] = (
+                "name does not resolve here (another resolver does, so this "
+                "is local)" if any(v for v in asked) else
+                "name does not resolve here, and no public resolver could be "
+                "asked — this measures the network, not the publisher")
             out.append(record)
             continue
 

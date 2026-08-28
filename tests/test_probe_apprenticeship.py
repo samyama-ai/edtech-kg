@@ -16,7 +16,10 @@ import io
 import pytest
 
 from etl import probe_apprenticeship as probe
-from tests.test_probe_cipsoc import workbook as cipsoc_workbook
+# The shared builder, not another test module's copy — and #96 moves it
+# out of `test_probe_cipsoc` on its own branch, so importing it from
+# there breaks the moment both merge.
+from tests.workbook_support import workbook as cipsoc_workbook
 
 
 SHEET = "O-NET-SOC 2019 Crosswalks"
@@ -414,3 +417,38 @@ def test_a_download_larger_than_the_cap_is_refused(monkeypatch, tmp_path):
         f"the body was read with limit {asked}, so the cap is checked after "
         f"the whole response is already in memory — one byte over the cap is "
         f"all that is needed to know, and all that should be read")
+
+
+def test_two_candidate_source_columns_are_refused_rather_than_guessed(monkeypatch):
+    """`next(...)` took the first `Code` column that was not the O*NET one.
+
+    A workbook that gained a "Match Code" column to the LEFT of the real
+    source column would pair the wrong values and keep parsing — the failure
+    the by-name lookup was written to prevent, arriving through the fix for
+    it.
+    """
+    header = ["Match Code", "RAPIDS Code", "RAPIDS Title",
+              "O*NET-SOC 2019 Code", "O*NET-SOC 2019 Title"]
+    monkeypatch.setattr(probe, "download", lambda url, into: workbook(
+        [header, ["ZZ", "0001", "Electrician", "47-2111.00", "Electricians"]]))
+
+    with pytest.raises(probe.MalformedSource, match="candidate source columns"):
+        probe.crossings(probe.RAPIDS_URL, probe.RAPIDS_LOCAL)
+
+
+def test_a_renamed_crosswalk_sheet_is_refused_not_a_traceback(monkeypatch, tmp_path):
+    """`sheets(book)["CIP-SOC"]` raised `KeyError: 'CIP-SOC'` past `main`'s
+    handler — in the one function whose NETWORK failure was already wrapped
+    for that reason."""
+    import io
+    import zipfile
+
+    book = tmp_path / "crosswalk.xlsx"
+    buffer = io.BytesIO()
+    cipsoc_workbook(buffer, {"Renamed Sheet": [["CIP Code", "SOC Code"]]})
+    book.write_bytes(buffer.getvalue())
+    monkeypatch.setattr(probe.crosswalk, "LOCAL", book)
+
+    with pytest.raises(probe.MalformedSource, match="no 'CIP-SOC' sheet"):
+        probe.our_soc()
+    assert zipfile  # the import is what makes the fixture a real archive

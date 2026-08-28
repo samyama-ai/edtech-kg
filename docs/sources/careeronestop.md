@@ -55,9 +55,10 @@ applies here with more force, so it is stated before anyone leans on the page.
 
 **Established.** The API host resolves to a real address — the **same one from
 the system resolver, Google and Cloudflare** — and the connection then **times
-out**. The address itself is in the probe output rather than on this page: it
-is a fact about DNS on the day of the run, and typing it here would go stale
-without anything saying so. The web host returns 403 to an automated request regardless
+out**. The address is not typed here: it is a fact about DNS on the day of the
+run and would go stale without anything saying so. `--reach --json` carries it
+under `by_resolver`; the table `--reach` prints does not, and this page said
+"in the probe output" while naming `--reach` as the way to re-run it. The web host returns 403 to an automated request regardless
 of User-Agent.
 
 The probe records `no connection (timed out)` and nothing finer. It cannot tell

@@ -140,8 +140,18 @@ def crossings(url: str, into: Path) -> list[tuple[str, str]]:
     # The SOURCE column by name too. It was `r[0]` while the O*NET column was
     # resolved by heading, so a file that gains a column on the left keeps
     # parsing and pairs the wrong two values.
-    source = next((i for i, c in enumerate(table[head])
-                   if "Code" in c and "O*NET-SOC" not in c), None)
+    # ALL matches, then exactly one. `next(...)` took the first, so a workbook
+    # that gained a "Match Code" column to the LEFT of the real source column
+    # would pair the wrong values and keep parsing — the failure the comment
+    # above claims to prevent, arriving through the fix for it.
+    candidates = [i for i, c in enumerate(table[head])
+                  if "Code" in c and "O*NET-SOC" not in c]
+    if len(candidates) > 1:
+        raise MalformedSource(
+            f"{into.name} has {len(candidates)} candidate source columns "
+            f"{[table[head][i] for i in candidates]}; this pairs one against "
+            f"the O*NET column and cannot choose between them.")
+    source = candidates[0] if candidates else None
     if source is None:
         raise MalformedSource(
             f"no source code column in {into.name}; its header is "
@@ -181,7 +191,16 @@ def our_soc() -> set[str]:
             raise MalformedSource(
                 f"could not fetch the CIP-SOC crosswalk: {exc}") from exc
     with zipfile.ZipFile(crosswalk.LOCAL) as book:
-        table = rows(book, sheets(book)["CIP-SOC"])
+        parts = sheets(book)
+        if "CIP-SOC" not in parts:
+            # A renamed sheet escaped as `KeyError: 'CIP-SOC'`, past `main`'s
+            # handler and out as a traceback — in the one function whose
+            # network failure was already wrapped for that reason.
+            raise MalformedSource(
+                f"the CIP-SOC workbook has no 'CIP-SOC' sheet; it holds "
+                f"{sorted(parts)}. NCES has renamed or restructured it, and "
+                f"every SOC code below is read from that sheet.")
+        table = rows(book, parts["CIP-SOC"])
     mapped, _ = crosswalk.pairs(table, crosswalk.find_header(table, "CIP"))
     return {soc for _, soc in mapped if soc != NO_MATCH}
 
@@ -283,6 +302,10 @@ def routes() -> dict:
 def probe(quiet: bool = False, with_reach: bool = False) -> dict:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     found = routes()
+    # In the try, like everything else `main` reports as `refused:`. A network
+    # failure under `--reach` raised `MalformedSource` straight past the
+    # handler, so the one flag that goes to the network was the one path that
+    # tracebacked.
     reach = reachable(RAPIDS_URL) if with_reach else []
 
     if not quiet:
@@ -303,6 +326,12 @@ def probe(quiet: bool = False, with_reach: bool = False) -> dict:
         print(f"  reachable ONLY by a programme    {found['programme_only']:>8,}")
 
         print("\nWhere the apprenticeship-only occupations sit\n")
+        # LABELLED. `also`/`only`/`cov` are measured against O*NET's
+        # programme crosswalk, the same as the 63 two lines up — and those two
+        # lines say so while this table did not, so a reader could take these
+        # for the loaded-crosswalk figures, which are 0 by definition.
+        print("  columns below are against O*NET's programme crosswalk, "
+              "not the one this graph loads")
         print(f"  {'SOC major group':<38} {'appr':>5} {'also':>5} {'only':>5} {'cov':>5}")
         for g in found["by_major_group"]:
             if g["only_apprenticeship"] or g["apprenticeable"] >= 20:

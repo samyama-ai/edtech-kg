@@ -24,22 +24,14 @@ CAREERONESTOP = Path(__file__).resolve().parents[1] / "docs" / "sources" / "care
 
 
 def flat(path) -> str:
-    """A page as one line, with whitespace normalised and emphasis stripped.
+    """A page as ONE LINE, whitespace normalised. Markup kept.
 
-    Every text assertion in this file runs against this, because both of the
-    ways a sentence changes shape defeated them:
+    A phrase that wraps does not contain the newline, so a text assertion goes
+    quiet the moment a sentence happens to reflow. Used by the PINS, which
+    assert the page marks a figure as measured — `**449**` has to keep its
+    markers to mean that.
 
-    A phrase that WRAPS does not contain the newline, so `"reachable no other
-    way" not in page` passed the moment the sentence happened to wrap.
-
-    A phrase that gains **emphasis** no longer matches either — `63 of them`
-    becomes `**63** of them`, and a negative assertion goes quiet while the
-    claim it bans is on the page in bold. Caught by mutation: re-adding the
-    false claim, wrapped and bolded, passed a run that flattening alone had
-    already fixed.
-
-    Both are negative assertions that stop guarding without failing, which is
-    the shape of every defect this file exists to catch.
+    `plain` is this with emphasis stripped as well, for the BANS.
     """
     return " ".join(path.read_text(encoding="utf-8").split())
 
@@ -103,7 +95,6 @@ def test_the_apprenticeship_page_names_its_control_hosts():
     argument is only reproducible if the controls are in the run, so the table
     has to carry them."""
     page = flat(APPRENTICESHIP)
-    page = " ".join(page.split())
     for host in ("onetcenter.org", "nces.ed.gov", "careertech.org"):
         assert f"control: `{host}`" in page, (
             f"{host} is cited as a control but is not in the measured table")
@@ -251,6 +242,11 @@ def test_every_question_the_page_names_is_quoted_as_the_file_has_it():
             f"question — the citation is to a line that does not exist")
         # The question text, without the status marker the file ends it with.
         stem = re.sub(r"\s*[✅⚠❌⬜].*$", "", found.group(1)).strip()
+        # Normalised the SAME WAY the page is. `page` comes from `plain`,
+        # which strips `*` and backticks — so a question whose text contains
+        # either, like Q7's `99-9999 NO MATCH`, could never be found in it and
+        # would fail for the formatting rather than for the citation.
+        stem = " ".join(stem.replace("*", "").replace("`", "").split())
         assert stem.lower()[:40] in page, (
             f"the page names Q{number} without quoting what it says. The file "
             f"has {stem!r}, and a page that names a question and characterises "

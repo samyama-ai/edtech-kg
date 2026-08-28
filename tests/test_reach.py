@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
 from etl import reach as probe
 
 
@@ -188,3 +190,43 @@ def test_a_405_is_labelled_as_being_about_the_method(monkeypatch):
     assert status.startswith("405") and "GET" in status, (
         f"a 405 is reported as {status!r}, which reads as a block on this "
         f"source rather than on the method")
+
+
+def test_a_resolver_that_could_not_be_asked_is_not_read_as_one_that_answered():
+    """Three states, and two of them shared a message.
+
+    "the system resolver failed" splits into *a public resolver answered, so
+    this is local* and *no public resolver could be ASKED, so we know
+    nothing* — and both produced the first sentence. On a machine with no
+    `dig`, or no route to 8.8.8.8, the page would claim another resolver
+    answered when none was reached, which is a statement about the publisher
+    made from a broken network.
+    """
+    def boom(*a, **k):
+        raise OSError(51, "Network is unreachable")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(probe.socket, "gethostbyname", boom)
+        mp.setattr(probe.subprocess, "run", boom)
+        mp.setattr(probe.urllib.request, "urlopen", boom)
+        mp.setattr(probe, "REACH", [("x", "https://x.example/")])
+
+        status = probe.reachable()[0]["status"]
+
+    assert "no public resolver could be asked" in status, (
+        f"with nothing reachable the status was {status!r}, which claims "
+        f"another resolver answered when none was")
+    assert "publisher" in status, "it does not say what the measurement is of"
+
+
+def test_a_hex_ish_token_from_dig_is_not_taken_as_an_address():
+    """`[0-9a-fA-F:]{3,}` also matches `deadbeef` and `abc`.
+
+    Whatever it matched went onto the page as the address a resolver
+    returned, which is a measured claim.
+    """
+    for text in ("8.8.8.8", "2001:4860:4860::8888"):
+        assert probe.is_address(text), f"{text} is an address"
+    for text in ("deadbeef", "abc", "www.example.com.", "; timed out", "cafe"):
+        assert not probe.is_address(text), (
+            f"{text!r} would be reported as the address a resolver returned")
