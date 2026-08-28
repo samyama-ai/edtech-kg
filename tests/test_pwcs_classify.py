@@ -395,51 +395,38 @@ def test_a_few_reclassified_pages_are_still_loaded_normally():
 # --------------------------------------------------------------------------
 
 @needs_cache
-def test_no_page_that_is_not_a_course_states_a_prerequisite():
+def test_narrowing_the_denominator_drops_no_prerequisite_and_no_edge():
     """edtech-kg#74 leaves the 240 edges alone ONLY because of this.
 
-    The fix narrows the denominator from 960 pages to 791 courses. That is
-    safe if — and only if — none of the 169 pages it removes was contributing
-    a prerequisite. The issue asserted that from a one-off measurement. This
-    checks it against the cached catalogue, so the day a subject index starts
-    publishing the field, the change is a failure here rather than a silent
-    drop of real edges.
-    """
-    from etl import probe_pwcs as probe
+    The fix narrows the denominator from 960 pages to 791 courses and narrows
+    resolution with it. That is safe if — and only if — none of the 169 pages
+    removed was contributing a prerequisite, AND no prerequisite pointed at
+    one. The issue asserted both from a one-off measurement.
 
-    offenders = []
-    for url in source.catalogue_urls(True):
-        markup = source.cached_path(url).read_text(encoding="utf-8")
-        if reader.classify(url, markup) == "course":
-            continue
-        parsed = probe.parse_course(markup, url)
-        if parsed and (parsed.get("prerequisite_links")
-                       or parsed.get("field_present_no_links")):
-            offenders.append(url)
-    assert offenders == []
-
-
-@needs_cache
-def test_every_prerequisite_points_at_a_page_classified_as_a_course():
-    """The other half, and the reason resolution may narrow too.
-
-    A link landing on a subject index would have resolved against the old
-    960-path set and then written no edge — counted as resolved, absent from
-    the graph, with nothing to say why.
+    BOTH halves in one test, over one pass of the cache: they are two
+    directions of a single claim, and each is meaningless without the other.
+    A page could state no prerequisite and still be the TARGET of one, which
+    is the case that would silently drop a real edge.
     """
     from etl import probe_pwcs as probe
 
     urls = source.catalogue_urls(True)
-    kind = {probe.path_of(u): reader.classify(
-        u, source.cached_path(u).read_text(encoding="utf-8")) for u in urls}
-    targets = []
+    markup = {u: source.cached_path(u).read_text(encoding="utf-8") for u in urls}
+    kind_of = {u: reader.classify(u, markup[u]) for u in urls}
+    by_path = {probe.path_of(u): kind_of[u] for u in urls}
+
+    states_one, targets = [], []
     for url in urls:
-        markup = source.cached_path(url).read_text(encoding="utf-8")
-        if reader.classify(url, markup) != "course":
+        parsed = probe.parse_course(markup[url], url)
+        if kind_of[url] != "course":
+            if parsed and (parsed.get("prerequisite_links")
+                           or parsed.get("field_present_no_links")):
+                states_one.append(url)
             continue
-        parsed = probe.parse_course(markup, url)
         for link in (parsed or {}).get("prerequisite_links") or []:
-            targets.append(kind.get(probe.path_of(link["href"]), "OFF-CATALOGUE"))
+            targets.append(by_path.get(probe.path_of(link["href"]), "OFF-CATALOGUE"))
+
+    assert states_one == [], "a page that is not a course now states a prerequisite"
     assert targets, "no prerequisite links found — the cache is not the catalogue"
     assert set(targets) == {"course"}
 
