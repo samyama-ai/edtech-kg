@@ -347,3 +347,36 @@ def test_a_constant_another_module_reads_is_not_flagged(tmp_path, monkeypatch):
                         lambda: ["etl/thing.py", "etl/user.py"])
     test_no_module_leaves_a_helper_or_constant_behind()
 
+
+def test_the_documented_style_check_catches_what_this_repo_contains(tmp_path):
+    """`CONTRIBUTING.md` names the exact flake8 selection contributors run.
+
+    A code missing from that line is a check nobody runs, and this PR
+    introduced an `E304` — two blank lines between a decorator and its `def` —
+    while the documented selection did not include it. The decorator still
+    binds, so nothing failed; it simply was not checked.
+
+    The selection is READ from the document rather than restated, and then
+    used against code that is deliberately wrong in each of the ways the
+    document claims to catch. Restating it here would be a second copy that
+    agrees with itself.
+    """
+    line = re.search(r"flake8 --select=([A-Za-z0-9,]+)",
+                     (ROOT / "CONTRIBUTING.md").read_text())
+    assert line, "CONTRIBUTING.md no longer names a flake8 selection"
+
+    offenders = {
+        "E304": "import re\n\n\n@property\n\ndef f():\n    return 1\n",
+        "E303": "import re\n\n\n\n\nx = 1\n",
+        "E741": "import re\n\n\nl = 1\n",
+        "F401": "import re\n",
+    }
+    for code, body in offenders.items():
+        sample = tmp_path / f"{code.lower()}_sample.py"
+        sample.write_text(body, encoding="utf-8")
+        out = subprocess.run(
+            [sys.executable, "-m", "flake8", f"--select={line.group(1)}",
+             str(sample)], capture_output=True, text=True)
+        assert code in out.stdout, (
+            f"the documented selection {line.group(1)} does not catch {code}, "
+            f"which this repo relies on being caught:\n{out.stdout}")
