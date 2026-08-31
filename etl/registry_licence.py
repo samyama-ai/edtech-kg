@@ -253,9 +253,10 @@ def probe(quiet: bool = False) -> dict:
                     f"envelopes")
             envelopes += [e for e in body if isinstance(e, dict)]
             read.append(page)
-        # `read`, never `pages`. The two differ if the walk ends early, and
-        # describing the plan lets the document quote a reach the run did not
-        # have.
+        # `read`, not `pages`. They cannot differ here — every planned page is
+        # fetched or raises — but `describe` documents that it takes what was
+        # read for a reason, and a caller that hands it the plan is one early
+        # exit away from quoting a reach the run did not have.
         sampling[kind] = describe(read, size, population)
 
     result = {"retrieved_at": datetime.date.today().isoformat(),

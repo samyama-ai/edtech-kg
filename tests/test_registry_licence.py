@@ -345,3 +345,61 @@ def test_the_page_repeats_the_sampling_the_record_holds(record):
         variants = {stride, f"{int(stride.replace(',', '')):,}"}
         assert any(f"stride of {v}" in page for v in variants), \
             f"the page does not state {kind}'s stride ({stride})"
+
+
+def test_probe_spreads_the_pages_it_asks_for(monkeypatch):
+    """The mutation the record-based tests could not see.
+
+    Those tests read `registry-licence-measured.json`, which is committed — so
+    reverting `probe` to `range(1, 4)` left them green while the next
+    `--record` would have written a head sample. The pages actually requested
+    have to be checked against the code, not against a file the code wrote
+    last time.
+    """
+    from etl import registry_read
+    from etl import registry_licence as rl
+
+    asked: list[str] = []
+
+    def fake_get(url):
+        asked.append(url)
+        return b"[]"
+
+    monkeypatch.setattr(registry_read, "total", lambda path: 47_862)
+    monkeypatch.setattr(registry_read, "get", fake_get)
+    monkeypatch.setattr(registry_read, "parse",
+                        lambda body, what: [{"decoded_resource": {"@graph": [{}]}}])
+    monkeypatch.setattr(rl, "page_text", lambda url, timeout=60: (
+        TERMS_PAGE if url == rl.TERMS_URL else json.dumps({"@graph": VOCABULARY})))
+
+    result = rl.probe(quiet=True)
+
+    pages = [int(re.search(r"[?&]page=(\d+)", u).group(1)) for u in asked]
+    assert pages, "probe asked for nothing"
+    # Not 1, 2, 3. With a population this size the stride is large, so the
+    # highest page read must be far past the head.
+    assert max(pages) > 100, f"pages were taken off the head: {sorted(set(pages))}"
+    assert len(set(pages)) > 1, "only one page was read, so nothing is spread"
+
+
+def test_probe_records_how_it_sampled(monkeypatch):
+    """`sampling` must reach the result, or the record has nothing to state.
+
+    Emptying it left every record-based assertion green, because those read
+    the committed file rather than a fresh run.
+    """
+    from etl import registry_read
+    from etl import registry_licence as rl
+
+    monkeypatch.setattr(registry_read, "total", lambda path: 47_862)
+    monkeypatch.setattr(registry_read, "get", lambda url: b"[]")
+    monkeypatch.setattr(registry_read, "parse",
+                        lambda body, what: [{"decoded_resource": {"@graph": [{}]}}])
+    monkeypatch.setattr(rl, "page_text", lambda url, timeout=60: (
+        TERMS_PAGE if url == rl.TERMS_URL else json.dumps({"@graph": VOCABULARY})))
+
+    sampling = rl.probe(quiet=True)["records"]["sampling"]
+    assert set(sampling) == {"course", "credential",
+                             "learning_opportunity_profile", "pathway"}
+    for kind, how in sampling.items():
+        assert "stride" in how, f"{kind} was not described as spread: {how}"
