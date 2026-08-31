@@ -302,3 +302,46 @@ def test_the_page_quotes_no_split_the_record_does_not_hold(record):
     assert "75 each" not in page
     per_kind = re.search(r"(\d+) each of", page)
     assert not per_kind, f"the page quotes a per-type split the record lacks: {per_kind}"
+
+
+def test_the_record_states_how_each_type_was_sampled(record):
+    """The blocking finding of the second review, pinned.
+
+    The first version read pages 1, 2 and 3 of each search consecutively —
+    which is not a sample of the Registry, it is a sample of whatever sorts
+    first. `registry_read.sample_pages` exists to prevent exactly that, and
+    `describe` reports what the walk reached. Both are now used, and the
+    description is carried into the record so a reader can see the shape of
+    the sample rather than take it on trust.
+    """
+    sampling = record["records"]["sampling"]
+    assert set(sampling) == {"course", "credential",
+                             "learning_opportunity_profile", "pathway"}
+    for kind, how in sampling.items():
+        assert how, f"{kind} has no sampling description"
+        # Either the pages were spread, or the whole population was read.
+        # "biased toward whatever sorts first" is `describe`'s own wording for
+        # the head sample, and it must not appear.
+        assert ("stride" in how or "whole population" in how), \
+            f"{kind} was not spread and is not exhaustive: {how}"
+        assert "biased toward whatever sorts first" not in how, \
+            f"{kind} is a head sample: {how}"
+
+
+def test_the_page_repeats_the_sampling_the_record_holds(record):
+    """A reader cannot check a sample whose shape is not on the page.
+
+    The record alone is not enough — the document is what anyone reads, and
+    the review's point was that neither said pages 1-3 had been taken off the
+    head. The stride figures are quoted, so the page cannot drift back to
+    claiming a spread it did not have.
+    """
+    page = re.sub(r"\s+", " ", PAGE.read_text())
+    for kind, how in record["records"]["sampling"].items():
+        if "stride" not in how:
+            continue
+        stride = re.search(r"stride of ([\d,]+)", how).group(1)
+        # The page writes thousands with a comma; the description may not.
+        variants = {stride, f"{int(stride.replace(',', '')):,}"}
+        assert any(f"stride of {v}" in page for v in variants), \
+            f"the page does not state {kind}'s stride ({stride})"

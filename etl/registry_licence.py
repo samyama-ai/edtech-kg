@@ -172,7 +172,15 @@ USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 VOCABULARY = "https://credreg.net/ctdl/schema/encoding/json"
 RECORD = pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources" / \
     "registry-licence-measured.json"
-SAMPLE_PER_PAGE, SAMPLE_PAGES = 25, 3
+# How many records to look at per resource type. `registry_read.sample_pages`
+# turns this into WHICH pages to read — spread at a stride across the whole
+# result set rather than taken off the head — and how many to ask for on each.
+#
+# The page SIZE is deliberately not set here. `registry_read.PER_PAGE` owns it,
+# with the note that the Registry ignores a larger ask, and a second number in
+# this file would be one more thing to keep in step with a source that decides
+# it anyway.
+SAMPLE_PER_TYPE = 75
 
 
 def page_text(url: str, timeout: int = 60) -> str:
@@ -198,15 +206,31 @@ def probe(quiet: bool = False) -> dict:
     layer and this module's readers must stay importable without it, so that
     the tests can exercise them with no network reachable at all.
     """
-    from etl.registry_read import REGISTRY, HttpStatus, get, parse
+    from etl.registry_read import (REGISTRY, HttpStatus, describe, get, parse,
+                                   sample_pages, total)
     from etl.registry_read import MalformedSource as ReadRefused
 
     terms = terms_of_use(page_text(TERMS_URL))
     vocabulary = graph_of(page_text(VOCABULARY, timeout=180),
                           "the CTDL vocabulary")
     envelopes: list[dict] = []
+    sampling: dict[str, str] = {}
     for kind in ("course", "credential", "learning_opportunity_profile", "pathway"):
-        for page in range(1, SAMPLE_PAGES + 1):
+        # SPREAD, not the first three pages. Reading pages 1..N consecutively
+        # is not a sample of the Registry — it is a sample of whatever sorts
+        # first, and one publisher's bulk upload can dominate that. The finding
+        # here is that NO publisher populates `ceterms:copyrightHolder`, and a
+        # head sample turns that into "this publisher does not", which is a
+        # much weaker claim wearing the same number.
+        #
+        # `sample_pages` was written for exactly this and `describe` reports
+        # what the walk actually reached, so both are borrowed rather than
+        # re-derived. The description goes into the record and onto the page:
+        # a reader cannot check a sample they cannot see the shape of.
+        population = total(f"/ce-registry/{kind}/search")
+        pages, size = sample_pages(SAMPLE_PER_TYPE, population)
+        read: list[int] = []
+        for page in pages:
             what = f"page {page} of the {kind} search"
             # `registry_read` raises its OWN exception classes, and its
             # `MalformedSource` is a different class from this module's. A 503
@@ -216,8 +240,7 @@ def probe(quiet: bool = False) -> dict:
             # itself. The borrowed layer is put on the same channel here.
             try:
                 body = parse(get(f"{REGISTRY}/ce-registry/{kind}/search"
-                                 f"?page={page}&per_page={SAMPLE_PER_PAGE}"),
-                             what)
+                                 f"?page={page}&per_page={size}"), what)
             except (HttpStatus, ReadRefused) as exc:
                 raise MalformedSource(f"{what}: {exc}") from exc
             # Mirrors `etl/probe_registry.py`, which checks this because the
@@ -229,11 +252,17 @@ def probe(quiet: bool = False) -> dict:
                     f"{what} returned {type(body).__name__}, not a list of "
                     f"envelopes")
             envelopes += [e for e in body if isinstance(e, dict)]
+            read.append(page)
+        # `read`, never `pages`. The two differ if the walk ends early, and
+        # describing the plan lets the document quote a reach the run did not
+        # have.
+        sampling[kind] = describe(read, size, population)
 
     result = {"retrieved_at": datetime.date.today().isoformat(),
               "terms_of_use": terms,
               "rights_terms_in_ctdl": rights_terms_in(vocabulary),
-              "records": carrying_a_rights_field(envelopes)}
+              "records": {**carrying_a_rights_field(envelopes),
+                          "sampling": sampling}}
     if not quiet:
         print("\nCredential Registry — the DATA, not the vocabulary\n")
         print(f"  grant        {terms['grant']}")
@@ -247,6 +276,9 @@ def probe(quiet: bool = False) -> dict:
         print(f"\n  records inspected         {result['records']['envelopes']:>6,}")
         print(f"  saying anything about their own terms "
               f"{result['records']['carrying_a_rights_field']:>6,}")
+        print("\n  how each type was sampled\n")
+        for kind, how in sampling.items():
+            print(f"    {kind:<32} {how}")
         print(f"\n  read {result['retrieved_at']}")
         print("  reproduce with: python -m etl.registry_licence\n")
     return result

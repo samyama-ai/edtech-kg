@@ -11,7 +11,7 @@ it.
 answer.** They are published by many organisations, and the operator's terms
 do not open them.
 
-Read on **2026-08-28** by `python -m etl.registry_licence`, which also writes
+Read on **2026-08-31** by `python -m etl.registry_licence`, which also writes
 [`registry-licence-measured.json`](registry-licence-measured.json).
 
 ---
@@ -84,10 +84,27 @@ what this question asks whether CTDL has. It does not have one.
 And `copyrightHolder` names a holder, not a licence. It says who owns the
 rights; it does not say what anyone else may do.
 
-**Measured: 0 of 300 published records carry it**, read across four
+**Measured: 0 of 398 published records carry it**, read across four
 resource types — courses, credentials, learning opportunity profiles and
-pathways. The record holds the total the walk actually returned; the split
-between the four is not recorded, so it is not quoted here.
+pathways.
+
+**How the sample was taken matters more than its size here**, so the record
+states it per type and this page repeats it. The pages are **spread at a
+stride** across each result set rather than read off the front:
+
+| type | how it was sampled |
+|---|---|
+| Course | 2 pages of 50 at a stride of 479, reaching pages 1–480 of 958 (47,862 records) |
+| Credential | 2 pages of 50 at a stride of 1,334, reaching pages 1–1,335 of 2,669 (133,428 records) |
+| Learning opportunity profile | 2 pages of 50 at a stride of 222, reaching pages 1–223 of 445 (22,247 records) |
+| Pathway | every page — 98 records is the whole population, not a sample |
+
+The stride is the point. Reading pages 1, 2 and 3 is not a sample of the
+Registry, it is a sample of whatever sorts first — and one publisher's bulk
+upload can dominate that. A head sample would turn *"no publisher populates
+this field"* into *"this publisher does not"*, which is a far weaker claim
+wearing the same number. The walk is deterministic rather than random, so the
+figure reproduces.
 
 So there is no per-record licence field to read, no publisher populating the
 one adjacent field, and a blanket term of use that reserves everything.
@@ -111,7 +128,7 @@ Concretely, on the face of the published terms:
   are counts about the data, not reproductions of it.** That document was
   careful to record that the licence "was not established here", so nothing
   published so far rests on an assumption this contradicts.
-- **The 300 records this page rests on were read under the same reading.**
+- **The 398 records this page rests on were read under the same reading.**
   Reading a sample to find out what the terms say, and publishing a count
   rather than the records, is the same act as the paragraph above — and it is
   the act #58 would escalate into a sweep of every course, redistributed. The
@@ -130,6 +147,11 @@ a decision for a person, and it is why this row is `not cleared` rather than
 python -m etl.registry_licence            # the terms and the count
 python -m etl.registry_licence --record   # refresh the committed record
 ```
+
+`--record` stamps the run's own date, so refreshing it **fails the doc test
+until the "Read on" line above is edited to match**. That is deliberate: it
+forces the prose and the record to be updated together rather than letting the
+page keep a date the measurement no longer has.
 
 No test fetches. `terms_of_use`, `rights_terms_in` and
 `carrying_a_rights_field` all take their input rather than going to get it.

@@ -1,5 +1,5 @@
 {
-  "retrieved_at": "2026-08-28",
+  "retrieved_at": "2026-08-31",
   "terms_of_use": {
     "source": "https://credentialengine.org/terms/",
     "grant": "Credential Engine grants you a personal, limited, revocable, nonexclusive, and nontransferable license to view, access, and use the Websites and the Credential Registry, solely for your personal use and internal use within your organization",
@@ -15,11 +15,17 @@
     "statementCat:TerminationTerms"
   ],
   "records": {
-    "envelopes": 300,
+    "envelopes": 398,
     "carrying_a_rights_field": 0,
     "fields_looked_for": [
       "ceterms:copyrightHolder"
     ],
-    "read_or_measured": "measured"
+    "read_or_measured": "measured",
+    "sampling": {
+      "course": "2 pages of 50 at a stride of 479, reaching pages 1-480 of 958 (47,862 records); the last 478 pages are not sampled \u2014 deterministic, not random",
+      "credential": "2 pages of 50 at a stride of 1334, reaching pages 1-1335 of 2,669 (133,428 records); the last 1,334 pages are not sampled \u2014 deterministic, not random",
+      "learning_opportunity_profile": "2 pages of 50 at a stride of 222, reaching pages 1-223 of 445 (22,247 records); the last 222 pages are not sampled \u2014 deterministic, not random",
+      "pathway": "every page \u2014 98 records is the whole population, not a sample"
+    }
   }
 }
