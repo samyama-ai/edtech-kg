@@ -20,6 +20,18 @@ import urllib.parse
 
 # A pathway lists its courses in a typed field. A page that RENDERS that field
 # is a pathway whatever its URL depth says — see `classify`.
+#
+# **Bound to a class ATTRIBUTE, not to the token anywhere in the document.**
+# The unanchored form matched the name inside an HTML comment, in body prose,
+# in a `<script>` string and in a reflected `<input value=…>` — measured, all
+# four. That was tolerable while it only distinguished "no rows" from "no
+# field"; it is not tolerable now that it decides a node's LABEL. It was also
+# looser than `COURSE_ROW` in `pwcs_source`, which already requires the token
+# inside a real `class="…"` — the classifier was weaker than the row parser it
+# gates.
+#
+# This travelled with the regex from `pwcs_source` when classification moved
+# here (#74). It was left behind there, describing a pattern that had gone.
 PATHWAY_FIELD_PRESENT = re.compile(
     r'class="[^"]*\bfield--name-field-degree-section-courses\b')
 

@@ -76,18 +76,6 @@ ROW_CREDITS = re.compile(r'field--name-field-credits[^>]*>([^<]*)<', re.S)
 SECTION_TITLE = re.compile(
     r'field--name-field-degree-section-title[^>]*>([^<]*)<', re.S)
 
-# A pathway page that renders the field but yields no rows is a parse failure,
-# not a pathway with no courses — the same distinction the probe draws for the
-# prerequisite field. Counting it as empty would understate the graph silently.
-#
-# **Bound to a class ATTRIBUTE, not to the token anywhere in the document.**
-# The unanchored form matched the name inside an HTML comment, in body prose,
-# in a `<script>` string and in a reflected `<input value=…>` — measured, all
-# four. That was tolerable while this only distinguished "no rows" from "no
-# field"; it is not tolerable now that it decides a node's LABEL. It was also
-# looser than `COURSE_ROW` two definitions up, which already requires the token
-# inside a real `class="…"` — the classifier was weaker than the row parser it
-# gates.
 # The ceiling on the override. `verify()` structurally cannot catch markup
 # drift: it compares the engine against the loader's own tallies, and both move
 # together. If the CMS ever renders this class in a shared template or footer

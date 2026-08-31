@@ -208,8 +208,8 @@ def test_a_full_run_of_the_same_pages_reports_the_same_resolution(monkeypatch):
 def test_a_partial_run_says_its_dangling_count_is_a_ceiling(monkeypatch):
     """The reader meets the caveat next to the number, or not at all."""
     serve(monkeypatch, PARTIAL_PAGES)
-    assert "a ceiling, not a finding" in probe.probe(limit=1,
-                                                     quiet=True)["coverage"]
+    assert "ceiling rather than a finding" in probe.probe(limit=1,
+                                                          quiet=True)["coverage"]
 
 
 def test_a_partial_run_still_dangles_a_link_to_a_page_that_is_not_a_course(monkeypatch):
@@ -233,3 +233,60 @@ def test_a_partial_run_still_dangles_a_link_to_a_page_that_is_not_a_course(monke
     assert result["pages_read"] == 1
     assert result["dangling_links"] == 1
     assert result["no_link_resolves"] == 1
+
+
+UNREADABLE = "https://catalog.pwcs.edu/agriculture/landscaping-3"
+
+PREREQ_ON_AN_UNREADABLE_PAGE = """<html><body><h1 class="page-title">Landscaping 4</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/agriculture/landscaping-3">Landscaping 3</a></div></body></html>"""
+
+
+def test_a_prerequisite_pointing_at_a_page_we_could_not_read_is_not_dangling(monkeypatch):
+    """Our failure to fetch is not the catalogue's failure to publish.
+
+    The eligible set was built from the pages successfully classified, so a
+    course whose fetch failed twice fell out of it entirely — and a
+    prerequisite pointing at that course was reported as a broken link. The
+    district gets accused of publishing a dangling reference because our own
+    read timed out.
+
+    Three ways a page can be missing and all three are the same case: never
+    attempted, attempted and unreadable, or read and unparsed.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            f'<loc>{UNREADABLE}</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-4</loc>'
+            '</urlset>'),
+        # landscaping-3 is deliberately absent from the served pages, so both
+        # fetch attempts fail and it lands in `unread`.
+        "https://catalog.pwcs.edu/agriculture/landscaping-4":
+            PREREQ_ON_AN_UNREADABLE_PAGE})
+    result = probe.probe(quiet=True)
+
+    assert result["unread"] == 1
+    assert result["stating_a_prerequisite"] == 1
+    assert result["dangling_links"] == 0, (
+        "a page we could not open was counted as one the district does not "
+        "publish")
+    assert result["resolvable_edges"] == 1
+
+
+def test_the_coverage_line_says_when_the_eligible_set_was_widened(monkeypatch):
+    """It only fired under `--limit`, and a full run can widen it too.
+
+    A silent widening is the shape of caveat that gets quoted as a finding.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            f'<loc>{UNREADABLE}</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-4</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-4":
+            PREREQ_ON_AN_UNREADABLE_PAGE})
+    coverage = probe.probe(quiet=True)["coverage"]
+    assert "not opened or not parsed" in coverage
+    assert "ceiling rather than a finding" in coverage

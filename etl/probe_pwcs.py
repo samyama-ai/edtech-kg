@@ -300,29 +300,39 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     # Resolved against COURSE paths, not against every published page. A
     # prerequisite pointing at a subject index would have counted as resolved
     # and then written no edge, and the count and the graph would have
-    # disagreed with nothing to say why. Zero links do that in this catalogue —
-    # asserted in `tests/test_pwcs_classify.py`, not assumed.
+    # disagreed with nothing to say why.
     #
-    # Narrowing to COURSES is that fix. Narrowing to the courses we happened to
-    # READ is a different change, and it made every prerequisite pointing at an
-    # unopened page dangle — `--limit 50` reported the catalogue as broken in
-    # proportion to how little of it was read. A page never opened is unknown,
-    # not absent. Depth is the only evidence we have about one, and `level` is
-    # wrong for exactly four pages here; being wrong in the generous direction
-    # keeps an unopened page from counting as a broken link. On a full run
-    # nothing is unopened, this list is empty, and the headline figures are
-    # unchanged — which is what `resolve`'s docstring already promised.
-    opened = set(read)
+    # But "we could not open it" is not "it is not published". Three ways a
+    # course page can be absent from `course_urls_read` while still existing:
+    # never attempted (`--limit`), attempted and unreadable (both fetches
+    # failed), or read but unparsed. The first was handled; the other two were
+    # not, so a prerequisite pointing at a page whose fetch timed out was
+    # reported as a DANGLING LINK — the catalogue accused of being broken
+    # because our own read was.
+    #
+    # So the eligible set is every sitemap URL at course depth that we did not
+    # positively classify. `level` is used rather than `classify` on purpose:
+    # classification needs markup, and markup is exactly what is missing for
+    # these. Depth is what the sitemap can tell us without opening anything.
+    # On a full, clean run this list is empty and the figures are unchanged.
+    classified = set(course_urls_read)
     unopened_courses = [u for u in urls
-                        if u not in opened and level(u) == "course"]
+                        if u not in classified and level(u) == "course"]
     catalogue = course_urls_read + unopened_courses
     result = resolve(records, catalogue=catalogue)
     coverage = ("every catalogue page in the sitemap" if not limit
                 else f"the first {len(read)} of {population} sitemap pages — "
-                     f"a partial run, not the catalogue. Prerequisite "
-                     f"resolution below is measured against the courses read "
-                     f"plus {len(unopened_courses)} unopened pages at course "
-                     f"depth, so dangling counts are a ceiling, not a finding")
+                     f"a partial run, not the catalogue")
+    # Said whenever the eligible set had to be widened, not only under
+    # `--limit`. A full run can still leave pages unclassified — a fetch that
+    # failed twice, or a page that parsed to nothing — and the caveat belongs
+    # wherever that happened, not wherever we chose to stop early.
+    if unopened_courses:
+        coverage += (f". Prerequisite resolution is measured against the "
+                     f"{len(course_urls_read)} courses read plus "
+                     f"{len(unopened_courses)} pages at course depth that were "
+                     f"not opened or not parsed, so dangling counts are a "
+                     f"ceiling rather than a finding")
     result |= {"population": population, "pages_read": len(read),
                "subjects": kinds["subject"], "pathways": kinds["pathway"],
                "unclassified": kinds["unclassified"],
