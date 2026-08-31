@@ -347,3 +347,47 @@ def test_the_breakdown_is_counted_against_the_pages_opened(capsys, monkeypatch):
     printed = capsys.readouterr().out
     assert "of the 1 opened:" in printed, (
         "the breakdown does not say how many pages it counted")
+
+
+UNPARSEABLE_COURSE = """<html><body>
+<div class="content">A course page whose heading did not render.</div>
+</body></html>"""
+
+PREREQ_ON_AN_UNPARSEABLE_COURSE = """<html><body><h1 class="page-title">Landscaping 6</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/agriculture/landscaping-headless">Landscaping Headless</a></div></body></html>"""
+
+
+def test_a_course_that_fails_to_parse_stays_in_the_eligible_set(monkeypatch):
+    """It is a course the district publishes; our parser just could not read it.
+
+    `parse_course` returns `None` when the `<h1>` is missing — a CMS hiccup, a
+    template change, a truncated response. The classifier still called it a
+    course, so it is published, and a prerequisite pointing at it is not a
+    broken link.
+
+    Building the eligible set from the PARSED courses instead of the
+    CLASSIFIED ones drops these, which is the same defect as dropping unread
+    pages: our failure reported as the catalogue's.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-headless</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-6</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-headless":
+            UNPARSEABLE_COURSE,
+        "https://catalog.pwcs.edu/agriculture/landscaping-6":
+            PREREQ_ON_AN_UNPARSEABLE_COURSE})
+    result = probe.probe(quiet=True)
+
+    # Classified as a course, so it counts as published — but it produced no
+    # record, so it is not in the denominator of the rate.
+    assert result["not_a_course_page"] == 1
+    assert result["courses"] == 1
+    assert result["published_paths"] == 2, (
+        "the unparsed course was dropped from the set prerequisites resolve "
+        "against")
+    assert result["dangling_links"] == 0
+    assert result["resolvable_edges"] == 1
