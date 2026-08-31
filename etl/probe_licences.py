@@ -31,6 +31,13 @@ from etl.licence_positions import (MalformedSource, ONET_CROSSWALKS,
 RECORD = pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources" / \
     "licences-measured.json"
 
+#: Written INTO the record by `--record`, not left in the file for a refresh
+#: to delete. See `main`.
+RECORD_NOTE = (
+    "One measured run, committed so the page can be checked without reaching "
+    "three publishers. Refresh with `python -m etl.probe_licences --record`, "
+    "and update the \"read on\" date on licences.md to match.")
+
 
 def read_all() -> dict:
     """All three positions, each from the page that states it."""
@@ -96,7 +103,16 @@ def main(argv: list[str] | None = None) -> int:
         # trademark in O*NET's own attribution wording is written to the record
         # as `\u00ae` — a document whose entire subject is reproducing that
         # string exactly, storing it escaped.
-        RECORD.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+        #
+        # `_` FIRST, and written by the writer. The committed record opened
+        # with a note saying how to refresh it, and this command — the one the
+        # note names — did not emit the key, so refreshing the file deleted
+        # its own instructions. A record that documents itself has to be
+        # documented by the thing that writes it, or the documentation lasts
+        # exactly until someone follows it.
+        RECORD.write_text(
+            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
+                       ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"wrote docs/sources/{RECORD.name}")
     # `if`, not `elif`. `--json --record` accepted both flags and silently
     # printed nothing, so a caller asking for the record AND the output got

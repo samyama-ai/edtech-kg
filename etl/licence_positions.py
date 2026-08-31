@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import html
 import re
+import sys
 import urllib.request
 
 
@@ -87,9 +88,18 @@ def page_text(url: str, timeout: int = 60) -> str:
         # A charset name Python does not know, or one it knows and refuses:
         # `idna`, `punycode` and `undefined` raise `UnicodeError` rather than
         # `LookupError`, so they escaped a guard written for the first alone.
-        # Named rather than swallowed:
-        # falling back silently is how a page gets quoted through the wrong
-        # codec and nobody finds out.
+        #
+        # NAMED, and this said so while doing the opposite. The fallback was
+        # silent, which is the thing the sentence below warns against — a
+        # comment claiming a property the code does not have is worse than no
+        # comment, because the next reader stops checking. It goes to stderr
+        # rather than raising: the sentences here are quoted verbatim as a
+        # licence position, and refusing the whole run over a header a
+        # publisher mistyped would be a worse answer than reading the page and
+        # saying which codec it was read through.
+        print(f"warning: {url} declared charset {charset!r}, which Python "
+              f"cannot use. Read as utf-8 — check any quote taken from it.",
+              file=sys.stderr)
         return body.decode("utf-8", errors="replace")
 
 
@@ -138,6 +148,15 @@ def onet_database(page: str) -> dict:
     says which downloads it covers, and the crosswalks page is absent from it.
     """
     text = flatten(page)
+    # Extracted ONCE. It was matched twice — the same six-line literal for the
+    # recorded string and again for the boolean derived from it — so the two
+    # could drift apart and the boolean would then describe a different string
+    # from the one on the page. A derived value has to be derived from the
+    # value that was recorded, not from a second reading of the same source.
+    exceptions = _one(
+        r"(This license applies only to downloadable files on the following "
+        r"pages:\s*\S.{0,400}?)To copy or adapt",
+        text, ONET_DATABASE, "the exception list")
     return {
         "source": ONET_DATABASE,
         "version": _one(r"O\*NET.{0,3} (\d+\.\d+) Database Content License",
@@ -173,19 +192,13 @@ def onet_database(page: str) -> dict:
         # document watches for — would have failed the match and refused with
         # "did not carry the exception list", sending the next reader to look
         # at the network instead of at the terms.
-        "applies_only_to": _one(
-            r"(This license applies only to downloadable files on the following "
-            r"pages:\s*\S.{0,400}?)To copy or adapt",
-            text, ONET_DATABASE, "the exception list"),
+        "applies_only_to": exceptions,
         # DERIVED, and recorded. The document's central claim is that the
         # crosswalks page is not on that list; a boolean in the record means a
         # refreshed measurement finding otherwise turns the suite red on the
         # artifact the page cites, rather than on a fixture written not to
         # contain it.
-        "names_crosswalks_page": "crosswalk" in _one(
-            r"(This license applies only to downloadable files on the following "
-            r"pages:\s*\S.{0,400}?)To copy or adapt",
-            text, ONET_DATABASE, "the exception list").lower(),
+        "names_crosswalks_page": "crosswalk" in exceptions.lower(),
         "read_or_measured": "read",
     }
 

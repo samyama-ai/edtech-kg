@@ -394,3 +394,37 @@ def test_the_modification_obligation_is_quoted_from_what_was_read(record):
     page = re.sub(r"\s+", " ", re.sub(r"(?m)^> ", "", PAGE.read_text(encoding="utf-8")))
     assert re.sub(r"\s+", " ", quoted) in page, (
         "the modification wording on the page is not the one that was read")
+
+
+def test_refreshing_the_record_does_not_delete_its_own_instructions(
+        monkeypatch, tmp_path):
+    """The record opens with a note naming the command that refreshes it, and
+    that command did not write the key — so following the instruction removed
+    it, and the next reader met a file with no explanation of where it came
+    from or how to renew it.
+
+    A record that documents itself has to be documented by the thing that
+    writes it. Driven through `main`, because the defect was in the writer and
+    not in what `probe` returns.
+    """
+    monkeypatch.setattr(probe_licences, "probe",
+                        lambda quiet=False: {"retrieved_at": "2026-08-31"})
+    destination = tmp_path / "licences-measured.json"
+    monkeypatch.setattr(probe_licences, "RECORD", destination)
+    assert probe_licences.main(["--record"]) == 0
+
+    written = json.loads(destination.read_text(encoding="utf-8"))
+    assert "_" in written, "the refresh dropped the record's own note"
+    assert "--record" in written["_"]
+    # First, so it is the first thing read rather than buried under the data.
+    assert list(written)[0] == "_"
+
+
+def test_the_committed_note_is_the_one_the_writer_would_write():
+    """Two copies otherwise — the file's and the writer's — and the drift
+    only shows up as a surprise diff on the next refresh."""
+    committed = json.loads(RECORD.read_text(encoding="utf-8"))
+    assert committed["_"] == probe_licences.RECORD_NOTE, (
+        "the committed note and the note `--record` writes have drifted; "
+        "the next refresh will rewrite it")
+

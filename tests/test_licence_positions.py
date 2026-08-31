@@ -302,7 +302,8 @@ def test_the_request_identifies_this_project_and_bounds_the_wait(monkeypatch):
 
 
 @pytest.mark.parametrize("charset", ["idna", "undefined"])
-def test_a_charset_python_refuses_falls_back_rather_than_raising(charset, monkeypatch):
+def test_a_charset_python_refuses_falls_back_rather_than_raising(
+        charset, monkeypatch, capsys):
     """`LookupError` alone did not cover these.
 
     `idna` and `undefined` are codecs Python knows and refuses for bytes,
@@ -322,6 +323,28 @@ def test_a_charset_python_refuses_falls_back_rather_than_raising(charset, monkey
 
     monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
     assert lp.page_text("https://example.test/x") == "plain text"
+    # And it SAYS SO. The comment beside this fallback warned that falling
+    # back silently is how a page gets quoted through the wrong codec and
+    # nobody finds out — and then fell back silently. A claim about the code
+    # that only the comment makes is a claim nothing keeps true.
+    warned = capsys.readouterr().err
+    assert charset in warned and "utf-8" in warned, (
+        f"the fallback did not name the charset it could not use: {warned!r}")
+
+
+def test_a_charset_that_works_is_not_warned_about(monkeypatch, capsys):
+    """The other direction. A warning on every page is a warning nobody
+    reads, and these three pages are fetched on every recorded run."""
+    class Response:
+        headers = type("H", (), {
+            "get_content_charset": staticmethod(lambda: "utf-8")})()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, amount=None): return b"plain text"
+
+    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
+    assert lp.page_text("https://example.test/x") == "plain text"
+    assert capsys.readouterr().err == ""
 
 
 def test_an_enormous_body_is_refused_rather_than_read(monkeypatch):
