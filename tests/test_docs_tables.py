@@ -125,3 +125,65 @@ def test_no_document_uses_a_table_style_this_check_cannot_read(document):
             f"{document.name} line {index + 1}: this table is written without "
             f"outer pipes, which this check cannot read. Add the outer pipes "
             f"so stranded rows in it would be caught — {above[:70]}")
+
+
+def _orphans(text: str) -> list[int]:
+    """The check's own logic, over a crafted document.
+
+    The parametrised tests above run over the real corpus, which contains no
+    duplicated rows and no indented pipes — so a mutation that reverts either
+    fix passes them. A guard has to be exercised against the shape it exists
+    for, not only against the tree that happens not to contain it.
+    """
+    lines = text.splitlines()
+    out = []
+    for index, _row in rows_that_open_a_block(text):
+        following = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        if not SEPARATOR.match(following):
+            out.append(index)
+    return out
+
+
+def test_a_row_repeated_on_the_page_does_not_hide_its_own_orphan():
+    """The whole-document search passed as soon as the text appeared anywhere.
+
+    A page with two tables sharing a header — or one table quoted twice —
+    made every stranded copy invisible, because `re.search` found the
+    legitimate one and stopped.
+    """
+    duplicated = (
+        "| Name | Value |\n"
+        "|---|---|\n"
+        "| a | 1 |\n"
+        "\n"
+        "## A heading in the middle\n"
+        "\n"
+        "| Name | Value |\n"
+    )
+    assert _orphans(duplicated) == [6], (
+        "the stranded copy of a repeated row was not reported")
+    # And the legitimate opener is still not reported.
+    assert 0 not in _orphans(duplicated)
+
+
+def test_pipes_inside_an_indented_code_block_are_not_read_as_rows():
+    """Four-space indentation is the other code-block form.
+
+    An indented example containing a pipe table was scanned as prose, so a
+    document illustrating a table would fail this check for its own example.
+    """
+    indented = "Example:\n\n    | not | a table |\n    |---|---|\n"
+    assert rows_that_open_a_block(indented) == []
+
+
+def test_pipes_inside_a_fenced_block_are_not_read_as_rows():
+    """The form that already worked, kept honest alongside the new one."""
+    fenced = "Example:\n\n```\n| not | a table |\n```\n"
+    assert rows_that_open_a_block(fenced) == []
+
+
+def test_a_real_table_is_still_found():
+    """The false-negative direction. A checker that finds nothing passes
+    everything, which is the failure this whole file guards against."""
+    assert rows_that_open_a_block("| a | b |\n|---|---|\n| 1 | 2 |\n") == [
+        (0, "| a | b |")]
