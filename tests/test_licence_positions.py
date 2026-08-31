@@ -357,3 +357,66 @@ def test_a_body_within_the_cap_is_read_whole(monkeypatch):
 
     monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
     assert len(lp.page_text("https://example.test/x")) == len(body)
+
+
+def test_an_exception_list_naming_no_pages_is_refused():
+    """The guard the document's central claim rests on.
+
+    `.{0,120}?` with a zero lower bound matched the bare sentence, so a page
+    whose list had emptied still read — and "the crosswalks page is not on
+    that list" came out true because the list named nothing. The probe then
+    printed that with full confidence and `--record` wrote the truncated
+    sentence into the JSON the page quotes.
+
+    The fixture HAS a list, which is why reverting the pattern survived every
+    other assertion here: both versions match a page that is intact.
+    """
+    emptied = re.sub(r"<ul>.*?</ul>", "", DATABASE_PAGE, flags=re.S)
+    assert emptied != DATABASE_PAGE
+    assert "following pages:" in emptied, (
+        "the fixture no longer carries the sentence, so this tests nothing")
+    with pytest.raises(lp.MalformedSource, match="the exception list"):
+        lp.onet_database(emptied)
+
+
+def test_the_exception_list_has_room_for_another_page():
+    """The other direction of the same bound.
+
+    The live list is already 68 characters of the old 120, so O*NET adding a
+    fourth page — the exact event this document watches for — would have
+    failed the match and refused with "did not carry the exception list",
+    which reads as a broken page and sends the next reader to the network
+    instead of to the terms.
+    """
+    longer = DATABASE_PAGE.replace(
+        "<li>Spanish Language Resources</li>",
+        "<li>Spanish Language Resources</li>"
+        "<li>A Fourth Page With A Deliberately Long Name For This Test</li>")
+    assert longer != DATABASE_PAGE
+    read = lp.onet_database(longer)
+    assert "A Fourth Page" in read["applies_only_to"], (
+        "a fourth page name does not fit the bound — O*NET adding one would "
+        "refuse rather than report it")
+    assert read["names_crosswalks_page"] is False
+
+
+def test_the_modification_wording_is_read_from_the_page():
+    """Driven through the reader, not read out of the committed record.
+
+    Renaming the field survived every record-based assertion, because the
+    record is checked in and does not change when the code that writes it
+    does. Fourth time that trap has caught me in this repo.
+    """
+    read = lp.onet_database(DATABASE_PAGE)
+    assert "modification" in read, "the reader no longer extracts it"
+    assert "has modified all or some of this information" in read["modification"]
+    assert "not approved, endorsed, or tested" in read["modification"]
+
+    # A substring that is contiguous IN THE FIXTURE. The fixture wraps, so
+    # "has modified all or some" spans a line break and `replace` matched
+    # nothing — presenting an intact page to a refusal test, which is the
+    # same trap as the last three times.
+    without = DATABASE_PAGE.replace("[Your name or company]", "REMOVED")
+    assert without != DATABASE_PAGE
+    with pytest.raises(lp.MalformedSource, match="the modification wording"):
+        lp.onet_database(without)
