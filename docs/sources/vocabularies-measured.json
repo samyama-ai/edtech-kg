@@ -1,0 +1,31 @@
+{
+  "retrieved_at": "2026-08-28",
+  "ed_fi": {
+    "source": "https://raw.githubusercontent.com/Ed-Fi-Alliance-OSS/Ed-Fi-API-Specifications/main/api-specifications/resources/resources-ds-6.0.yaml",
+    "schemas": 651,
+    "edfi_schemas": 622,
+    "resource_paths": 186,
+    "shapes": {
+      "School": "edFi_school",
+      "District": "edFi_localEducationAgency",
+      "Course": "edFi_course",
+      "Standard / competency": "edFi_learningStandard"
+    },
+    "term_uris": null,
+    "licence": "Apache-2.0"
+  },
+  "case": {
+    "source": "https://purl.imsglobal.org/spec/case/v1p0/context/imscasev1p0_context_v1p0.jsonld",
+    "terms": 119,
+    "shapes": {
+      "Standard / competency": "CFItem",
+      "Standard set": "CFDocument",
+      "Course ALIGNS_TO Standard": "CFAssociation"
+    },
+    "datatype_entries": 27,
+    "licence": {
+      "governs_product_use": "Use of this specification to develop products or services is governed by the license with 1EdTech found on the 1EdTech website: http://www",
+      "spdx": null
+    }
+  }
+}
