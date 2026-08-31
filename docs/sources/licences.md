@@ -5,7 +5,7 @@ publishers: find the terms, **quote them rather than paraphrase**, and record
 what attribution is owed.
 
 Everything below is a span lifted out of the page named beside it, read on
-**2026-08-28** by `python -m etl.probe_licences`. The same run writes
+**2026-08-31** by `python -m etl.probe_licences`. The same run writes
 [`licences-measured.json`](licences-measured.json), which the tests check this
 page against, so a quote here that drifts from the page is a test failure
 rather than a discovery.
@@ -106,7 +106,7 @@ it.
 
 ## What this changes
 
-| Source | Position on 2026-08-28 | Status |
+| Source | Position on 2026-08-31 | Status |
 |---|---|---|
 | O\*NET **Database** files | CC BY 4.0, version-bearing attribution | `cleared` — but we do not read these |
 | O\*NET **crosswalk** workbooks | CC BY 4.0 by the crosswalks page's own notice | `cleared` — these are the ones we read |

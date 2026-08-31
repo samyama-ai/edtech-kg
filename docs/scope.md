@@ -106,9 +106,9 @@ anything is published from it.
 | IPEDS (completions, directory) | NCES | US-government public domain |
 | CCD (schools, districts) | NCES | US-government public domain |
 | CIP-SOC crosswalk | NCES + BLS | US-government public domain |
-| O\*NET crosswalk workbooks | US Dept of Labor | CC BY 4.0 by the crosswalks page's own notice, checked 2026-08-28 — **not** the Database licence, which excludes that page. Attribution wording and the version rule in [`sources/licences.md`](sources/licences.md) |
+| O\*NET crosswalk workbooks | US Dept of Labor | CC BY 4.0 by the crosswalks page's own notice, checked 2026-08-31 — **not** the Database licence, which excludes that page. Attribution wording and the version rule in [`sources/licences.md`](sources/licences.md) |
 | College Scorecard | US Dept of Education | US-government public domain |
-| Urban Institute Education Data API | Urban Institute | Republishes the federal data above under Open Data Commons Attribution (ODC-By) v1.0, checked 2026-08-28. Reuse and re-sharing permitted; citation requested — [`sources/licences.md`](sources/licences.md) |
+| Urban Institute Education Data API | Urban Institute | Republishes the federal data above under Open Data Commons Attribution (ODC-By) v1.0, checked 2026-08-31. Reuse and re-sharing permitted; citation requested — [`sources/licences.md`](sources/licences.md) |
 | PWCS course catalogue | Prince William County Public Schools | **A public catalogue, but reuse permission is a human decision — not settled.** See #4 |
 
 One of those is still an open question, and it is open in this document rather
@@ -117,7 +117,7 @@ until someone has cleared it** — its reuse permission is a human decision, not
 a published licence.
 
 The Urban Institute wrapper and O\*NET were the other two, and both were
-cleared on 2026-08-28 by reading the terms rather than assuming them; see
+cleared on 2026-08-31 by reading the terms rather than assuming them; see
 [`sources/licences.md`](sources/licences.md). O\*NET did not clear the way the
 question assumed: the Database content licence names the pages it applies to
 and the crosswalks page is not among them, so the workbooks this repo reads

@@ -53,9 +53,17 @@ def probe(quiet: bool = False) -> dict:
         print(f"  licence      {database['licence']}")
         print(f"  attribution  {database['attribution']}")
         print(f"  exception    {database['applies_only_to']}")
-        print("               ^ the crosswalks page is NOT on that list")
+        # DERIVED, not asserted. This line was hardcoded — it said the
+        # crosswalks page is absent from the exception list whether or not it
+        # was, on the one claim this whole document turns on. If O*NET ever
+        # adds the page, the old line went on printing the opposite.
+        named = "crosswalk" in database["applies_only_to"].lower()
+        print("               ^ the crosswalks page IS on that list — the "
+              "Database licence now covers the workbooks this repo reads"
+              if named else
+              "               ^ the crosswalks page is NOT on that list")
 
-        print(f"\nO*NET crosswalk files — {ONET_CROSSWALKS}\n")
+        print("\nO*NET crosswalk files — {ONET_CROSSWALKS}\n")
         print(f"  licence      {crosswalks['licence']}")
         print(f"  this repo reads {len(crosswalks['files_this_repo_reads'])} of "
               f"them: {', '.join(crosswalks['files_this_repo_reads'])}")
@@ -84,10 +92,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
     if args.record:
-        RECORD.write_text(json.dumps(result, indent=2) + "\n")
-        print(f"wrote {RECORD.relative_to(RECORD.parents[2])}")
-    elif args.json:
-        print(json.dumps(result, indent=2))
+        # `ensure_ascii=False`, as `probe_sced` does. Without it the registered
+        # trademark in O*NET's own attribution wording is written to the record
+        # as `\u00ae` — a document whose entire subject is reproducing that
+        # string exactly, storing it escaped.
+        RECORD.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+        print(f"wrote docs/sources/{RECORD.name}")
+    # `if`, not `elif`. `--json --record` accepted both flags and silently
+    # printed nothing, so a caller asking for the record AND the output got
+    # half of what it asked for with no indication which half.
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
 
