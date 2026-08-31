@@ -88,8 +88,9 @@ def catalogue():
 
 @needs_cache
 def test_the_three_levels_account_for_every_sitemap_page(catalogue):
-    """791 courses, 127 subjects, 42 pathways. The probe reports all 960 as
-    courses (#74); the split has to add up or one of the three is wrong.
+    """791 courses, 127 subjects, 42 pathways. The split has to add up or one
+    of the three is wrong — and the probe now classifies the same way (#74),
+    so a drift here is a drift between the reader and the console too.
 
     A page can leave the sitemap total in TWO ways, and this used to blame the
     first for both: it can be classified as none of the three, or it can fail

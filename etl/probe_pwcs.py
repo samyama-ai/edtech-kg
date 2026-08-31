@@ -6,7 +6,7 @@ which, and *"answering that question comes before the ontology"*. If a real
 district publishes prerequisites that resolve to real courses, prerequisite
 chains are the demo. If not, the demo is programme → occupation → earnings.
 
-    python -m etl.probe_pwcs                # the full sweep, 960 course pages
+    python -m etl.probe_pwcs                # the full sweep, 960 catalogue pages
     python -m etl.probe_pwcs --limit 50     # a quick run, and it says it is one
                                             # (dangling counts are a ceiling then)
     python -m etl.probe_pwcs --json         # machine-readable, with timestamp
@@ -360,11 +360,13 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
         print("\nPWCS course catalogue — catalog.pwcs.edu\n")
         print(f"  coverage               {coverage}")
         print(f"  sitemap pages          {result['population']:>6,}")
-        # AGAINST PAGES READ, not against the sitemap. `population` is every
-        # page the sitemap lists; the breakdown below counts only pages this
-        # run opened, so under `--limit` the three lines summed to the limit
-        # and sat under a heading claiming they accounted for all 960.
-        print(f"  of the {result['pages_read']:,} opened:")
+        # AGAINST PAGES ATTEMPTED, not against the sitemap. `population` is
+        # every page the sitemap lists; the breakdown below counts only pages
+        # this run reached for, so under `--limit` the lines summed to the
+        # limit and sat under a heading claiming they accounted for all 960.
+        # Every attempt lands in exactly one line below — a page that could
+        # not be read is one of them, so the group closes on the heading.
+        print(f"  of the {result['pages_read']:,} attempted:")
         print(f"    subject indexes      {result['subjects']:>6,}")
         print(f"    COURSES              {len(classified_course):>6,}")
         print(f"      of those, parsed   {result['courses']:>6,}"
@@ -377,7 +379,7 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
             print(f"    unclassified         {result['unclassified']:>6,}"
                   f"   — neither depth nor markup named these")
         if result["unread"]:
-            print(f"  could not be read      {result['unread']:>6,}"
+            print(f"    could not be read    {result['unread']:>6,}"
                   f"   — excluded, not counted as having no prerequisite")
         print(f"  linking a prerequisite {result['stating_a_prerequisite']:>6,}"
               f"   ({pct(result['stating_a_prerequisite'], result['courses'])})")

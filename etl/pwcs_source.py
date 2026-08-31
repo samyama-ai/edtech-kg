@@ -20,9 +20,10 @@ from Course to Pathway because their markup says so.
 
 See `classify`.
 
-**The probe reports all 960 as courses. They are not.** No page at depth 1 or 3
-states a prerequisite and no prerequisite points at one, so the 240 edges are
-unaffected — but the rate is 229 of 791, not 229 of 960. Raised as #74.
+**The probe classifies before it counts** (#74). It quotes its prerequisite
+rate against the 791 courses, which is the denominator this reader uses, so the
+two no longer disagree. The 240 edges were never affected either way: no page
+at depth 1 or 3 states a prerequisite and no prerequisite points at one.
 """
 
 from __future__ import annotations
@@ -37,7 +38,11 @@ from etl import probe_pwcs as source
 # Classification lives one layer down so the PROBE can reach it too — #74.
 # Re-exported here because `load_pwcs` and the tests import these names from
 # this module, and moving a definition should not move every caller.
-from etl.pwcs_pages import (LEVELS, PATHWAY_FIELD_PRESENT, classify,  # noqa: F401
+# `LEVELS` is not re-exported: nothing outside `pwcs_pages` reads it, and a
+# name kept alive by its own shim is the kind of dead constant that reads as
+# a supported import. `segments` stays — five callers, four of them attribute
+# reads through this module.
+from etl.pwcs_pages import (PATHWAY_FIELD_PRESENT, classify,  # noqa: F401
                             level, segments)
 
 # A pathway page lists its courses in a typed field, exactly as a course page

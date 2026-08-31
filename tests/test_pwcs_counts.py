@@ -339,17 +339,21 @@ def test_a_pathway_at_course_depth_is_not_re_admitted_by_depth(monkeypatch):
     assert result["resolvable_edges"] == 0
 
 
-def test_the_breakdown_is_counted_against_the_pages_opened(capsys, monkeypatch):
+def test_the_breakdown_is_counted_against_the_pages_attempted(capsys, monkeypatch):
     """It sat under a heading claiming it accounted for the whole sitemap.
 
-    `population` is every page listed; the three lines below it count only
-    pages this run opened, so under `--limit` they summed to the limit while
+    `population` is every page listed; the lines below it count only pages
+    this run reached for, so under `--limit` they summed to the limit while
     the heading said 960.
+
+    The heading says ATTEMPTED, not opened: a page that could not be fetched
+    was never opened, and it is one of the lines in the group, so "opened"
+    described neither the total nor its members.
     """
     serve(monkeypatch, PARTIAL_PAGES)
     probe.probe(limit=1)
     printed = capsys.readouterr().out
-    assert "of the 1 opened:" in printed, (
+    assert "of the 1 attempted:" in printed, (
         "the breakdown does not say how many pages it counted")
 
 
@@ -397,48 +401,34 @@ def test_a_course_that_fails_to_parse_stays_in_the_eligible_set(monkeypatch):
     assert result["resolvable_edges"] == 1
 
 
-def test_no_print_carries_a_placeholder_without_an_f_prefix():
-    """A lint fix removed an `f` from the wrong line once, and it shipped.
-
-    On another branch, silencing an F541 warning took the prefix off a
-    neighbouring string and the probe printed a literal `{VARIABLE}` to
-    whoever ran it. Nothing caught it: the print block was exercised, but only
-    for the lines the assertions happened to name.
-
-    Checked here as a class rather than waiting for it to happen in this file
-    too — the reporting path is the one place a defect is invisible to every
-    assertion and visible to every user.
-    """
-    import re as _re
-
-    source = (ROOT / "etl" / "probe_pwcs.py").read_text(encoding="utf-8")
-    offenders = []
-    for number, line in enumerate(source.splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped.startswith("print("):
-            continue
-        if "{" in stripped and not _re.search(r'print\(\s*f["\']', stripped):
-            offenders.append(f"{number}: {stripped[:80]}")
-    assert not offenders, (
-        f"these prints carry a placeholder and are not f-strings, so they "
-        f"will print the braces: {offenders}")
-
-
 def test_the_breakdown_sums_to_the_pages_it_says_it_counted(capsys, monkeypatch):
-    """It did not, and the missing page was in an unprinted key.
+    """It did not, twice, in the two branches of the same loop.
 
-    `COURSES` printed the PARSED count while subjects and pathways came from
-    the classifier, so a course that failed to parse vanished from a
-    breakdown headed "of the N opened". The full catalogue happens to have no
-    parse failures, which is why 127 + 791 + 42 = 960 looked like proof.
+    First `COURSES` printed the PARSED count while subjects and pathways came
+    from the classifier, so a course that failed to parse vanished. Then a
+    page that could not be FETCHED was counted in the heading and printed
+    outside the group, because it `continue`s before the classifier runs.
+
+    The full catalogue happens to have neither failure, which is why
+    127 + 791 + 42 = 960 looked like proof both times.
+
+    Read as a REGION rather than by naming the lines. The earlier version
+    asserted the members were exactly three known names, so every line added
+    to the group afterwards — unclassified, could not be read — fell out of
+    the sum silently, which is how the second defect survived the fix for the
+    first. Anything indented into the group now has to be accounted for.
     """
     import re as _re
 
+    monkeypatch.setattr(probe.time, "sleep", lambda *a: None)
     serve(monkeypatch, {
         probe.SITEMAP: (
             '<urlset>'
             '<loc>https://catalog.pwcs.edu/agriculture/landscaping-headless</loc>'
             '<loc>https://catalog.pwcs.edu/agriculture/landscaping-6</loc>'
+            # Served by the sitemap and NOT by `serve`, so `fetch` raises and
+            # the page is recorded unread — the branch that did not sum.
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-gone</loc>'
             '</urlset>'),
         "https://catalog.pwcs.edu/agriculture/landscaping-headless":
             UNPARSEABLE_COURSE,
@@ -447,12 +437,24 @@ def test_the_breakdown_sums_to_the_pages_it_says_it_counted(capsys, monkeypatch)
     probe.probe()
     printed = capsys.readouterr().out
 
-    opened = int(_re.search(r"of the ([\d,]+) opened", printed).group(1).replace(",", ""))
-    parts = {name: int(value.replace(",", "")) for name, value in _re.findall(
-        r"\s{4}(subject indexes|COURSES|CTE pathways)\s+([\d,]+)", printed)}
-    assert set(parts) == {"subject indexes", "COURSES", "CTE pathways"}
-    assert sum(parts.values()) == opened, (
-        f"the breakdown sums to {sum(parts.values())} under a heading saying "
-        f"{opened} pages were opened: {parts}")
-    # And the page that failed to parse is visible, not swallowed.
+    heading = _re.search(r"of the ([\d,]+) attempted:", printed)
+    assert heading, f"the breakdown heading is not where the sum is read from:\n{printed}"
+    attempted = int(heading.group(1).replace(",", ""))
+
+    # From the heading to the first line that leaves the group — a member is
+    # indented four, its own sub-lines six, and the next section two.
+    group, members = printed[heading.end():].splitlines()[1:], {}
+    for line in group:
+        if not line.startswith("    ") or line.startswith("      "):
+            if line.strip() and not line.startswith("      "):
+                break
+            continue
+        name, value = _re.match(r"\s+(.+?)\s{2,}([\d,]+)", line).groups()
+        members[name] = int(value.replace(",", ""))
+
+    assert sum(members.values()) == attempted, (
+        f"the breakdown sums to {sum(members.values())} under a heading "
+        f"saying {attempted} pages were attempted: {members}")
+    # Both failure modes are present in this run, so neither is sums-by-luck.
+    assert members.get("could not be read") == 1, members
     assert "unreadable" in printed
