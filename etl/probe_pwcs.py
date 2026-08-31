@@ -265,11 +265,10 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     # the markup, and the four pages whose markup contradicts their depth are
     # the reason depth alone is not enough (#87).
     kinds: Counter[str] = Counter()
-    course_urls_read: list[str] = []
     # Every page we managed to classify, and separately every page the
     # classifier called a course. The second is not the same as
-    # `course_urls_read`: a page can be a course and still fail to parse, and
-    # it is published either way.
+    # the parsed set: a page can be a course and still fail to parse, and it
+    # is published either way.
     classified_any: set[str] = set()
     classified_course: list[str] = []
     records, skipped, unread = [], 0, []
@@ -300,7 +299,6 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
             continue
         if parsed:
             records.append(parsed)
-            course_urls_read.append(url)
         else:
             skipped += 1
     if not records:
@@ -345,7 +343,11 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     result |= {"population": population, "pages_read": len(read),
                "subjects": kinds["subject"], "pathways": kinds["pathway"],
                "unclassified": kinds["unclassified"],
-               "not_a_course_page": skipped,
+               # A course the classifier accepted and the parser could not
+               # read — a missing `<h1>`. It was called `not_a_course_page`,
+               # which is what it counted before the classifier decided that
+               # question, and the opposite of what it counts now.
+               "courses_that_did_not_parse": skipped,
                "unread": len(unread), "unread_examples": unread[:5], "coverage": coverage,
                # The number reported must BE the set resolution ran
                # against, so it is derived from `catalogue` and not rebuilt
@@ -355,7 +357,7 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
                                       - {None})}
 
     if not quiet:
-        print(f"\nPWCS course catalogue — catalog.pwcs.edu\n")
+        print("\nPWCS course catalogue — catalog.pwcs.edu\n")
         print(f"  coverage               {coverage}")
         print(f"  sitemap pages          {result['population']:>6,}")
         # AGAINST PAGES READ, not against the sitemap. `population` is every
@@ -364,8 +366,12 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
         # and sat under a heading claiming they accounted for all 960.
         print(f"  of the {result['pages_read']:,} opened:")
         print(f"    subject indexes      {result['subjects']:>6,}")
-        print(f"    COURSES              {result['courses']:>6,}"
+        print(f"    COURSES              {len(classified_course):>6,}")
+        print(f"      of those, parsed   {result['courses']:>6,}"
               f"   <- every rate below is quoted against this")
+        if skipped:
+            print(f"      unreadable         {skipped:>6,}"
+                  f"   — classified a course, no title to parse")
         print(f"    CTE pathways         {result['pathways']:>6,}")
         if result["unclassified"]:
             print(f"    unclassified         {result['unclassified']:>6,}"
@@ -382,7 +388,7 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
         print(f"  resolvable edges       {result['resolvable_edges']:>6,}")
         print(f"  resolved against       {result['published_paths']:>6,}"
               f"   published COURSE paths — subject indexes and pathway")
-        print(f"                                  pages are excluded, as they are from the count above")
+        print("                                  pages are excluded, as they are from the count above")
         print(f"  dangling links         {result['dangling_links']:>6,}")
         print(f"  free-text requirements alongside: "
               f"{result['with_free_text_requirements']:,} courses")

@@ -13,9 +13,13 @@ nothing failed — the wrong number was simply published.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from etl import probe_pwcs as probe
 from tests.test_probe_pwcs import COURSE, NO_PREREQ, serve
 
+
+ROOT = Path(__file__).resolve().parents[1]
 
 SUBJECT_INDEX = """<html><body><h1 class="page-title">Agriculture</h1>
 <div class="views-row"><a href="/agriculture/landscaping-1">Landscaping 1</a></div>
@@ -384,10 +388,71 @@ def test_a_course_that_fails_to_parse_stays_in_the_eligible_set(monkeypatch):
 
     # Classified as a course, so it counts as published — but it produced no
     # record, so it is not in the denominator of the rate.
-    assert result["not_a_course_page"] == 1
+    assert result["courses_that_did_not_parse"] == 1
     assert result["courses"] == 1
     assert result["published_paths"] == 2, (
         "the unparsed course was dropped from the set prerequisites resolve "
         "against")
     assert result["dangling_links"] == 0
     assert result["resolvable_edges"] == 1
+
+
+def test_no_print_carries_a_placeholder_without_an_f_prefix():
+    """A lint fix removed an `f` from the wrong line once, and it shipped.
+
+    On another branch, silencing an F541 warning took the prefix off a
+    neighbouring string and the probe printed a literal `{VARIABLE}` to
+    whoever ran it. Nothing caught it: the print block was exercised, but only
+    for the lines the assertions happened to name.
+
+    Checked here as a class rather than waiting for it to happen in this file
+    too — the reporting path is the one place a defect is invisible to every
+    assertion and visible to every user.
+    """
+    import re as _re
+
+    source = (ROOT / "etl" / "probe_pwcs.py").read_text(encoding="utf-8")
+    offenders = []
+    for number, line in enumerate(source.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped.startswith("print("):
+            continue
+        if "{" in stripped and not _re.search(r'print\(\s*f["\']', stripped):
+            offenders.append(f"{number}: {stripped[:80]}")
+    assert not offenders, (
+        f"these prints carry a placeholder and are not f-strings, so they "
+        f"will print the braces: {offenders}")
+
+
+def test_the_breakdown_sums_to_the_pages_it_says_it_counted(capsys, monkeypatch):
+    """It did not, and the missing page was in an unprinted key.
+
+    `COURSES` printed the PARSED count while subjects and pathways came from
+    the classifier, so a course that failed to parse vanished from a
+    breakdown headed "of the N opened". The full catalogue happens to have no
+    parse failures, which is why 127 + 791 + 42 = 960 looked like proof.
+    """
+    import re as _re
+
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-headless</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-6</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-headless":
+            UNPARSEABLE_COURSE,
+        "https://catalog.pwcs.edu/agriculture/landscaping-6":
+            PREREQ_ON_AN_UNPARSEABLE_COURSE})
+    probe.probe()
+    printed = capsys.readouterr().out
+
+    opened = int(_re.search(r"of the ([\d,]+) opened", printed).group(1).replace(",", ""))
+    parts = {name: int(value.replace(",", "")) for name, value in _re.findall(
+        r"\s{4}(subject indexes|COURSES|CTE pathways)\s+([\d,]+)", printed)}
+    assert set(parts) == {"subject indexes", "COURSES", "CTE pathways"}
+    assert sum(parts.values()) == opened, (
+        f"the breakdown sums to {sum(parts.values())} under a heading saying "
+        f"{opened} pages were opened: {parts}")
+    # And the page that failed to parse is visible, not swallowed.
+    assert "unreadable" in printed
