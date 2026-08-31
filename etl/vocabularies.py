@@ -43,6 +43,27 @@ class MalformedSource(Exception):
     """A document that parsed, but is not the specification."""
 
 
+def json_object(payload: str | bytes, what: str) -> dict:
+    """Parse `payload`, insisting it is a JSON object.
+
+    Both readers take a document somebody else serves. A wrong purl target, an
+    outage page served with a JSON content type, or a rate-limit body all
+    arrive as something that is not an object — and `.get` on a list or a
+    string raises `AttributeError`, which escapes the refusal channel as a
+    traceback rather than as `refused:` and exit 3. Everything that is "not
+    the document we asked for" leaves by the same door.
+    """
+    try:
+        document = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise MalformedSource(f"{what} did not parse as JSON ({exc})") from exc
+    if not isinstance(document, dict):
+        raise MalformedSource(
+            f"{what} parsed as {type(document).__name__}, not an object, so "
+            f"it is not that document.")
+    return document
+
+
 def edfi_resources(spec: str) -> dict:
     """What Data Standard 6.0 declares, counted off the OpenAPI document.
 
@@ -75,7 +96,7 @@ def case_terms(context: str) -> dict:
     `dtCFItem` sits beside `CFItem` — and counting both doubles the
     vocabulary. The shapes are looked up by exact name for that reason.
     """
-    terms = json.loads(context).get("@context", {})
+    terms = json_object(context, "the CASE context").get("@context", {})
     if not isinstance(terms, dict) or len(terms) < 50:
         raise MalformedSource(
             f"the CASE context carried {len(terms) if hasattr(terms, '__len__') else 0} "

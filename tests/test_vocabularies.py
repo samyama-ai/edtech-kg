@@ -13,6 +13,7 @@ import re
 
 import pytest
 
+from etl import probe_vocabularies as probe_vocab
 from etl import vocabularies as vocab
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -175,3 +176,68 @@ def test_the_page_does_not_claim_fifty_states_publish_case():
     page = re.sub(r"\s+", " ", PAGE.read_text().lower())
     assert "that all 50 states publish their standards as case" in page
     assert "nothing here supports a count" in page
+
+
+def fake_fetch(licence_field: object) -> object:
+    """Serve the three documents `probe` fetches, with a settable licence."""
+    def fetch(url: str, timeout: int = 180) -> bytes:
+        if url == probe_vocab.EDFI_REPO:
+            return json.dumps({"license": licence_field}).encode()
+        if url == probe_vocab.CASE_CONTEXT:
+            return context(*CASE_TERMS).encode()
+        return LICENCE_PAGE.encode()
+    return fetch
+
+
+def test_a_licence_github_does_not_report_is_printed_not_crashed(monkeypatch,
+                                                                 capsys):
+    """`format(None, ">14")` is a TypeError, and it fires after the 3.7 MB read.
+
+    GitHub returns `spdx_id: null` for a licence it does not recognise, so
+    `None` is an expected value here rather than a broken one. It killed the
+    default `python -m etl.probe_vocabularies` — the invocation the page tells
+    a reader to run — at the last line, with every measurement already made.
+    """
+    monkeypatch.setattr(probe_vocab, "specification",
+                        lambda use_cache=True: spec("edFi_school"))
+    monkeypatch.setattr(probe_vocab, "fetch", fake_fetch({"spdx_id": None}))
+    result = probe_vocab.probe(quiet=False)
+    assert result["ed_fi"]["licence"] is None
+    assert "unreported" in capsys.readouterr().out
+
+
+def test_a_licence_that_is_not_an_object_is_not_a_licence(monkeypatch):
+    """`(x or {}).get` still raises when GitHub sends a string, not an object.
+
+    The `or {}` guard only catches a falsy value. A truthy non-object reached
+    `.get` and raised `AttributeError`, which is not on the refusal channel.
+    """
+    monkeypatch.setattr(probe_vocab, "specification",
+                        lambda use_cache=True: spec("edFi_school"))
+    monkeypatch.setattr(probe_vocab, "fetch", fake_fetch("Apache-2.0"))
+    assert probe_vocab.probe(quiet=True)["ed_fi"]["licence"] is None
+
+
+def test_repository_metadata_that_is_not_an_object_is_refused(monkeypatch):
+    monkeypatch.setattr(probe_vocab, "specification",
+                        lambda use_cache=True: spec("edFi_school"))
+    monkeypatch.setattr(probe_vocab, "fetch",
+                        lambda url, timeout=180: b'["not", "an", "object"]')
+    with pytest.raises(vocab.MalformedSource, match="not an object"):
+        probe_vocab.probe(quiet=True)
+
+
+def test_a_context_that_is_not_an_object_is_refused_not_crashed():
+    """A JSON array reached `.get` and raised `AttributeError`.
+
+    That escapes `probe`'s `except MalformedSource` as a traceback instead of
+    `refused: ...` and exit 3 — the channel every other wrong document uses.
+    """
+    with pytest.raises(vocab.MalformedSource, match="not an object"):
+        vocab.case_terms('[{"@context": {}}]')
+
+
+def test_a_document_that_is_not_json_is_refused_not_crashed():
+    """An outage page served at the purl is the likeliest wrong document."""
+    with pytest.raises(vocab.MalformedSource, match="did not parse as JSON"):
+        vocab.case_terms("<html><body>502 Bad Gateway</body></html>")
