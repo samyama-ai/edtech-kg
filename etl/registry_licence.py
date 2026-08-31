@@ -129,6 +129,14 @@ def rights_terms_in(vocabulary: list[dict]) -> list[str]:
     """
     found = []
     for term in vocabulary:
+        # A third party's response, so its shape is not ours to assume. This
+        # called `.get` on every element and a bare string raised
+        # `AttributeError`, which escapes `main`'s handler as a traceback and
+        # exit 1 rather than a refusal and exit 3 — on the one path that
+        # reads someone else's document. `carrying_a_rights_field` guards its
+        # node types carefully, which is what made the gap here invisible.
+        if not isinstance(term, dict):
+            continue
         name = str(term.get("@id", "")).split(":", 1)[-1]
         if re.search(r"licen[cs]|copyright|rights|terms", name, re.I):
             found.append(term["@id"])
@@ -239,8 +247,21 @@ def probe(quiet: bool = False) -> dict:
         # into this module's — so a 503 while sizing the sample escaped
         # `main` as a traceback, which is the exact failure the borrowed-layer
         # bridge below was added to prevent, one call earlier.
+        # `total` does not RAISE on a Registry failure. It catches
+        # `HttpStatus` itself and returns a string saying what went wrong —
+        # `"secured"`, `"error 503"`, `"unreachable"`, `"no x-total header"`.
+        # So the conversion below was unreachable in production, and the
+        # string fell through to `sample_pages`, which cannot spread pages
+        # over a population it does not have and returns the head of the
+        # list: exactly the sampling this module was changed to stop doing,
+        # reported as a success. The sentinel is checked, not the exception.
         try:
             population = total(f"/ce-registry/{kind}/search")
+            if not isinstance(population, int):
+                raise MalformedSource(
+                    f"sizing the {kind} sample: the Registry answered "
+                    f"{population!r} rather than a count, so the pages "
+                    f"cannot be spread")
             pages, size = sample_pages(SAMPLE_PER_TYPE, population)
         except (HttpStatus, ReadRefused) as exc:
             raise MalformedSource(
@@ -321,11 +342,17 @@ def main(argv: list[str] | None = None) -> int:
     except MalformedSource as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
+    # `if`, not `elif`: `--json --record` accepted both flags and printed
+    # nothing, so a caller asking for the record AND the output got silence.
+    # And `ensure_ascii=False`, because the quoted terms carry em dashes and
+    # the sibling probes write the character rather than an escape — a record
+    # that differs from its siblings only in encoding is a diff nobody reads.
     if args.record:
-        RECORD.write_text(json.dumps(result, indent=2) + "\n")
+        RECORD.write_text(json.dumps(result, indent=2, ensure_ascii=False)
+                          + "\n", encoding="utf-8")
         print(f"wrote docs/sources/{RECORD.name}")
-    elif args.json:
-        print(json.dumps(result, indent=2))
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
 

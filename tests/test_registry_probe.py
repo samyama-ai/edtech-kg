@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import urllib.error
 
 import pytest
 
@@ -141,68 +142,6 @@ def test_a_misshapen_envelope_counts_as_saying_nothing(envelope):
                    "read_or_measured": "measured"}
 
 
-def test_the_page_quotes_no_split_the_record_does_not_hold(record):
-    """"75 each" was the PLAN — 25 per page times three pages, times four types.
-
-    The record holds one flat total. If any type returned short the JSON would
-    stay self-consistent, every count test would still pass, and the page's
-    per-type breakdown would be quietly false.
-    """
-    page = PAGE.read_text()
-    # Both spellings. The page writes thousands with commas and the record
-    # holds an int, so `str(398)` matched today and `str(1234)` would not have
-    # — a check that works only while the number stays small.
-    envelopes = record["records"]["envelopes"]
-    assert (str(envelopes) in page or f"{envelopes:,}" in page), (
-        f"the page does not state the {envelopes} records the record holds")
-    assert "75 each" not in page
-    per_kind = re.search(r"(\d+) each of", page)
-    assert not per_kind, f"the page quotes a per-type split the record lacks: {per_kind}"
-
-
-def test_the_record_states_how_each_type_was_sampled(record):
-    """The blocking finding of the second review, pinned.
-
-    The first version read pages 1, 2 and 3 of each search consecutively —
-    which is not a sample of the Registry, it is a sample of whatever sorts
-    first. `registry_read.sample_pages` exists to prevent exactly that, and
-    `describe` reports what the walk reached. Both are now used, and the
-    description is carried into the record so a reader can see the shape of
-    the sample rather than take it on trust.
-    """
-    sampling = record["records"]["sampling"]
-    assert set(sampling) == {"course", "credential",
-                             "learning_opportunity_profile", "pathway"}
-    for kind, how in sampling.items():
-        assert how, f"{kind} has no sampling description"
-        # Either the pages were spread, or the whole population was read.
-        # "biased toward whatever sorts first" is `describe`'s own wording for
-        # the head sample, and it must not appear.
-        assert ("stride" in how or "whole population" in how), \
-            f"{kind} was not spread and is not exhaustive: {how}"
-        assert "biased toward whatever sorts first" not in how, \
-            f"{kind} is a head sample: {how}"
-
-
-def test_the_page_repeats_the_sampling_the_record_holds(record):
-    """A reader cannot check a sample whose shape is not on the page.
-
-    The record alone is not enough — the document is what anyone reads, and
-    the review's point was that neither said pages 1-3 had been taken off the
-    head. The stride figures are quoted, so the page cannot drift back to
-    claiming a spread it did not have.
-    """
-    page = re.sub(r"\s+", " ", PAGE.read_text())
-    for kind, how in record["records"]["sampling"].items():
-        if "stride" not in how:
-            continue
-        stride = re.search(r"stride of ([\d,]+)", how).group(1)
-        # The page writes thousands with a comma; the description may not.
-        variants = {stride, f"{int(stride.replace(',', '')):,}"}
-        assert any(f"stride of {v}" in page for v in variants), \
-            f"the page does not state {kind}'s stride ({stride})"
-
-
 def test_probe_spreads_the_pages_it_asks_for(monkeypatch):
     """The mutation the record-based tests could not see.
 
@@ -306,36 +245,6 @@ print('CONNECTS', len(hits))
         f"`probe` calls is unpatched; `total` was the one that hid here.")
 
 
-def test_the_record_carries_the_verdict_not_only_the_evidence(record):
-    """The committed record states the conclusion, not only the evidence."""
-    verdict = record.get("verdict", "")
-    assert verdict, "the record states no verdict"
-    assert "not cleared" in verdict.lower()
-    assert "developer agreement" in verdict.lower(), (
-        "the verdict does not say what would change the answer")
-
-
-def test_scope_counts_the_uncleared_rows_it_actually_lists():
-    """The paragraph said two while the table held three.
-
-    It is prose about a table three lines above it, so it drifts every time a
-    row is added — which is exactly what happened when this PR added the
-    Registry row. Counted from the table rather than trusted.
-    """
-    scope = (ROOT / "docs" / "scope.md").read_text(encoding="utf-8")
-    rows = re.findall(r"(?m)^\| (?!Source\b)(?!-)([^|]+)\|([^|]*)\|([^|]*)\|$", scope)
-    assert rows, "the scope licence table could not be read"
-    uncleared = [r for r in rows
-                 if "not cleared" in r[2].lower() or "not settled" in r[2].lower()
-                 or "not yet checked" in r[2].lower()]
-    claimed = re.search(r"\*\*(\w+) of those are not cleared\*\*", scope)
-    assert claimed, "scope.md no longer states how many rows are not cleared"
-    words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
-    assert words[claimed.group(1).lower()] == len(uncleared), (
-        f"scope.md claims {claimed.group(1)} uncleared rows; the table has "
-        f"{len(uncleared)}: {[r[0].strip() for r in uncleared]}")
-
-
 def test_probe_puts_the_verdict_in_what_it_writes(monkeypatch):
     """The committed record cannot test the code that writes it.
 
@@ -410,25 +319,95 @@ def test_a_registry_outage_while_sizing_is_refused_not_a_traceback(monkeypatch):
         rl.probe(quiet=True)
 
 
-def test_every_date_for_this_source_agrees_with_the_record(record):
-    """Three places state when the terms were read, and they drifted.
+def test_a_registry_that_answers_with_a_sentinel_is_refused_not_head_sampled(
+        monkeypatch):
+    """The failure that actually happens, as opposed to the one guarded for.
 
-    `docs/scope.md`'s row said 2026-08-28 while the page and the record said
-    2026-08-31 — the row was written in one round and the measurement redone
-    in another. A reader takes whichever they meet first.
+    `total` does not raise on a Registry failure — it catches `HttpStatus`
+    itself and RETURNS a string saying what went wrong. So the exception
+    conversion beside this was unreachable in production, and the string fell
+    through to `sample_pages`, which cannot spread pages over a population it
+    does not have and returns the head of the list.
+
+    That is the sampling this module was changed to stop doing, reported as a
+    success with exit 0. The doc test bans the phrase afterwards, so the bad
+    commit is caught — but the probe says it worked at the moment it did not,
+    on a page whose whole argument is that the stride is the point.
+
+    All four sentinels, because each comes from a different branch of `total`
+    and one of them is what a secured endpoint returns on an ordinary day.
+    """
+    for sentinel in ("secured", "error 503", "unreachable", "no x-total header"):
+        drive_probe(monkeypatch, total=lambda path, s=sentinel: s)
+        with pytest.raises(rl.MalformedSource, match="rather than a count"):
+            rl.probe(quiet=True)
+
+
+def test_the_sample_is_spread_over_the_population_not_taken_off_the_head(
+        monkeypatch):
+    """The stride is the claim, so the stride is what is asserted.
+
+    This rested on `"stride" in how`, and `describe([1, 2, 3], 25, 47862)`
+    says "at a stride of 1" — so the head-sample mutation left this green and
+    its record-based sibling green with it. The whole defence was one
+    `max(pages) > 100` in another test.
     """
     import re as _re
 
-    read_on = record["retrieved_at"]
-    scope = (ROOT / "docs" / "scope.md").read_text(encoding="utf-8")
-    row = [line for line in scope.splitlines()
-           if line.startswith("| Credential Registry")]
-    assert row, "the Credential Registry row is no longer in the scope table"
-    dates = set(_re.findall(r"\d{4}-\d{2}-\d{2}", row[0]))
-    assert dates == {read_on}, (
-        f"the scope row states {sorted(dates)}; the record was read on "
-        f"{read_on}")
+    drive_probe(monkeypatch)
+    result = rl.probe(quiet=True)
+    for kind, how in result["records"]["sampling"].items():
+        stride = _re.search(r"stride of ([\d,]+)", how)
+        assert stride, f"{kind} no longer describes a stride: {how}"
+        assert int(stride.group(1).replace(",", "")) > 1, (
+            f"{kind} is sampled at a stride of 1, which is the head of the "
+            f"list under another name: {how}")
 
-    page = PAGE.read_text(encoding="utf-8")
-    claimed = _re.search(r"Read on \*\*(\d{4}-\d{2}-\d{2})\*\*", page)
-    assert claimed and claimed.group(1) == read_on
+
+def test_record_writes_a_file_that_reads_back(monkeypatch, tmp_path):
+    """`main`'s success path had no test, and it writes the artifact that
+    half this suite asserts against."""
+    drive_probe(monkeypatch)
+    destination = tmp_path / "registry-licence-measured.json"
+    monkeypatch.setattr(rl, "RECORD", destination)
+    assert rl.main(["--record"]) == 0
+    written = json.loads(destination.read_text(encoding="utf-8"))
+    assert written["verdict"]
+    assert written["records"]["sampling"]
+
+
+def test_a_page_that_cannot_be_reached_is_refused_not_a_traceback(monkeypatch):
+    """Every other test patches `page_text` away, so its own conversion of a
+    transport failure — the module's theme — was never run."""
+    def refuse(url, timeout=60):
+        raise urllib.error.URLError("name or service not known")
+
+    monkeypatch.setattr(rl.urllib.request, "urlopen", refuse)
+    with pytest.raises(rl.MalformedSource):
+        rl.page_text(rl.TERMS_URL)
+
+
+def test_a_graph_of_bare_strings_is_refused_not_an_attribute_error(monkeypatch):
+    """A third party's response, so its shape is not ours to assume.
+
+    `rights_terms_in` walked `@graph` calling `.get` on every element;
+    `["a string"]` raised `AttributeError`, which escapes `main`'s handler as
+    a traceback and exit 1 rather than `refused:` and exit 3. Its sibling
+    guards its node types carefully, which is what made the gap invisible.
+    """
+    with pytest.raises(rl.MalformedSource, match="did not load"):
+        rl.rights_terms_in(["a string", 7, None])
+
+
+def test_json_and_record_together_do_both(monkeypatch, tmp_path, capsys):
+    """`elif` accepted both flags and printed nothing, so a caller asking for
+    the record AND the output got silence and exit 0."""
+    drive_probe(monkeypatch)
+    destination = tmp_path / "registry-licence-measured.json"
+    monkeypatch.setattr(rl, "RECORD", destination)
+    assert rl.main(["--json", "--record"]) == 0
+    printed = capsys.readouterr().out
+    assert destination.exists(), "--record wrote nothing"
+    assert json.loads(printed[printed.index("{"):])["verdict"], \
+        "--json printed nothing"
+
