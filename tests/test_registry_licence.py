@@ -193,3 +193,112 @@ def test_the_page_does_not_call_the_registry_data_cleared():
     assert ("loading registry records into a published graph is not permitted"
             in page)
     assert "#58 should not proceed on the assumption that it may" in page
+
+
+# --------------------------------------------------------------------------
+# the borrowed fetching layer, and everything that is "not the document asked
+# for". `probe` imports `etl.registry_read` lazily, so these patch the module
+# it will import rather than a name bound at import time.
+# --------------------------------------------------------------------------
+
+def drive_probe(monkeypatch, *, get=None, parse=None, page_text=None):
+    from etl import registry_read
+    monkeypatch.setattr(rl, "page_text",
+                        page_text or (lambda url, timeout=60: TERMS_PAGE))
+    monkeypatch.setattr(rl, "graph_of", lambda payload, what: VOCABULARY_GRAPH)
+    monkeypatch.setattr(registry_read, "get", get or (lambda url: b"[]"))
+    monkeypatch.setattr(registry_read, "parse", parse or (lambda body, what: []))
+
+
+VOCABULARY_GRAPH = [{"@id": "ceterms:copyrightHolder"}]
+
+
+def test_a_registry_outage_is_refused_rather_than_a_traceback(monkeypatch):
+    """`registry_read` raises its OWN classes, and one shares this module's name.
+
+    `main` catches `registry_licence.MalformedSource`. `registry_read.get`
+    raises `HttpStatus`, and its `parse` raises a DIFFERENT class also called
+    `MalformedSource`, so a 503 from the Registry produced a traceback and no
+    exit code — while `page_text`, three lines up, converts exactly this into
+    a refusal for the pages it fetches itself.
+    """
+    from etl.registry_read import HttpStatus
+
+    def boom(url):
+        raise HttpStatus(503, url)
+
+    drive_probe(monkeypatch, get=boom)
+    with pytest.raises(rl.MalformedSource, match="search"):
+        rl.probe(quiet=True)
+    assert rl.main(["--json"]) == 3
+
+
+def test_a_search_page_that_is_not_json_is_refused(monkeypatch):
+    from etl.registry_read import MalformedSource as ReadRefused
+
+    def bad(body, what):
+        raise ReadRefused(f"{what} did not parse as JSON")
+
+    drive_probe(monkeypatch, parse=bad)
+    with pytest.raises(rl.MalformedSource, match="did not parse as JSON"):
+        rl.probe(quiet=True)
+
+
+def test_a_search_page_that_is_an_object_is_refused_not_counted(monkeypatch):
+    """An error body that is a JSON object extended `envelopes` with its KEYS.
+
+    `carrying_a_rights_field` then called `.get` on a `str`. `probe_registry`
+    already guards this because the Registry has returned other shapes; this
+    module diverged from it.
+    """
+    drive_probe(monkeypatch,
+                parse=lambda body, what: {"error": "rate limited"})
+    with pytest.raises(rl.MalformedSource, match="not a list of envelopes"):
+        rl.probe(quiet=True)
+
+
+@pytest.mark.parametrize("payload,expected", [
+    ("<html>502 Bad Gateway</html>", "did not parse as JSON"),
+    ('["not", "an", "object"]', "no @graph list"),
+    ('{"nope": 1}', "no @graph list"),
+    ('{"@graph": {"a": 1}}', "no @graph list"),
+])
+def test_a_vocabulary_that_is_not_the_vocabulary_is_refused(payload, expected):
+    """`json.loads(...)["@graph"]` fails three ways, none of them catchable."""
+    with pytest.raises(rl.MalformedSource, match=expected):
+        rl.graph_of(payload, "the CTDL vocabulary")
+
+
+@pytest.mark.parametrize("envelope", [
+    {"decoded_resource": None},
+    {"decoded_resource": "a string"},
+    {"decoded_resource": {"@graph": None}},
+    {"decoded_resource": {"@graph": {"ceterms:copyrightHolder": "x"}}},
+    {"decoded_resource": {"@graph": ["ceterms:copyrightHolder"]}},
+])
+def test_a_misshapen_envelope_counts_as_saying_nothing(envelope):
+    """The count must not crash, and must not report a field that is not there.
+
+    A non-list `@graph` iterates its KEYS, so `field in node` became a
+    substring test against a string — which would have reported a rights field
+    on a record that carries none, on the page whose whole finding is that
+    zero records carry one.
+    """
+    got = rl.carrying_a_rights_field([envelope])
+    assert got == {"envelopes": 1, "carrying_a_rights_field": 0,
+                   "fields_looked_for": list(rl.RIGHTS_FIELDS),
+                   "read_or_measured": "measured"}
+
+
+def test_the_page_quotes_no_split_the_record_does_not_hold(record):
+    """"75 each" was the PLAN — 25 per page times three pages, times four types.
+
+    The record holds one flat total. If any type returned short the JSON would
+    stay self-consistent, every count test would still pass, and the page's
+    per-type breakdown would be quietly false.
+    """
+    page = PAGE.read_text()
+    assert str(record["records"]["envelopes"]) in page
+    assert "75 each" not in page
+    per_kind = re.search(r"(\d+) each of", page)
+    assert not per_kind, f"the page quotes a per-type split the record lacks: {per_kind}"

@@ -46,6 +46,27 @@ class MalformedSource(Exception):
     """A page that answered, but not with what it publishes."""
 
 
+def graph_of(payload: str, what: str) -> list:
+    """The `@graph` of a JSON-LD document, or a refusal.
+
+    `json.loads(...)["@graph"]` fails three different ways on a document that
+    is not the one asked for — a decode error on an HTML outage page, a
+    `TypeError` on a JSON array, a `KeyError` on an object without the key —
+    and none of them is `MalformedSource`, so each escaped `main` as a
+    traceback instead of `refused:` and exit 3.
+    """
+    try:
+        document = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise MalformedSource(f"{what} did not parse as JSON ({exc})") from exc
+    graph = document.get("@graph") if isinstance(document, dict) else None
+    if not isinstance(graph, list):
+        raise MalformedSource(
+            f"{what} carried no @graph list — the document parsed as "
+            f"{type(document).__name__}. That is not the CTDL vocabulary.")
+    return graph
+
+
 def flatten(page: str) -> str:
     """Tags out, entities decoded, whitespace squashed.
 
@@ -129,8 +150,15 @@ def carrying_a_rights_field(envelopes: list[dict]) -> dict:
     """
     carrying = 0
     for envelope in envelopes:
-        graph = envelope.get("decoded_resource", {}).get("@graph", [])
-        if any(field in node for node in graph for field in RIGHTS_FIELDS):
+        # One guard, not two: `.get("decoded_resource", {})` still returns
+        # None when the key is present and null, so the default is not the
+        # protection — the type check is. A non-list @graph iterates its KEYS,
+        # which would turn `field in node` into a substring test against a
+        # string and report a rights field that is not there.
+        resource = envelope.get("decoded_resource")
+        graph = (resource.get("@graph") or []) if isinstance(resource, dict) else []
+        if any(field in node for node in graph
+               if isinstance(node, dict) for field in RIGHTS_FIELDS):
             carrying += 1
     return {"envelopes": len(envelopes), "carrying_a_rights_field": carrying,
             "fields_looked_for": list(RIGHTS_FIELDS), "read_or_measured": "measured"}
@@ -170,23 +198,44 @@ def probe(quiet: bool = False) -> dict:
     layer and this module's readers must stay importable without it, so that
     the tests can exercise them with no network reachable at all.
     """
-    from etl.registry_read import REGISTRY, get, parse
+    from etl.registry_read import REGISTRY, HttpStatus, get, parse
+    from etl.registry_read import MalformedSource as ReadRefused
 
     terms = terms_of_use(page_text(TERMS_URL))
-    vocabulary = json.loads(page_text(VOCABULARY, timeout=180))["@graph"]
-    envelopes = []
+    vocabulary = graph_of(page_text(VOCABULARY, timeout=180),
+                          "the CTDL vocabulary")
+    envelopes: list[dict] = []
     for kind in ("course", "credential", "learning_opportunity_profile", "pathway"):
         for page in range(1, SAMPLE_PAGES + 1):
-            envelopes += parse(
-                get(f"{REGISTRY}/ce-registry/{kind}/search"
-                    f"?page={page}&per_page={SAMPLE_PER_PAGE}"), "a search page")
+            what = f"page {page} of the {kind} search"
+            # `registry_read` raises its OWN exception classes, and its
+            # `MalformedSource` is a different class from this module's. A 503
+            # from the Registry, or a non-JSON search page, therefore escaped
+            # `main`'s `except MalformedSource` as a traceback — the one thing
+            # `page_text` is careful to prevent for the pages it fetches
+            # itself. The borrowed layer is put on the same channel here.
+            try:
+                body = parse(get(f"{REGISTRY}/ce-registry/{kind}/search"
+                                 f"?page={page}&per_page={SAMPLE_PER_PAGE}"),
+                             what)
+            except (HttpStatus, ReadRefused) as exc:
+                raise MalformedSource(f"{what}: {exc}") from exc
+            # Mirrors `etl/probe_registry.py`, which checks this because the
+            # Registry has returned other shapes. Without it an error body
+            # that is a JSON object extends `envelopes` with its KEYS, and
+            # `carrying_a_rights_field` then calls `.get` on a `str`.
+            if not isinstance(body, list):
+                raise MalformedSource(
+                    f"{what} returned {type(body).__name__}, not a list of "
+                    f"envelopes")
+            envelopes += [e for e in body if isinstance(e, dict)]
 
     result = {"retrieved_at": datetime.date.today().isoformat(),
               "terms_of_use": terms,
               "rights_terms_in_ctdl": rights_terms_in(vocabulary),
               "records": carrying_a_rights_field(envelopes)}
     if not quiet:
-        print(f"\nCredential Registry — the DATA, not the vocabulary\n")
+        print("\nCredential Registry — the DATA, not the vocabulary\n")
         print(f"  grant        {terms['grant']}")
         print(f"  restriction  {terms['restriction']}")
         print(f"  developers   {terms['developer_agreement'][:120]}…")
@@ -194,7 +243,7 @@ def probe(quiet: bool = False) -> dict:
               f"{', '.join(result['rights_terms_in_ctdl'])}")
         print(f"  — of those, one names rights in the resource: "
               f"{RIGHTS_FIELDS[0]}")
-        print(f"    ceterms:License is a CREDENTIAL type, not a data licence")
+        print("    ceterms:License is a CREDENTIAL type, not a data licence")
         print(f"\n  records inspected         {result['records']['envelopes']:>6,}")
         print(f"  saying anything about their own terms "
               f"{result['records']['carrying_a_rights_field']:>6,}")

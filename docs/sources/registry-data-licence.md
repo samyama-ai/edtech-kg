@@ -84,8 +84,10 @@ what this question asks whether CTDL has. It does not have one.
 And `copyrightHolder` names a holder, not a licence. It says who owns the
 rights; it does not say what anyone else may do.
 
-**Measured: 0 of 300 published records carry it** — 75 each of courses,
-credentials, learning opportunity profiles and pathways.
+**Measured: 0 of 300 published records carry it**, read across four
+resource types — courses, credentials, learning opportunity profiles and
+pathways. The record holds the total the walk actually returned; the split
+between the four is not recorded, so it is not quoted here.
 
 So there is no per-record licence field to read, no publisher populating the
 one adjacent field, and a blanket term of use that reserves everything.
@@ -109,6 +111,12 @@ Concretely, on the face of the published terms:
   are counts about the data, not reproductions of it.** That document was
   careful to record that the licence "was not established here", so nothing
   published so far rests on an assumption this contradicts.
+- **The 300 records this page rests on were read under the same reading.**
+  Reading a sample to find out what the terms say, and publishing a count
+  rather than the records, is the same act as the paragraph above — and it is
+  the act #58 would escalate into a sweep of every course, redistributed. The
+  line this page draws is between reading to answer a question and
+  aggregating to republish, not between reading and not reading.
 
 **This is a reading of published terms, not legal advice**, and the remedy is
 not a better reading — it is asking. Credential Engine publishes a Developer
