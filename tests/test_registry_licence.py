@@ -465,13 +465,7 @@ def test_this_file_opens_no_sockets():
 
 
 def test_the_record_carries_the_verdict_not_only_the_evidence(record):
-    """The conclusion belongs in the machine-readable file too.
-
-    The record held the quoted terms and the counts and left the answer to be
-    inferred from a markdown page. Anything reading this file to decide
-    whether it may load the Registry — including the next person writing a
-    loader — should find the answer in it.
-    """
+    """The committed record states the conclusion, not only the evidence."""
     verdict = record.get("verdict", "")
     assert verdict, "the record states no verdict"
     assert "not cleared" in verdict.lower()
@@ -498,3 +492,19 @@ def test_scope_counts_the_uncleared_rows_it_actually_lists():
     assert words[claimed.group(1).lower()] == len(uncleared), (
         f"scope.md claims {claimed.group(1)} uncleared rows; the table has "
         f"{len(uncleared)}: {[r[0].strip() for r in uncleared]}")
+
+
+def test_probe_puts_the_verdict_in_what_it_writes(monkeypatch):
+    """The committed record cannot test the code that writes it.
+
+    Reading `registry-licence-measured.json` and asserting the verdict is in
+    it passes whatever `probe` does, because the file is checked in — the
+    third time in this repo that a record-based assertion has looked like
+    coverage and been none. Removing the verdict from `probe` has to fail.
+    """
+    drive_probe(monkeypatch)
+    verdict = rl.probe(quiet=True).get("verdict", "")
+    assert "not cleared" in verdict.lower(), "probe emits no verdict"
+    assert "developer agreement" in verdict.lower(), (
+        "the verdict does not say what would change the answer, which is the "
+        "difference between a refusal and a dead end")
