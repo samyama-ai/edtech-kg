@@ -234,8 +234,17 @@ def probe(quiet: bool = False) -> dict:
         # what the walk actually reached, so both are borrowed rather than
         # re-derived. The description goes into the record and onto the page:
         # a reader cannot check a sample they cannot see the shape of.
-        population = total(f"/ce-registry/{kind}/search")
-        pages, size = sample_pages(SAMPLE_PER_TYPE, population)
+        # INSIDE the conversion. `total` reaches the Registry too, and it sat
+        # outside the try that turns `registry_read`'s own exception classes
+        # into this module's — so a 503 while sizing the sample escaped
+        # `main` as a traceback, which is the exact failure the borrowed-layer
+        # bridge below was added to prevent, one call earlier.
+        try:
+            population = total(f"/ce-registry/{kind}/search")
+            pages, size = sample_pages(SAMPLE_PER_TYPE, population)
+        except (HttpStatus, ReadRefused) as exc:
+            raise MalformedSource(
+                f"sizing the {kind} sample: {exc}") from exc
         read: list[int] = []
         for page in pages:
             what = f"page {page} of the {kind} search"
@@ -287,10 +296,12 @@ def probe(quiet: bool = False) -> dict:
               f"{', '.join(result['rights_terms_in_ctdl'])}")
         print(f"  — of those, one names rights in the resource: "
               f"{RIGHTS_FIELDS[0]}")
+        print(f"    the other {len(result['rights_terms_in_ctdl']) - 1} are "
+              f"something else")
         print("    ceterms:License is a CREDENTIAL type, not a data licence")
         print(f"\n  records inspected         {result['records']['envelopes']:>6,}")
         print(f"  saying anything about their own terms "
-              f"{result['records']['carrying_a_rights_field']:>6,}")
+              f"{result['records']['carrying_copyright_holder']:>6,}")
         print("\n  how each type was sampled\n")
         for kind, how in sampling.items():
             print(f"    {kind:<32} {how}")

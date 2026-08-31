@@ -350,3 +350,85 @@ def test_probe_puts_the_verdict_in_what_it_writes(monkeypatch):
     assert "developer agreement" in verdict.lower(), (
         "the verdict does not say what would change the answer, which is the "
         "difference between a refusal and a dead end")
+
+
+def test_the_documented_command_does_not_crash(monkeypatch, capsys):
+    """`python -m etl.registry_licence` raised KeyError, and shipped.
+
+    A field was renamed and the print path was not swept with it, so the one
+    invocation both the module docstring and the page tell people to run died
+    on `records['carrying_a_rights_field']` after printing two thirds of its
+    output.
+
+    Nothing caught it because **every other test passes `quiet=True`** — the
+    reporting path had no coverage at all, so a name it references could go
+    stale without a single assertion noticing.
+    """
+    drive_probe(monkeypatch)
+    rl.probe()                                   # quiet=False — the crash path
+    printed = capsys.readouterr().out
+    assert "records inspected" in printed
+    assert "saying anything about their own terms" in printed
+    assert "how each type was sampled" in printed
+
+
+def test_the_reporting_path_reads_only_keys_the_result_has(monkeypatch):
+    """The class, not the instance.
+
+    One stale key crashed the command. Every key the print block reads is
+    checked against the result it is handed, so the next rename fails here
+    rather than in front of whoever runs the probe.
+    """
+    import re as _re
+
+    drive_probe(monkeypatch)
+    result = rl.probe(quiet=True)
+    source = (ROOT / "etl" / "registry_licence.py").read_text(encoding="utf-8")
+
+    for path in _re.findall(r"result\['(\w+)'\]\['(\w+)'\]", source):
+        outer, inner = path
+        assert outer in result, f"the print block reads result[{outer!r}]"
+        assert inner in result[outer], (
+            f"the print block reads result[{outer!r}][{inner!r}], which the "
+            f"result does not have — a rename left the reporting path behind")
+
+
+def test_a_registry_outage_while_sizing_is_refused_not_a_traceback(monkeypatch):
+    """`total` sat outside the conversion, one call before the one that had it.
+
+    Sizing the sample reaches the Registry too, so a 503 there escaped `main`
+    as a traceback — the exact failure the borrowed-layer bridge was added to
+    prevent, one line earlier than it was guarding.
+    """
+    from etl.registry_read import HttpStatus
+
+    def down(path):
+        raise HttpStatus(503, f"{path} is unavailable")
+
+    drive_probe(monkeypatch, total=down)
+    with pytest.raises(rl.MalformedSource, match="sizing the .* sample"):
+        rl.probe(quiet=True)
+
+
+def test_every_date_for_this_source_agrees_with_the_record(record):
+    """Three places state when the terms were read, and they drifted.
+
+    `docs/scope.md`'s row said 2026-08-28 while the page and the record said
+    2026-08-31 — the row was written in one round and the measurement redone
+    in another. A reader takes whichever they meet first.
+    """
+    import re as _re
+
+    read_on = record["retrieved_at"]
+    scope = (ROOT / "docs" / "scope.md").read_text(encoding="utf-8")
+    row = [line for line in scope.splitlines()
+           if line.startswith("| Credential Registry")]
+    assert row, "the Credential Registry row is no longer in the scope table"
+    dates = set(_re.findall(r"\d{4}-\d{2}-\d{2}", row[0]))
+    assert dates == {read_on}, (
+        f"the scope row states {sorted(dates)}; the record was read on "
+        f"{read_on}")
+
+    page = PAGE.read_text(encoding="utf-8")
+    claimed = _re.search(r"Read on \*\*(\d{4}-\d{2}-\d{2})\*\*", page)
+    assert claimed and claimed.group(1) == read_on
