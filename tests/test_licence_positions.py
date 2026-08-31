@@ -13,14 +13,11 @@ other half after the split, along with a `record` fixture nothing here uses.
 
 from __future__ import annotations
 
-import pathlib
 import re
 
 import pytest
 
 from etl import licence_positions as lp
-
-ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 DATABASE_PAGE = """
@@ -32,6 +29,12 @@ under a <a href="#">Creative Commons Attribution 4.0 International License</a>.<
 <p>This page includes information from the O*NET 31.0 Database by the U.S.
 Department of Labor, Employment and Training Administration (USDOL/ETA). Used
 under the CC BY 4.0 license. O*NET&reg; is a trademark of USDOL/ETA.</p>
+<p>If you make edits or additions to O*NET information: This page includes
+information from the O*NET 31.0 Database by the U.S. Department of Labor,
+Employment and Training Administration (USDOL/ETA). Used under the CC BY 4.0
+license. O*NET&reg; is a trademark of USDOL/ETA. [Your name or company] has
+modified all or some of this information. USDOL/ETA has not approved,
+endorsed, or tested these modifications.</p>
 <h2>License Exceptions</h2>
 <p>This license applies only to downloadable files on the following pages:</p>
 <ul><li>O*NET Database</li><li>Database Releases Archive</li>
@@ -218,7 +221,7 @@ def test_the_response_charset_is_honoured_not_assumed(monkeypatch):
             "get_content_charset": staticmethod(lambda: "latin-1")})()
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def read(self): return body
+        def read(self, amount=None): return body
 
     monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
     read = lp.page_text("https://example.test/x")
@@ -236,7 +239,7 @@ def test_an_unknown_charset_falls_back_rather_than_raising(monkeypatch):
             "get_content_charset": staticmethod(lambda: "not-a-real-codec")})()
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def read(self): return b"plain text"
+        def read(self, amount=None): return b"plain text"
 
     monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
     assert lp.page_text("https://example.test/x") == "plain text"
@@ -265,3 +268,92 @@ def test_each_reader_refuses_in_words_that_name_its_own_guard():
                 for name, message in said.items()}
     assert len(set(stripped.values())) == 3, \
         f"two readers refuse in the same words: {stripped}"
+
+
+def test_the_request_identifies_this_project_and_bounds_the_wait(monkeypatch):
+    """The header three publishers see when this repo reaches them.
+
+    `USER_AGENT` is how O*NET, the Urban Institute and Credential Engine
+    identify this traffic — the same courtesy the state-department probe found
+    was not enough on its own, and the reason the 403s there could be
+    characterised at all. Neither it nor the timeout had an assertion.
+    """
+    seen = {}
+
+    class Response:
+        headers = type("H", (), {
+            "get_content_charset": staticmethod(lambda: "utf-8")})()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, amount=None): return b"body"
+
+    def capture(request, timeout=None):
+        seen["agent"] = request.get_header("User-agent")
+        seen["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(lp.urllib.request, "urlopen", capture)
+    lp.page_text("https://example.test/terms")
+
+    assert seen["agent"] == lp.USER_AGENT
+    assert "edtech-kg" in seen["agent"] and "git.samyama.ai" in seen["agent"], (
+        "the agent must name the project and where to complain about it")
+    assert seen["timeout"], "an unbounded fetch can hang the probe forever"
+
+
+@pytest.mark.parametrize("charset", ["idna", "undefined"])
+def test_a_charset_python_refuses_falls_back_rather_than_raising(charset, monkeypatch):
+    """`LookupError` alone did not cover these.
+
+    `idna` and `undefined` are codecs Python knows and refuses for bytes,
+    raising `UnicodeError` — so they escaped a guard written for an unknown
+    name and reached the caller as a traceback.
+
+    `punycode` is deliberately not here: it does not raise, it decodes to
+    nonsense. That is a different problem and this guard is not the fix for
+    it; a fixture using it would have tested nothing.
+    """
+    class Response:
+        headers = type("H", (), {
+            "get_content_charset": staticmethod(lambda: charset)})()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, amount=None): return b"plain text"
+
+    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
+    assert lp.page_text("https://example.test/x") == "plain text"
+
+
+def test_an_enormous_body_is_refused_rather_than_read(monkeypatch):
+    """`timeout` bounds a socket operation, not a transfer.
+
+    A slow drip had no ceiling, and `flatten`'s script-strip is quadratic — so
+    a body of unterminated `<script` tokens costs far more than its size. On
+    three licence pages, anything past a few megabytes is not one of them.
+    """
+    class Response:
+        headers = type("H", (), {
+            "get_content_charset": staticmethod(lambda: "utf-8")})()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, amount=None):
+            return b"x" * (amount if amount else lp.MAX_PAGE + 1)
+
+    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
+    with pytest.raises(lp.MalformedSource, match="more than"):
+        lp.page_text("https://example.test/x")
+
+
+def test_a_body_within_the_cap_is_read_whole(monkeypatch):
+    """The false-positive direction — the cap must not truncate a real page."""
+    body = b"a" * (lp.MAX_PAGE // 2)
+
+    class Response:
+        headers = type("H", (), {
+            "get_content_charset": staticmethod(lambda: "utf-8")})()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, amount=None): return body
+
+    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
+    assert len(lp.page_text("https://example.test/x")) == len(body)

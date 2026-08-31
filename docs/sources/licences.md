@@ -60,17 +60,26 @@ than rewritten:
 > Department of Labor, Employment and Training Administration (USDOL/ETA).
 > Used under the CC BY 4.0 license. O\*NET® is a trademark of USDOL/ETA.
 
-Three obligations travel with it, all stated on that page:
+Three obligations travel with it. **Two are read from the page by the probe
+and one is not**, and that difference is stated because this page's guarantee
+is that a quote is lifted rather than typed.
 
-1. **The version number is part of the attribution.** O\*NET asks for
-   `"O*NET 31.0 Database"`, not `"O*NET Database"`. Anything this repo
-   publishes has to name the version it read.
-2. **If we modify the data, we must say so** — their wording adds
-   *"[Your name or company] has modified all or some of this information.
-   USDOL/ETA has not approved, endorsed, or tested these modifications."*
-   A graph that reshapes a crosswalk into nodes and edges has modified it.
-3. **`O*NET®` is a trademark and must be used as an adjective** — "includes
-   information from the O\*NET database", never "includes O\*NET".
+**1. The version number is part of the attribution** — *read*. O\*NET asks for
+`"O*NET 31.0 Database"`, not `"O*NET Database"`, and the version sits inside
+the extracted attribution above.
+
+**2. If we modify the data, we must say so** — *read*. A graph that reshapes a
+crosswalk into nodes and edges has modified it, and their wording for saying
+so is:
+
+> [Your name or company] has modified all or some of this information.
+> USDOL/ETA has not approved, endorsed, or tested these modifications.
+
+**3. `O*NET®` is a trademark and must be used as an adjective** — **not read.**
+Their page asks for "includes information from the O\*NET database" rather
+than "includes O\*NET". That is a rule about prose, not a string to reproduce,
+so no probe extracts it and no test checks it. A human read it and wrote this
+line.
 
 ---
 

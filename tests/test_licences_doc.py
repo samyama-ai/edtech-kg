@@ -204,7 +204,7 @@ def test_the_record_stores_the_trademark_sign_not_its_escape(record):
     not.
     """
     raw = RECORD.read_text(encoding="utf-8")
-    assert "\\\\u00ae" not in raw, "the record escapes the registered sign"
+    assert "\\u00ae" not in raw, "the record escapes the registered sign"
     assert "®" in record["onet_database"]["attribution"]
 
 
@@ -220,7 +220,16 @@ def test_the_exception_line_is_derived_from_the_list_not_asserted(capsys, monkey
              lp.URBAN_PORTAL: URBAN_PAGE}
     monkeypatch.setattr(probe_licences, "page_text", lambda url: pages[url])
     probe_licences.probe()
-    assert "the crosswalks page is NOT on that list" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "the crosswalks page is NOT on that list" in printed
+    # ON THE OUTPUT. The source scan below only reads lines whose `strip()`
+    # starts with `print(`, and three calls here span several lines with the
+    # placeholder on a continuation — so dropping an `f` from one of those
+    # left the suite green while the probe printed the braces. A brace in the
+    # output is the defect regardless of how the call is laid out.
+    assert "{" not in printed, (
+        f"a placeholder reached the output — an f prefix is missing:\n"
+        f"{[line for line in printed.splitlines() if '{' in line]}")
 
     with_crosswalks = DATABASE_PAGE.replace(
         "<li>Spanish Language Resources</li>",
@@ -303,3 +312,85 @@ def test_the_probe_prints_the_address_it_read_not_the_variable_name():
             raise AssertionError(
                 f"this print has a placeholder and is not an f-string, so it "
                 f"will print the braces: {stripped[:90]}")
+
+
+def test_a_refusal_exits_three_not_zero(monkeypatch, capsys):
+    """A refusal reported as success is the failure the module argues against.
+
+    `main` returning 0 on `MalformedSource` went unnoticed. If anything ever
+    schedules this probe — and a weekly terms check is exactly what should —
+    a silent zero is a licence change nobody hears about.
+    """
+    def refuse(url, timeout=60):
+        raise lp.MalformedSource("the page did not answer")
+
+    monkeypatch.setattr(probe_licences, "page_text", refuse)
+    assert probe_licences.main([]) == 3
+    assert "refused:" in capsys.readouterr().err
+
+
+def test_the_record_writer_keeps_the_trademark_unescaped(monkeypatch, tmp_path):
+    """Every other assertion targets the file already in git.
+
+    Removing `ensure_ascii=False` from the writer went unnoticed, because the
+    committed record is checked in and does not change when the code that
+    writes it does.
+    """
+    pages = {lp.ONET_DATABASE: DATABASE_PAGE,
+             lp.ONET_CROSSWALKS: CROSSWALKS_PAGE,
+             lp.URBAN_PORTAL: URBAN_PAGE}
+    monkeypatch.setattr(probe_licences, "page_text", lambda url: pages[url])
+    written = tmp_path / "out.json"
+    monkeypatch.setattr(probe_licences, "RECORD", written)
+    assert probe_licences.main(["--record"]) == 0
+    raw = written.read_text(encoding="utf-8")
+    assert "®" in raw, "the writer escaped the registered sign"
+    assert "\\u00ae" not in raw
+
+
+def test_the_central_claim_is_asserted_against_the_record(record):
+    """Not against a fixture written not to contain it.
+
+    The document's whole argument is that the crosswalks page is absent from
+    the Database licence's exception list. Asserting that on a hand-written
+    fixture proves only that the fixture omits it. On the record, a refreshed
+    measurement finding O*NET has added the page turns the suite red on the
+    artifact the page actually cites.
+    """
+    assert record["onet_database"]["names_crosswalks_page"] is False, (
+        "O*NET now names the crosswalks page in its exception list — the "
+        "Database licence covers the workbooks this repo reads, and the page "
+        "argues the opposite")
+    assert "crosswalk" not in record["onet_database"]["applies_only_to"].lower()
+
+
+def test_the_workbook_names_are_tied_to_the_record(record):
+    """They were bullets in code spans, which neither round-trip direction sees.
+
+    The page names the two workbooks this repo reads; if O*NET renames one,
+    the record changes and the page does not.
+    """
+    page = PAGE.read_text(encoding="utf-8")
+    named = record["onet_crosswalks"]["files_this_repo_reads"]
+    assert named, "the record names no workbook"
+    for workbook in named:
+        assert workbook in page, (
+            f"{workbook!r} is in the record and not on the page")
+
+
+def test_the_modification_obligation_is_quoted_from_what_was_read(record):
+    """The only ongoing compliance duty this document states.
+
+    It was quoted on the page with nothing extracted behind it — inline
+    italic inside a list item, so neither direction of the round-trip could
+    see it, on a page whose own guarantee is that every quote is lifted
+    rather than typed.
+    """
+    quoted = record["onet_database"]["modification"]
+    assert "has modified all or some" in quoted
+    # Blockquote markers stripped BEFORE whitespace is squashed. A markdown
+    # quote wraps, so `> ` lands mid-sentence and a substring test fails for a
+    # reason that has nothing to do with the words.
+    page = re.sub(r"\s+", " ", re.sub(r"(?m)^> ", "", PAGE.read_text(encoding="utf-8")))
+    assert re.sub(r"\s+", " ", quoted) in page, (
+        "the modification wording on the page is not the one that was read")

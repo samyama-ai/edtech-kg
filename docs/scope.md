@@ -116,8 +116,9 @@ than discovered later. **The PWCS catalogue should not be treated as cleared
 until someone has cleared it** — its reuse permission is a human decision, not
 a published licence.
 
-The Urban Institute wrapper and O\*NET were the other two, and both were
-cleared on 2026-08-31 by reading the terms rather than assuming them; see
+Two rows changed on 2026-08-31: the Urban Institute wrapper — the other open
+question — and O\*NET, whose terms were listed as unconfirmed rather than open.
+Both were cleared by reading the terms rather than assuming them; see
 [`sources/licences.md`](sources/licences.md). O\*NET did not clear the way the
 question assumed: the Database content licence names the pages it applies to
 and the crosswalks page is not among them, so the workbooks this repo reads

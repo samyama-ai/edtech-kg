@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import html
 import re
-import urllib.error
 import urllib.request
 
 
@@ -43,12 +42,15 @@ class Unreachable(MalformedSource):
 
 USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
+# A ceiling on what is read, not on how long it takes. See `page_text`.
+MAX_PAGE = 5 * 1024 * 1024
+
 ONET_DATABASE = "https://www.onetcenter.org/license_db.html"
 ONET_CROSSWALKS = "https://www.onetcenter.org/crosswalks.html"
 URBAN_PORTAL = "https://educationdata.urban.org/documentation/"
 
 
-def page_text(url: str) -> str:
+def page_text(url: str, timeout: int = 60) -> str:
     """One page, or a refusal naming it.
 
     `OSError` alone. `URLError` and `TimeoutError` are both subclasses of it,
@@ -65,15 +67,27 @@ def page_text(url: str) -> str:
     """
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            body = response.read()
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            # CAPPED. `timeout` bounds a socket operation, not a transfer, so
+            # a slow drip had no ceiling — and `flatten`'s script-strip is
+            # quadratic, so a body of unterminated `<script` tokens costs far
+            # more than its size. These are three licence pages; five
+            # megabytes is an order of magnitude above the largest.
+            body = response.read(MAX_PAGE + 1)
+            if len(body) > MAX_PAGE:
+                raise MalformedSource(
+                    f"{url} returned more than {MAX_PAGE:,} bytes, which no "
+                    f"licence page is. Refusing rather than reading it.")
             charset = response.headers.get_content_charset() or "utf-8"
     except OSError as exc:
         raise Unreachable(f"{url} did not answer ({exc})") from exc
     try:
         return body.decode(charset, errors="replace")
-    except LookupError:
-        # A charset name Python does not know. Named rather than swallowed:
+    except (LookupError, UnicodeError):
+        # A charset name Python does not know, or one it knows and refuses:
+        # `idna`, `punycode` and `undefined` raise `UnicodeError` rather than
+        # `LookupError`, so they escaped a guard written for the first alone.
+        # Named rather than swallowed:
         # falling back silently is how a page gets quoted through the wrong
         # codec and nobody finds out.
         return body.decode("utf-8", errors="replace")
@@ -133,14 +147,45 @@ def onet_database(page: str) -> dict:
             r"is licensed under a Creative Commons Attribution 4\.0 "
             r"International License)",
             text, ONET_DATABASE, "the Creative Commons licence sentence"),
+        # The ONLY ongoing compliance duty this document states, and it was
+        # quoted on the page with nothing extracted behind it — inline italic
+        # inside a list item, so neither direction of the page/record
+        # round-trip could see it. The page's own guarantee is that every
+        # quote is lifted rather than typed.
+        "modification": _one(
+            r"(\[Your name or company\] has modified all or some of this "
+            r"information\..{0,120}?modifications\.)",
+            text, ONET_DATABASE, "the modification wording"),
         "attribution": _one(
             r"(This page includes information from the O\*NET [\d.]+ Database by "
             r"the U\.S\. Department of Labor.{0,120}?trademark of USDOL/ETA\.)",
             text, ONET_DATABASE, "the verbatim attribution wording"),
+        # `\S` after the colon, so an EMPTIED list refuses instead of
+        # matching the bare sentence. Without it a page whose `<ul>` had gone
+        # produced "…on the following pages:" with nothing after it, and the
+        # crosswalks page was reported absent from a list that named nothing —
+        # the argument coming out true because there was no list. That is the
+        # "argued from an absence that means nothing" failure `_one`'s own
+        # docstring exists to prevent.
+        #
+        # 400 rather than 120 because the live list is already 68 characters
+        # of the 120, so O*NET adding a fourth page — the exact event this
+        # document watches for — would have failed the match and refused with
+        # "did not carry the exception list", sending the next reader to look
+        # at the network instead of at the terms.
         "applies_only_to": _one(
             r"(This license applies only to downloadable files on the following "
-            r"pages:.{0,120}?)To copy or adapt",
+            r"pages:\s*\S.{0,400}?)To copy or adapt",
             text, ONET_DATABASE, "the exception list"),
+        # DERIVED, and recorded. The document's central claim is that the
+        # crosswalks page is not on that list; a boolean in the record means a
+        # refreshed measurement finding otherwise turns the suite red on the
+        # artifact the page cites, rather than on a fixture written not to
+        # contain it.
+        "names_crosswalks_page": "crosswalk" in _one(
+            r"(This license applies only to downloadable files on the following "
+            r"pages:\s*\S.{0,400}?)To copy or adapt",
+            text, ONET_DATABASE, "the exception list").lower(),
         "read_or_measured": "read",
     }
 
