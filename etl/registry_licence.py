@@ -160,8 +160,15 @@ def carrying_a_rights_field(envelopes: list[dict]) -> dict:
         if any(field in node for node in graph
                if isinstance(node, dict) for field in RIGHTS_FIELDS):
             carrying += 1
-    return {"envelopes": len(envelopes), "carrying_a_rights_field": carrying,
-            "fields_looked_for": list(RIGHTS_FIELDS), "read_or_measured": "measured"}
+    return {"envelopes": len(envelopes),
+            # Named for what was actually looked for. "carrying a rights
+            # field" reads as though all five rights-shaped CTDL terms were
+            # checked; one was, because the other four are not about rights in
+            # the resource — `ceterms:License` is a credential type. The count
+            # and the field list have to agree about their own scope.
+            "carrying_copyright_holder": carrying,
+            "fields_looked_for": list(RIGHTS_FIELDS),
+            "read_or_measured": "measured"}
 
 
 # --------------------------------------------------------------------------
@@ -260,6 +267,13 @@ def probe(quiet: bool = False) -> dict:
         sampling[kind] = describe(read, size, population)
 
     result = {"retrieved_at": datetime.date.today().isoformat(),
+              # The operative conclusion, in the record rather than only in
+              # the prose. A machine reading this file to decide whether it
+              # may load the Registry should not have to parse a markdown
+              # page to find out.
+              "verdict": "not cleared — do not load or redistribute; internal "
+                         "use only, and any application or redistribution "
+                         "requires a signed Developer Agreement",
               "terms_of_use": terms,
               "rights_terms_in_ctdl": rights_terms_in(vocabulary),
               "records": {**carrying_a_rights_field(envelopes),

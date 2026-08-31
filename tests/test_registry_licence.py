@@ -127,7 +127,7 @@ def test_only_copyright_holder_counts_as_a_record_saying_something():
     envelopes = [envelope("ceterms:License"), envelope("ceterms:name"),
                  envelope("ceterms:copyrightHolder")]
     counted = rl.carrying_a_rights_field(envelopes)
-    assert counted == {"envelopes": 3, "carrying_a_rights_field": 1,
+    assert counted == {"envelopes": 3, "carrying_copyright_holder": 1,
                        "fields_looked_for": ["ceterms:copyrightHolder"],
                        "read_or_measured": "measured"}
 
@@ -140,7 +140,7 @@ def test_the_wrapper_is_not_searched_only_the_decoded_resource():
     """
     assert rl.carrying_a_rights_field(
         [{"ceterms:copyrightHolder": "x", "decoded_resource": {"@graph": [{}]}}]
-    )["carrying_a_rights_field"] == 0
+    )["carrying_copyright_holder"] == 0
 
 
 def _quotes(page: str) -> list[str]:
@@ -172,7 +172,7 @@ def test_every_recorded_sentence_is_quoted_on_the_page(record):
 def test_the_page_states_the_count_and_the_date_the_record_holds(record):
     page = PAGE.read_text()
     counted = record["records"]
-    assert (f"{counted['carrying_a_rights_field']} of {counted['envelopes']}"
+    assert (f"{counted['carrying_copyright_holder']} of {counted['envelopes']}"
             in page), "the page no longer states the measured count"
     read_on = re.search(r"Read on \*\*(\d{4}-\d{2}-\d{2})\*\*", page)
     assert read_on and read_on.group(1) == record["retrieved_at"]
@@ -201,11 +201,24 @@ def test_the_page_does_not_call_the_registry_data_cleared():
 # it will import rather than a name bound at import time.
 # --------------------------------------------------------------------------
 
-def drive_probe(monkeypatch, *, get=None, parse=None, page_text=None):
+def drive_probe(monkeypatch, *, get=None, parse=None, page_text=None,
+                total=None):
+    """Every door `probe` can reach the network through, closed.
+
+    `total` was missing, and it is not optional: `probe` calls it once per
+    resource type to size the sample, so four live HEAD requests to the
+    Credential Registry went out on every run of this file — under a docstring
+    saying nothing here fetches. Measured: four socket connections.
+
+    The default population is a real one (the course search returned 47,862),
+    so `sample_pages` spreads over a realistic number of pages rather than
+    collapsing to a single one and hiding a stride bug.
+    """
     from etl import registry_read
     monkeypatch.setattr(rl, "page_text",
                         page_text or (lambda url, timeout=60: TERMS_PAGE))
     monkeypatch.setattr(rl, "graph_of", lambda payload, what: VOCABULARY_GRAPH)
+    monkeypatch.setattr(registry_read, "total", total or (lambda path: 47_862))
     monkeypatch.setattr(registry_read, "get", get or (lambda url: b"[]"))
     monkeypatch.setattr(registry_read, "parse", parse or (lambda body, what: []))
 
@@ -285,7 +298,7 @@ def test_a_misshapen_envelope_counts_as_saying_nothing(envelope):
     zero records carry one.
     """
     got = rl.carrying_a_rights_field([envelope])
-    assert got == {"envelopes": 1, "carrying_a_rights_field": 0,
+    assert got == {"envelopes": 1, "carrying_copyright_holder": 0,
                    "fields_looked_for": list(rl.RIGHTS_FIELDS),
                    "read_or_measured": "measured"}
 
@@ -298,7 +311,12 @@ def test_the_page_quotes_no_split_the_record_does_not_hold(record):
     per-type breakdown would be quietly false.
     """
     page = PAGE.read_text()
-    assert str(record["records"]["envelopes"]) in page
+    # Both spellings. The page writes thousands with commas and the record
+    # holds an int, so `str(398)` matched today and `str(1234)` would not have
+    # — a check that works only while the number stays small.
+    envelopes = record["records"]["envelopes"]
+    assert (str(envelopes) in page or f"{envelopes:,}" in page), (
+        f"the page does not state the {envelopes} records the record holds")
     assert "75 each" not in page
     per_kind = re.search(r"(\d+) each of", page)
     assert not per_kind, f"the page quotes a per-type split the record lacks: {per_kind}"
@@ -372,7 +390,7 @@ def test_probe_spreads_the_pages_it_asks_for(monkeypatch):
     monkeypatch.setattr(rl, "page_text", lambda url, timeout=60: (
         TERMS_PAGE if url == rl.TERMS_URL else json.dumps({"@graph": VOCABULARY})))
 
-    result = rl.probe(quiet=True)
+    rl.probe(quiet=True)
 
     pages = [int(re.search(r"[?&]page=(\d+)", u).group(1)) for u in asked]
     assert pages, "probe asked for nothing"
@@ -403,3 +421,44 @@ def test_probe_records_how_it_sampled(monkeypatch):
                              "learning_opportunity_profile", "pathway"}
     for kind, how in sampling.items():
         assert "stride" in how, f"{kind} was not described as spread: {how}"
+
+
+def test_this_file_opens_no_sockets():
+    """The docstring says nothing here fetches. It was not true.
+
+    `drive_probe` patched `page_text`, `graph_of`, `get` and `parse` but not
+    `total` — which `probe` calls once per resource type to size the sample —
+    so four live HEAD requests went to the Credential Registry on every run of
+    this file, and it took six seconds. It takes 0.08 now.
+
+    Asserted rather than trusted: a missing patch is invisible until someone
+    watches the socket, and the next helper added here can reintroduce it.
+    """
+    import subprocess
+    import sys
+
+    watcher = (
+        "import socket\n"
+        "hits = []\n"
+        "class Watch(socket.socket):\n"
+        "    def connect(self, addr):\n"
+        "        hits.append(addr)\n"
+        "        return super().connect(addr)\n"
+        "socket.socket = Watch\n"
+        "import pytest\n"
+        "code = pytest.main(['-q', '--no-header', '-p', 'no:cacheprovider',\n"
+        "                    'tests/test_registry_licence.py',\n"
+        "                    '--deselect',\n"
+        "                    'tests/test_registry_licence.py::"
+        "test_this_file_opens_no_sockets'])\n"
+        "print('CONNECTS', len(hits))\n"
+    )
+    result = subprocess.run([sys.executable, "-c", watcher],
+                            capture_output=True, text=True,
+                            cwd=str(ROOT), timeout=120)
+    reported = [line for line in result.stdout.splitlines()
+                if line.startswith("CONNECTS")]
+    assert reported, f"the watcher did not report:\n{result.stdout[-600:]}"
+    assert reported[-1] == "CONNECTS 0", (
+        f"{reported[-1]} — a test in this file reached the network. Something "
+        f"`probe` calls is unpatched; `total` was the one that hid here.")

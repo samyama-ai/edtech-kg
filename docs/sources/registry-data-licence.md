@@ -121,7 +121,7 @@ Concretely, on the face of the published terms:
 - **Loading Registry records into a published graph is not permitted** without
   a separate agreement. "Aggregate … or otherwise reproduce" covers it, and
   "noncommercial" is named rather than excused.
-- **A sweep of all 47,861 courses (#58) is a software application that
+- **A sweep of every course (#58) is a software application that
   accesses and uses Registry data**, which the terms route through a signed
   Developer Agreement. #58 should not proceed on the assumption that it may.
 - **Measurements already published in [`credential-registry.md`](credential-registry.md)

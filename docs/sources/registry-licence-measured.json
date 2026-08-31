@@ -1,5 +1,6 @@
 {
   "retrieved_at": "2026-08-31",
+  "verdict": "not cleared \u2014 do not load or redistribute; internal use only, and any application or redistribution requires a signed Developer Agreement",
   "terms_of_use": {
     "source": "https://credentialengine.org/terms/",
     "grant": "Credential Engine grants you a personal, limited, revocable, nonexclusive, and nontransferable license to view, access, and use the Websites and the Credential Registry, solely for your personal use and internal use within your organization",
@@ -16,7 +17,7 @@
   ],
   "records": {
     "envelopes": 398,
-    "carrying_a_rights_field": 0,
+    "carrying_copyright_holder": 0,
     "fields_looked_for": [
       "ceterms:copyrightHolder"
     ],

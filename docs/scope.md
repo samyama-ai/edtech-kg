@@ -112,9 +112,18 @@ anything is published from it.
 | PWCS course catalogue | Prince William County Public Schools | **A public catalogue, but reuse permission is a human decision — not settled.** See #4 |
 | Credential Registry **data** | many publishers, operated by Credential Engine | **Not cleared — do not load.** Terms of use grant internal use only and route any application or redistribution through a signed Developer Agreement, checked 2026-08-28 — [`sources/registry-data-licence.md`](sources/registry-data-licence.md). The CC BY 4.0 finding is about CTDL the **vocabulary** (#28), not this. |
 
-Two of those are open questions, and they are open in this document rather than
-discovered later. **Neither the Urban Institute wrapper nor the PWCS catalogue
-should be treated as cleared until someone has cleared them.**
+**Three of those are not cleared**, and they are open in this document rather
+than discovered later.
+
+- **The Urban Institute wrapper** and **the PWCS catalogue** are open
+  questions — nobody has read the terms yet.
+- **The Credential Registry's data is a settled no.** Its terms were read on
+  2026-08-31 and they do not permit loading or redistribution. That row is not
+  waiting on anyone; it is waiting on a signed Developer Agreement, which is a
+  decision rather than a reading.
+
+The distinction matters: two of these could clear on a morning's work, and the
+third cannot clear without somebody signing something.
 
 Raw data is never committed. The repo ships downloaders, loaders, schema and a
 bounded demo, and cites its sources — the convention across every `*-kg` repo.
