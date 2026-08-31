@@ -1,4 +1,5 @@
 {
+  "_": "One measured run of `python -m etl.registry_licence --record`, committed so the page can be checked without reaching the Credential Registry. Update the checked-on date in docs/scope.md and on docs/sources/registry-data-licence.md to match.",
   "retrieved_at": "2026-08-31",
   "verdict": "not cleared — do not load or redistribute; internal use only, and any application or redistribution requires a signed Developer Agreement",
   "terms_of_use": {

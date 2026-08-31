@@ -112,9 +112,14 @@ anything is published from it.
 | PWCS course catalogue | Prince William County Public Schools | **A public catalogue, but reuse permission is a human decision — not settled.** See #4 |
 | Credential Registry **data** | many publishers, operated by Credential Engine | **Not cleared — do not load.** Terms of use grant internal use only and route any application or redistribution through a signed Developer Agreement, checked 2026-08-31 — [`sources/registry-data-licence.md`](sources/registry-data-licence.md). The CC BY 4.0 finding is about CTDL the **vocabulary** (#28), not this. |
 
-**Three of those are not cleared**, and they are open in this document rather
+**Four of those are not cleared**, and they are open in this document rather
 than discovered later.
 
+- **O\*NET** is public and asks for attribution, but the exact wording of that
+  request has not been read off the licence page. The position is expected to
+  be permissive; it is the obligation that is unconfirmed. It is the mildest
+  of the four, which is exactly why the count omitted it and nothing below
+  named it — the quietest row is the one a count loses.
 - **The Urban Institute wrapper** and **the PWCS catalogue** are open
   questions — nobody has read the terms yet.
 - **The Credential Registry's data is a settled no.** Its terms were read on

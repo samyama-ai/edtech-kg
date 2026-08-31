@@ -368,12 +368,21 @@ def test_record_writes_a_file_that_reads_back(monkeypatch, tmp_path):
     """`main`'s success path had no test, and it writes the artifact that
     half this suite asserts against."""
     drive_probe(monkeypatch)
-    destination = tmp_path / "registry-licence-measured.json"
+    # A directory that does not exist yet: the writer creates what it writes
+    # into rather than relying on `docs/sources/` being present because it is
+    # committed.
+    destination = tmp_path / "fresh" / "registry-licence-measured.json"
     monkeypatch.setattr(rl, "RECORD", destination)
     assert rl.main(["--record"]) == 0
     written = json.loads(destination.read_text(encoding="utf-8"))
     assert written["verdict"]
     assert written["records"]["sampling"]
+    # The record has to say where it came from, and the command that refreshes
+    # it has to be the thing that writes that. Left in the file instead, the
+    # first refresh deletes it and the next reader meets a measurement with no
+    # account of how to reproduce it.
+    assert list(written)[0] == "_", "the record does not open with its own note"
+    assert "--record" in written["_"]
 
 
 def test_a_page_that_cannot_be_reached_is_refused_not_a_traceback(monkeypatch):

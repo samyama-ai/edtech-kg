@@ -124,8 +124,17 @@ def rights_terms_in(vocabulary: list[dict]) -> list[str]:
     has, so the word cannot be dropped from the search — and every term in the
     vocabulary is named `ceterms:something`, so searching the raw identifiers
     matches all 1,032 of them. That is how a first pass reported a vocabulary
-    full of licensing properties. Four have a rights-shaped local name and
-    none is named for terms of use.
+    full of licensing properties.
+
+    FIVE have a rights-shaped local name, and this said four — disagreeing
+    with the comment in `carrying_a_rights_field`, with the record, and with
+    what the probe prints. The set is pinned in the tests rather than counted
+    here again; a figure typed into a docstring is one nothing keeps true.
+
+    One of the five, `statementCat:TerminationTerms`, is matched on "terms" —
+    and it names the termination clauses of an agreement, not a terms-of-use
+    document. None of the five is a terms-of-use property, which is the
+    question #56 asks.
     """
     found = []
     for term in vocabulary:
@@ -187,6 +196,15 @@ USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 VOCABULARY = "https://credreg.net/ctdl/schema/encoding/json"
 RECORD = pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources" / \
     "registry-licence-measured.json"
+
+#: Written INTO the record by `--record`, not left in the file for a refresh
+#: to delete. The sibling probes carry the same key; a record that cannot say
+#: where it came from is a measurement nobody can reproduce.
+RECORD_NOTE = (
+    "One measured run of `python -m etl.registry_licence --record`, committed "
+    "so the page can be checked without reaching the Credential Registry. "
+    "Update the checked-on date in docs/scope.md and on "
+    "docs/sources/registry-data-licence.md to match.")
 # How many records to look at per resource type. `registry_read.sample_pages`
 # turns this into WHICH pages to read — spread at a stride across the whole
 # result set rather than taken off the head — and how many to ask for on each.
@@ -348,8 +366,12 @@ def main(argv: list[str] | None = None) -> int:
     # the sibling probes write the character rather than an escape — a record
     # that differs from its siblings only in encoding is a diff nobody reads.
     if args.record:
-        RECORD.write_text(json.dumps(result, indent=2, ensure_ascii=False)
-                          + "\n", encoding="utf-8")
+        # `parents=True`: the writer creates what it writes into rather than
+        # assuming a directory that only exists because it is committed.
+        RECORD.parent.mkdir(parents=True, exist_ok=True)
+        RECORD.write_text(
+            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
+                       ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"wrote docs/sources/{RECORD.name}")
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))

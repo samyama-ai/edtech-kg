@@ -266,6 +266,22 @@ def test_the_record_carries_the_verdict_not_only_the_evidence(record):
         "the verdict does not say what would change the answer")
 
 
+#: A row is unresolved if its licence cell says so, in any of the ways this
+#: table has said it. The list is the weak point and it has already cost one
+#: miscount: O\\*NET's "terms to confirm" matched none of the first three, so
+#: the counter read three, agreed with prose that said three, and both were
+#: wrong by the same row. A fourth phrasing would do it again — which is why
+#: the test below does not stop at counting.
+UNRESOLVED = ("not cleared", "not settled", "not yet checked", "to confirm")
+
+
+def _scope_rows() -> list[tuple[str, str, str]]:
+    scope = (ROOT / "docs" / "scope.md").read_text(encoding="utf-8")
+    rows = re.findall(r"(?m)^\| (?!Source\b)(?!-)([^|]+)\|([^|]*)\|([^|]*)\|$", scope)
+    assert rows, "the scope licence table could not be read"
+    return rows
+
+
 def test_scope_counts_the_uncleared_rows_it_actually_lists():
     """The paragraph said two while the table held three.
 
@@ -273,18 +289,49 @@ def test_scope_counts_the_uncleared_rows_it_actually_lists():
     row is added — which is exactly what happened when this PR added the
     Registry row. Counted from the table rather than trusted.
     """
+    rows = _scope_rows()
     scope = (ROOT / "docs" / "scope.md").read_text(encoding="utf-8")
-    rows = re.findall(r"(?m)^\| (?!Source\b)(?!-)([^|]+)\|([^|]*)\|([^|]*)\|$", scope)
-    assert rows, "the scope licence table could not be read"
     uncleared = [r for r in rows
-                 if "not cleared" in r[2].lower() or "not settled" in r[2].lower()
-                 or "not yet checked" in r[2].lower()]
+                 if any(p in r[2].lower() for p in UNRESOLVED)]
     claimed = re.search(r"\*\*(\w+) of those are not cleared\*\*", scope)
     assert claimed, "scope.md no longer states how many rows are not cleared"
     words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
     assert words[claimed.group(1).lower()] == len(uncleared), (
         f"scope.md claims {claimed.group(1)} uncleared rows; the table has "
         f"{len(uncleared)}: {[r[0].strip() for r in uncleared]}")
+
+
+def test_every_uncleared_row_is_named_in_the_paragraph_that_counts_them():
+    """Counting right is not the same as accounting for them.
+
+    The count and the prose agreed at three while the table held four,
+    because the row they both missed was the mildest one — O\\*NET, "terms to
+    confirm". It was absent from the count AND unnamed in every bullet under
+    it, so nothing in the document pointed at the gap. A number can be made
+    to agree with a list by leaving the same row out of both.
+
+    This asks the other question: is each row the table marks unresolved
+    actually spoken about? That does not depend on how the licence cell is
+    worded, so it survives a fifth phrasing the counter would miss.
+    """
+    scope = (ROOT / "docs" / "scope.md").read_text(encoding="utf-8")
+    after = scope[scope.index("of those are not cleared"):]
+    paragraph = after[:after.index("\n## ")] if "\n## " in after else after
+
+    missing = []
+    for name, _publisher, licence in _scope_rows():
+        if not any(p in licence.lower() for p in UNRESOLVED):
+            continue
+        # The longest word in the source name — "Institute", "catalogue",
+        # "Registry", "NET". Distinctive enough to find, loose enough that
+        # the prose can call a row by a different phrase than the table does.
+        words = [w for w in re.findall(r"[A-Za-z]+", name) if len(w) > 2]
+        assert words, f"the row name {name!r} has no word to look for"
+        if max(words, key=len) not in paragraph:
+            missing.append(name.strip())
+    assert not missing, (
+        f"the table marks these rows unresolved and the paragraph counting "
+        f"them never names them: {missing}")
 
 
 def test_every_date_for_this_source_agrees_with_the_record(record):
@@ -324,4 +371,13 @@ def test_the_record_is_written_in_the_characters_it_quotes():
     assert "\\u" not in raw, (
         "the record carries escaped characters, so it was written with "
         "ensure_ascii on and does not match what `--record` now produces")
+
+
+def test_the_committed_note_is_the_one_the_writer_would_write():
+    """Two copies otherwise — the file's and the writer's — and the drift only
+    shows up as a surprise diff on the next refresh."""
+    committed = json.loads(RECORD.read_text(encoding="utf-8"))
+    assert committed["_"] == rl.RECORD_NOTE, (
+        "the committed note and the note `--record` writes have drifted; "
+        "the next refresh will rewrite it")
 
