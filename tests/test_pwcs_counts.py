@@ -442,15 +442,21 @@ def test_the_breakdown_sums_to_the_pages_it_says_it_counted(capsys, monkeypatch)
     attempted = int(heading.group(1).replace(",", ""))
 
     # From the heading to the first line that leaves the group — a member is
-    # indented four, its own sub-lines six, and the next section two.
-    group, members = printed[heading.end():].splitlines()[1:], {}
-    for line in group:
-        if not line.startswith("    ") or line.startswith("      "):
-            if line.strip() and not line.startswith("      "):
-                break
-            continue
-        name, value = _re.match(r"\s+(.+?)\s{2,}([\d,]+)", line).groups()
-        members[name] = int(value.replace(",", ""))
+    # indented four, its own sub-lines six, and anything else ends it. A blank
+    # line ends it too: the first version treated one as "keep looking", so a
+    # group followed by a gap and more indented output would have swept the
+    # later lines into the sum.
+    members = {}
+    for line in printed[heading.end():].splitlines()[1:]:
+        if line.startswith("      "):
+            continue                       # a sub-line of the member above
+        if not line.startswith("    "):
+            break                          # blank line, or the next section
+        matched = _re.match(r"\s+(.+?)\s{2,}([\d,]+)", line)
+        # A message rather than an AttributeError. A test that ERRORS has lost
+        # the sentence explaining what it was checking.
+        assert matched, f"a line in the breakdown is not name-and-count: {line!r}"
+        members[matched.group(1)] = int(matched.group(2).replace(",", ""))
 
     assert sum(members.values()) == attempted, (
         f"the breakdown sums to {sum(members.values())} under a heading "

@@ -73,7 +73,8 @@ ROW_CREDITS = re.compile(r'field--name-field-credits[^>]*>([^<]*)<', re.S)
 #
 # Regex over markup, like COURSE_ROW: there is no published API for this
 # catalogue, and a CMS template change makes either pattern match nothing. For
-# the rows that is caught — PATHWAY_FIELD_PRESENT below separates "no rows" from
+# the rows that is caught — `PATHWAY_FIELD_PRESENT`, now in `pwcs_pages` and
+# imported above, separates "no rows" from
 # "the field did not render". A section title has no such tell, so a template
 # change here degrades quietly to every row carrying `section: None` rather than
 # failing. `parse_pathway` counts the rows it attributed to no section for that

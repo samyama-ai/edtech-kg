@@ -32,8 +32,19 @@ import urllib.parse
 #
 # This travelled with the regex from `pwcs_source` when classification moved
 # here (#74). It was left behind there, describing a pattern that had gone.
+# `\b` was the wrong boundary on BOTH ends. `-` is not a word character, so
+# `\b` sits happily between "courses" and a hyphen — a sibling Drupal field
+# named `…-section-courses-teaser` matched, and this decides a node's label.
+# `(?![\w-])` refuses a longer name; `(?<![\w-])` refuses a longer prefix.
+#
+# And the attribute was read in ONE of the three forms markup uses. Clean
+# Catalog writes double quotes today, so single-quoted or unquoted markup did
+# not fail — it fell through to depth, which is the exact classification this
+# change exists to stop relying on. A CMS template change would have moved 172
+# rows back onto depth silently and every count would still have summed.
 PATHWAY_FIELD_PRESENT = re.compile(
-    r'class="[^"]*\bfield--name-field-degree-section-courses\b')
+    r"""class\s*=\s*(?:"[^"]*|'[^']*|)"""
+    r"""(?<![\w-])field--name-field-degree-section-courses(?![\w-])""")
 
 LEVELS = {1: "subject", 2: "course", 3: "pathway"}
 

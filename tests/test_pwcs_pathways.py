@@ -13,6 +13,9 @@ what the cached catalogue actually holds.
 
 from __future__ import annotations
 
+import pytest
+
+from etl import pwcs_pages
 from etl import pwcs_source as reader
 from tests.pwcs_markup import PUBLISHED, row, section
 
@@ -136,3 +139,42 @@ def test_dangling_and_resolved_rows_use_the_same_spelling():
     got = reader.parse_pathway(markup, "https://catalog.pwcs.edu/p", PUBLISHED)
     everything = [c["url"] for c in got["courses"]] + got["dangling"]
     assert all(u.startswith("https://") for u in everything), everything
+
+
+# What the marker must and must not match. It decides a page's LABEL, and it
+# had no test at all — the classification tests drive `classify`, which only
+# reaches this on markup that already matches.
+MARKER = "field--name-field-degree-section-courses"
+MATCHES = [
+    ("double quotes", f'<div class="{MARKER}">'),
+    ("among other classes", f'<div class="a b {MARKER} c">'),
+    ("single quotes", f"<div class='{MARKER}'>"),
+    ("no quotes", f'<div class={MARKER}>'),
+    ("spaces round the equals", f'<div class = "{MARKER}">'),
+]
+REFUSES = [
+    # `\b` sits between "courses" and a hyphen, because `-` is not a word
+    # character — so a sibling Drupal field extending this name matched, and
+    # the page was labelled a pathway.
+    ("a longer field name", f'<div class="{MARKER}-teaser">'),
+    ("a longer word", f'<div class="{MARKER}XX">'),
+    ("a longer prefix", f'<div class="x-{MARKER}">'),
+    ("the token in prose", f'<p>see {MARKER}</p>'),
+    ("the token in another attribute", f'<div data-x="{MARKER}">'),
+]
+
+
+@pytest.mark.parametrize("what, markup", MATCHES, ids=lambda v: v)
+def test_the_pathway_marker_is_read_in_every_form_markup_writes_it(what, markup):
+    """Read in ONE of the three quoting forms, it did not FAIL on the other
+    two — it fell through to depth, which is the classification this change
+    exists to stop relying on. A CMS template change would have moved 172 rows
+    back onto depth silently and every count would still have summed.
+    """
+    assert pwcs_pages.PATHWAY_FIELD_PRESENT.search(markup), what
+
+
+@pytest.mark.parametrize("what, markup", REFUSES, ids=lambda v: v)
+def test_the_pathway_marker_refuses_a_name_that_merely_contains_it(what, markup):
+    assert not pwcs_pages.PATHWAY_FIELD_PRESENT.search(markup), what
+

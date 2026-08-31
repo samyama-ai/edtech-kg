@@ -426,6 +426,15 @@ def test_narrowing_the_denominator_drops_no_prerequisite_and_no_edge():
         for link in (parsed or {}).get("prerequisite_links") or []:
             targets.append(by_path.get(probe.path_of(link["href"]), "OFF-CATALOGUE"))
 
+    # Both assertions below are about pages the classifier EXCLUDED, and if it
+    # excluded none they are free. `states_one == []` would then be reporting
+    # that nothing was checked, in the same shape as reporting that nothing was
+    # wrong — the exact confusion this PR exists to remove from the counts.
+    excluded = [u for u in urls if kind_of[u] != "course"]
+    assert excluded, (
+        "no page in the cache classifies as anything but a course, so the "
+        "narrowing this test is about did not happen and the assertions "
+        "below check nothing")
     assert states_one == [], "a page that is not a course now states a prerequisite"
     assert targets, "no prerequisite links found — the cache is not the catalogue"
     assert set(targets) == {"course"}
@@ -446,7 +455,7 @@ def test_the_document_quotes_the_figures_the_probe_produces():
     from etl import probe_pwcs as probe
 
     doc = (Path(__file__).resolve().parents[1] / "docs" / "sources"
-           / "course-prerequisites.md").read_text()
+           / "course-prerequisites.md").read_text(encoding="utf-8")
     result = probe.probe(quiet=True)
 
     def figure(pattern: str) -> str:
