@@ -249,10 +249,16 @@ def test_record_and_json_together_print_both(capsys, monkeypatch, tmp_path):
              lp.ONET_CROSSWALKS: CROSSWALKS_PAGE,
              lp.URBAN_PORTAL: URBAN_PAGE}
     monkeypatch.setattr(probe_licences, "page_text", lambda url: pages[url])
-    monkeypatch.setattr(probe_licences, "RECORD", tmp_path / "out.json")
+    destination = tmp_path / "out.json"
+    monkeypatch.setattr(probe_licences, "RECORD", destination)
     assert probe_licences.main(["--json", "--record"]) == 0
     printed = capsys.readouterr().out
-    assert "wrote docs/sources/out.json" in printed
+    # The path it actually wrote, not a directory spelled into the message.
+    # This asserted the literal "docs/sources/out.json" — a record moved
+    # anywhere else would have been reported at a path nothing was written to,
+    # and the test said that was correct.
+    assert f"wrote {destination}" in printed
+    assert destination.exists()
     assert '"onet_database"' in printed, "--json produced nothing alongside --record"
 
 
@@ -427,4 +433,57 @@ def test_the_committed_note_is_the_one_the_writer_would_write():
     assert committed["_"] == probe_licences.RECORD_NOTE, (
         "the committed note and the note `--record` writes have drifted; "
         "the next refresh will rewrite it")
+
+
+def _positions(**database):
+    """A full `read_all` result with the O*NET database fields overridden."""
+    base = {
+        "source": lp.ONET_DATABASE, "version": "30.1",
+        "licence": "L", "attribution": "A", "modification": "M",
+        "applies_only_to": "This license applies only to X",
+        "names_crosswalks_page": False, "read_or_measured": "read"}
+    return {"onet_database": {**base, **database},
+            "onet_crosswalks": {"licence": "CC BY 4.0",
+                                "files_this_repo_reads": ["a", "b"],
+                                "read_or_measured": "read"},
+            "urban_portal": {"licence": "ODC-By", "citation": "C",
+                             "read_or_measured": "read"}}
+
+
+def test_the_crosswalks_line_reads_the_recorded_answer_not_a_second_reading(
+        monkeypatch, capsys):
+    """It computed the boolean a second time from the same string.
+
+    `licence_positions` records `names_crosswalks_page` so the claim this
+    whole document turns on is decided once. Deriving it again in the
+    reporting path lets the console and the record disagree — and the console
+    is what a person reads.
+
+    The two are driven APART here: the recorded answer says the page is named,
+    the string it was derived from does not say so. A re-derivation prints the
+    opposite of the record.
+    """
+    monkeypatch.setattr(probe_licences, "read_all",
+                        lambda: _positions(names_crosswalks_page=True,
+                                           applies_only_to="mentions nothing"))
+    probe_licences.probe()
+    printed = capsys.readouterr().out
+    assert "the crosswalks page IS on that list" in printed, (
+        "the reporting path re-derived the answer instead of reading the "
+        "recorded one, so it contradicts the record")
+
+
+def test_the_modification_obligation_is_shown_not_only_recorded(
+        monkeypatch, capsys):
+    """The only ongoing compliance duty either page states.
+
+    It was extracted a round earlier because the page quoted it with nothing
+    behind it — and then never printed, so someone running the probe to find
+    out what they owe was told everything except the thing they owe.
+    """
+    monkeypatch.setattr(
+        probe_licences, "read_all",
+        lambda: _positions(modification="[Your name] has modified this."))
+    probe_licences.probe()
+    assert "[Your name] has modified this." in capsys.readouterr().out
 

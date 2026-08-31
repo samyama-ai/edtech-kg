@@ -28,8 +28,8 @@ from etl.licence_positions import (MalformedSource, ONET_CROSSWALKS,
                                    ONET_DATABASE, URBAN_PORTAL, onet_crosswalks,
                                    onet_database, page_text, urban_portal)
 
-RECORD = pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources" / \
-    "licences-measured.json"
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+RECORD = ROOT / "docs" / "sources" / "licences-measured.json"
 
 #: Written INTO the record by `--record`, not left in the file for a refresh
 #: to delete. See `main`.
@@ -64,11 +64,22 @@ def probe(quiet: bool = False) -> dict:
         # crosswalks page is absent from the exception list whether or not it
         # was, on the one claim this whole document turns on. If O*NET ever
         # adds the page, the old line went on printing the opposite.
-        named = "crosswalk" in database["applies_only_to"].lower()
+        #
+        # READ, not re-derived. It then computed the boolean a second time
+        # from the same string, so the console and the record could disagree
+        # about the claim they both exist to state. `licence_positions` records
+        # `names_crosswalks_page` precisely so the answer is decided once.
+        named = database["names_crosswalks_page"]
         print("               ^ the crosswalks page IS on that list — the "
               "Database licence now covers the workbooks this repo reads"
               if named else
               "               ^ the crosswalks page is NOT on that list")
+
+        # The ONLY ongoing compliance duty either page states, extracted a
+        # round ago because the page quoted it with nothing behind it — and
+        # then not printed, so someone running the probe to find out what they
+        # owe was told everything except the thing they owe.
+        print(f"  modification {database['modification']}")
 
         print(f"\nO*NET crosswalk files — {ONET_CROSSWALKS}\n")
         print(f"  licence      {crosswalks['licence']}")
@@ -113,7 +124,18 @@ def main(argv: list[str] | None = None) -> int:
         RECORD.write_text(
             json.dumps({"_": RECORD_NOTE, **result}, indent=2,
                        ensure_ascii=False) + "\n", encoding="utf-8")
-        print(f"wrote docs/sources/{RECORD.name}")
+        # Derived, not spelled again. The directory was written into the
+        # message as a literal, so moving the record would have left the
+        # command reporting a path it had not written to.
+        #
+        # Relative to the REPO, not the cwd — the probe is run from anywhere.
+        # And `relative_to` RAISES on a path outside its argument, so the
+        # first version of this crashed the moment a test pointed `RECORD`
+        # somewhere else: a reporting line that can abort the command it is
+        # reporting on. `is_relative_to` first.
+        where = (RECORD.relative_to(ROOT) if RECORD.is_relative_to(ROOT)
+                 else RECORD)
+        print(f"wrote {where}")
     # `if`, not `elif`. `--json --record` accepted both flags and silently
     # printed nothing, so a caller asking for the record AND the output got
     # half of what it asked for with no indication which half.
