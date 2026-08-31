@@ -16,9 +16,8 @@ import argparse
 import datetime
 import json
 import pathlib
-import sys
 
-from etl.state_access import DEPARTMENTS, recommendation, survey
+from etl.state_access import recommendation, survey
 
 RECORD = pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources" / \
     "state-access-measured.json"

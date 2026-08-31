@@ -13,6 +13,16 @@ to negotiate with, because nothing is reading the agent.
 
 `reach` takes an opener rather than making its own request, so the suite
 exercises every branch without a network and no test touches a department.
+
+**Not `etl/http_reach.py`, deliberately.** That module answers "did this
+address answer, and can its silence be asserted", and `attempt` returns a
+status STRING for a HEAD request. This one answers a different question — the
+issue asks whether a 403 is negotiable — and that needs the four outcomes
+below kept apart, because each has a different remedy: a refusal is
+configured, a redirect loop is a site that will not settle, a TLS failure is
+the department's to fix, and only `served` means a machine can read it.
+Collapsing them into a status code loses the finding. It is also GET, not
+HEAD, because `robots.txt` is a file to read rather than an address to ping.
 """
 
 from __future__ import annotations
@@ -34,6 +44,15 @@ DEPARTMENTS = {
     "Texas — tea.texas.gov": "https://tea.texas.gov",
     "New York — nysed.gov": "https://www.nysed.gov",
 }
+
+
+def brief(reason: str, limit: int = 80) -> str:
+    """Truncation the reader can see.
+
+    A message cut mid-word with nothing to mark it — `"unable to get local "`
+    — reads as the message rather than as an excerpt of one.
+    """
+    return reason if len(reason) <= limit else reason[:limit].rstrip() + "…"
 
 
 def open_url(url: str, timeout: int = 25):
@@ -59,14 +78,21 @@ def reach(url: str, opener=open_url) -> dict:
         # a different problem with a different remedy.
         if 300 <= exc.code < 400:
             return {"outcome": "redirect_loop", "detail": f"HTTP {exc.code}"}
+        # A file that is not there is not a file being withheld. `robots.txt`
+        # is optional, and a site that never published one has stated no
+        # restriction — the opposite of the 403 this page argues from. Mapped
+        # to `refused`, a department that simply has no robots.txt would be
+        # written up as "refusing before any policy is consulted".
+        if exc.code in (404, 410):
+            return {"outcome": "absent", "detail": f"HTTP {exc.code}"}
         return {"outcome": "refused", "detail": f"HTTP {exc.code}"}
     except urllib.error.URLError as exc:
         reason = str(getattr(exc, "reason", exc))
         if "CERTIFICATE" in reason.upper() or "SSL" in reason.upper():
-            return {"outcome": "tls_failure", "detail": reason[:80]}
+            return {"outcome": "tls_failure", "detail": brief(reason)}
         if "redirect" in reason.lower():
-            return {"outcome": "redirect_loop", "detail": reason[:80]}
-        return {"outcome": "unreachable", "detail": reason[:80]}
+            return {"outcome": "redirect_loop", "detail": brief(reason)}
+        return {"outcome": "unreachable", "detail": brief(reason)}
     except Exception as exc:                                  # noqa: BLE001
         # Named, never swallowed. An unexpected failure recorded as "refused"
         # would put a department in the blocked column on the strength of a
@@ -96,14 +122,20 @@ def survey(opener=open_url) -> dict:
 def recommendation(one: dict) -> str:
     """`automatable`, `request-based` or `manual-only`, per the issue.
 
-    A department that serves its homepage but refuses robots.txt is
+    A department that serves its homepage but REFUSES robots.txt is
     deliberately not called automatable: it has declined to publish a policy
     to a machine, and reading its files anyway is a decision this repo should
     not make silently.
+
+    A department with no robots.txt at all is a different case and is
+    automatable. It has withheld nothing; there is simply no policy to
+    consult. Treating `absent` as a refusal would flip a department to
+    `request-based` the day it deletes an empty file, and the page would then
+    say it "refuses `robots.txt`" — which is the opposite of what happened.
     """
     home = one["homepage"]["outcome"]
     robots = one["robots_txt"]["outcome"]
-    if home == "served" and robots == "served":
+    if home == "served" and robots in ("served", "absent"):
         return "automatable"
     if home == "served":
         return "request-based"

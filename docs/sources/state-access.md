@@ -3,7 +3,7 @@
 Answering edtech-kg#50, raised while doing #40 so that the cost is a known
 quantity rather than a surprise mid-build. #40's answer was no regardless, but
 #44's *"near me"* and the refresh requirement both assume automation is
-possible, and for three of five departments it is not.
+possible, and for four of five departments it is not.
 
 Measured **2026-08-28** by `python -m etl.probe_state_access`, which writes
 [`state-access-measured.json`](state-access-measured.json). Ten requests: a
@@ -44,7 +44,10 @@ collapsing it into "blocked" would lose that.
 2026-08-18 that *"Texas and New York served their files without complaint."*
 Ten days later New York does not verify. A certificate problem is fixed by the
 department rather than negotiated with, and it may be temporary — which is
-precisely why this page is regenerated rather than typed.
+precisely why every figure on this page is checked against a record a probe
+wrote, rather than trusted because someone typed it. The record is
+regenerated; the page is held to it by
+`test_the_page_and_the_record_agree_on_every_department`.
 
 ## What periodic refresh costs
 

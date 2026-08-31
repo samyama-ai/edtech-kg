@@ -98,7 +98,9 @@ def test_robots_txt_is_fetched_for_every_department():
 
 @pytest.mark.parametrize("home,robots,verdict", [
     ("served", "served", "automatable"),
+    ("served", "absent", "automatable"),
     ("served", "refused", "request-based"),
+    ("absent", "absent", "manual-only"),
     ("refused", "refused", "manual-only"),
     ("redirect_loop", "redirect_loop", "manual-only"),
     ("tls_failure", "tls_failure", "manual-only"),
@@ -150,3 +152,76 @@ def test_the_page_says_robots_txt_is_what_answers_the_question():
     page = re.sub(r"\s+", " ", PAGE.read_text().lower())
     assert "refusing it is not applying a crawler policy" in page
     assert "there is no user-agent to negotiate with" in page
+
+
+def test_a_robots_txt_that_was_never_published_is_absent_not_refused():
+    """404 is "there is no policy", which is the opposite of a refusal.
+
+    This page's entire argument is that a 403 on `robots.txt` is a deliberate
+    refusal. The reader could not tell that from "the file is not there":
+    every non-3xx HTTPError became `refused`, so a department that simply
+    never published one would be written up as "refusing before any policy is
+    consulted" — and an optional file's absence would read as a block.
+
+    Today's numbers do not move: Florida and Virginia both answered 403. This
+    is about the next run.
+    """
+    for code in (404, 410):
+        got = access.reach("https://x/robots.txt", raiser(
+            urllib.error.HTTPError("https://x/robots.txt", code, "Not Found",
+                                   {}, None)))
+        assert got == {"outcome": "absent", "detail": f"HTTP {code}"}
+
+
+def test_a_department_that_publishes_no_robots_txt_stays_automatable():
+    """The failure this guards is a verdict flipping on a deletion.
+
+    If Texas removed an empty `robots.txt`, the verdict would have gone from
+    `automatable` to `request-based` and the page would have said Texas
+    refuses it. Nothing was refused.
+    """
+    assert access.recommendation({"homepage": {"outcome": "served"},
+                                  "robots_txt": {"outcome": "absent"}}) == "automatable"
+
+
+def test_a_truncated_detail_says_it_is_truncated():
+    """`unable to get local ` reads as the message, not as an excerpt."""
+    assert access.brief("short") == "short"
+    long_reason = "x" * 200
+    assert access.brief(long_reason).endswith("…")
+    assert len(access.brief(long_reason)) == 81
+
+
+def test_the_page_counts_the_departments_the_record_counts(record):
+    """The prose counts, not just the table rows.
+
+    The page opened by saying automation is impossible for "three of five"
+    departments while its own table and its own refresh section both said
+    four. A reader takes the number from the sentence, and nothing checked it.
+    """
+    page = re.sub(r"\s+", " ", PAGE.read_text().lower())
+    verdicts = [one["recommendation"] for one in record["departments"].values()]
+    manual = sum(1 for v in verdicts if v != "automatable")
+    spelled = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+    total = spelled[len(verdicts)]
+
+    assert f"for {spelled[manual]} of {total} departments it is not" in page
+    assert f"{spelled[len(verdicts) - manual]} of {total} states is automatable" in page
+
+
+def test_the_page_names_the_departments_that_actually_refuse(record):
+    """"Refuses robots.txt" is a narrower claim than "cannot be automated".
+
+    Four departments are manual-only; only two refuse anything. California
+    answers a redirect loop and New York fails TLS — neither is refusing —
+    so a page that named four here would be making an accusation the record
+    does not support.
+    """
+    refusing = {name.split(" — ")[0].lower()
+                for name, one in record["departments"].items()
+                if one["robots_txt"]["outcome"] == "refused"}
+    page = re.sub(r"\s+", " ", PAGE.read_text().lower())
+    claimed = re.search(r"([a-z ]+?) refuse \*\*`robots.txt`\*\*", page)
+    assert claimed, "the page no longer names who refuses robots.txt"
+    named = {w.strip() for w in claimed.group(1).split(" and ") if w.strip()}
+    assert named == refusing, f"page names {named}; the record refuses {refusing}"
