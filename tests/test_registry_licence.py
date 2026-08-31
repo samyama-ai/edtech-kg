@@ -462,3 +462,39 @@ def test_this_file_opens_no_sockets():
     assert reported[-1] == "CONNECTS 0", (
         f"{reported[-1]} — a test in this file reached the network. Something "
         f"`probe` calls is unpatched; `total` was the one that hid here.")
+
+
+def test_the_record_carries_the_verdict_not_only_the_evidence(record):
+    """The conclusion belongs in the machine-readable file too.
+
+    The record held the quoted terms and the counts and left the answer to be
+    inferred from a markdown page. Anything reading this file to decide
+    whether it may load the Registry — including the next person writing a
+    loader — should find the answer in it.
+    """
+    verdict = record.get("verdict", "")
+    assert verdict, "the record states no verdict"
+    assert "not cleared" in verdict.lower()
+    assert "developer agreement" in verdict.lower(), (
+        "the verdict does not say what would change the answer")
+
+
+def test_scope_counts_the_uncleared_rows_it_actually_lists():
+    """The paragraph said two while the table held three.
+
+    It is prose about a table three lines above it, so it drifts every time a
+    row is added — which is exactly what happened when this PR added the
+    Registry row. Counted from the table rather than trusted.
+    """
+    scope = (ROOT / "docs" / "scope.md").read_text(encoding="utf-8")
+    rows = re.findall(r"(?m)^\| (?!Source\b)(?!-)([^|]+)\|([^|]*)\|([^|]*)\|$", scope)
+    assert rows, "the scope licence table could not be read"
+    uncleared = [r for r in rows
+                 if "not cleared" in r[2].lower() or "not settled" in r[2].lower()
+                 or "not yet checked" in r[2].lower()]
+    claimed = re.search(r"\*\*(\w+) of those are not cleared\*\*", scope)
+    assert claimed, "scope.md no longer states how many rows are not cleared"
+    words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+    assert words[claimed.group(1).lower()] == len(uncleared), (
+        f"scope.md claims {claimed.group(1)} uncleared rows; the table has "
+        f"{len(uncleared)}: {[r[0].strip() for r in uncleared]}")
