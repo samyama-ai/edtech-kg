@@ -144,3 +144,92 @@ def test_the_rate_carries_the_digit_that_distinguishes_the_denominators():
     """
     assert probe.pct(229, 791) == "29.0%"
     assert probe.pct(229, 960) == "23.9%"
+
+
+# `catalogue_urls` returns `sorted(set(...))`, so a limited run reads the
+# alphabetically FIRST pages, not the first in the sitemap. These fixtures are
+# named so the page that states the prerequisite sorts before its target.
+PREREQ_ON_ANOTHER_COURSE = """<html><body><h1 class="page-title">Landscaping 1</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/agriculture/landscaping-9">Landscaping 9</a></div></body></html>"""
+
+PREREQ_ON_AN_UNOPENED_SUBJECT = """<html><body><h1 class="page-title">Landscaping 1</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/zoology">Zoology</a></div></body></html>"""
+
+PARTIAL_SITEMAP = ('<urlset>'
+                   '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+                   '<loc>https://catalog.pwcs.edu/agriculture/landscaping-9</loc>'
+                   '</urlset>')
+
+PARTIAL_PAGES = {
+    probe.SITEMAP: PARTIAL_SITEMAP,
+    "https://catalog.pwcs.edu/agriculture/landscaping-1": PREREQ_ON_ANOTHER_COURSE,
+    "https://catalog.pwcs.edu/agriculture/landscaping-9": NO_PREREQ}
+
+
+def test_a_partial_run_does_not_call_an_unopened_course_a_broken_link(monkeypatch):
+    """`--limit` resolved against the courses READ, not the courses published.
+
+    Narrowing resolution to courses is #74's fix. Narrowing it to the pages
+    this run happened to open is a different change, and it made a
+    prerequisite pointing at any of the ~740 unopened courses dangle. The docs
+    advertise `--limit 50` as a quick run whose output merely "says it is
+    partial"; it would also have mis-reported the headline resolution figures,
+    and the more partial the run the more broken the catalogue would look.
+
+    One course is read. Its prerequisite points at a course that is published
+    in the sitemap and is never opened.
+    """
+    serve(monkeypatch, PARTIAL_PAGES)
+    result = probe.probe(limit=1, quiet=True)
+    assert (result["population"], result["pages_read"]) == (2, 1)
+    assert result["stating_a_prerequisite"] == 1
+    assert result["dangling_links"] == 0
+    assert result["every_link_resolves"] == 1
+    assert result["no_link_resolves"] == 0
+    # The reported set must BE the set resolution ran against, on a partial
+    # run as much as on a full one: one course read, one unopened.
+    assert result["published_paths"] == 2
+
+
+def test_a_full_run_of_the_same_pages_reports_the_same_resolution(monkeypatch):
+    """The partial-run widening must not change what a full run reports.
+
+    On a full run nothing is unopened, so the set resolution uses is exactly
+    the courses read — unchanged by this fix, and that is the claim.
+    """
+    serve(monkeypatch, PARTIAL_PAGES)
+    full = probe.probe(quiet=True)
+    assert full["published_paths"] == full["courses"] == 2
+    assert full["dangling_links"] == 0
+
+
+def test_a_partial_run_says_its_dangling_count_is_a_ceiling(monkeypatch):
+    """The reader meets the caveat next to the number, or not at all."""
+    serve(monkeypatch, PARTIAL_PAGES)
+    assert "a ceiling, not a finding" in probe.probe(limit=1,
+                                                     quiet=True)["coverage"]
+
+
+def test_a_partial_run_still_dangles_a_link_to_a_page_that_is_not_a_course(monkeypatch):
+    """The generosity is bounded: unopened means unknown, not "counts as a course".
+
+    Without this, widening the set on a partial run could undo #74 itself — a
+    prerequisite pointing at a subject index would resolve again, and the
+    loader would still write no edge for it. The subject index here is
+    unopened too, and must still dangle, because its DEPTH says it is not a
+    course.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+            '<loc>https://catalog.pwcs.edu/zoology</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": PREREQ_ON_AN_UNOPENED_SUBJECT,
+        "https://catalog.pwcs.edu/zoology": SUBJECT_INDEX})
+    result = probe.probe(limit=1, quiet=True)
+    assert result["pages_read"] == 1
+    assert result["dangling_links"] == 1
+    assert result["no_link_resolves"] == 1

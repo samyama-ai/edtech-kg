@@ -30,6 +30,7 @@ exactly rather than crawled blind. All of it was read — not a sample.
 | Dangling links | **0** | |
 | Prerequisite field rendered but unreadable | **0** | the parser is not silently missing any |
 | Pages that could not be read | **0** | excluded, never counted as having no prerequisite |
+| Carrying free-text requirements as well | 138 | not edges — see below |
 
 ### What the earlier 960 counted
 
@@ -37,7 +38,7 @@ An earlier version of this page quoted **229 of 960 — 24%**. That denominator
 was every page in the sitemap, and the sitemap is not a list of courses. It
 carries three levels, visible in the path:
 
-| depth | example | what it is | count |
+| depth | example | what depth alone says it is | count by depth |
 |---|---:|---|---:|
 | 1 | `/band` | subject index | 127 |
 | 2 | `/band/concert-band` | course | 795 |
@@ -53,7 +54,6 @@ assumed: no page classified as anything but a course states a prerequisite,
 and every prerequisite link lands on a page classified as a course
 (`tests/test_pwcs_classify.py`, against the cached catalogue). Only the
 denominator moved — from 23.9% to **29.0%**.
-| Carrying free-text requirements as well | 138 | not edges — see below |
 
 ## Why it resolves, and the FDA comparison
 
@@ -138,7 +138,8 @@ demo leans on the word "chain".
 ```bash
 python -m etl.probe_pwcs                # the full sweep, all 960 catalogue pages
 python -m etl.probe_pwcs --json         # machine-readable, with timestamp
-python -m etl.probe_pwcs --limit 50     # a quick run — the output says it is partial
+python -m etl.probe_pwcs --limit 50     # a quick run — partial, and it says so
+                                        # its dangling count is a ceiling, not a finding
 ```
 
 Pages are cached under `data/pwcs/` (gitignored), so re-running the figures

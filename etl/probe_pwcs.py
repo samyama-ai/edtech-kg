@@ -8,6 +8,7 @@ chains are the demo. If not, the demo is programme → occupation → earnings.
 
     python -m etl.probe_pwcs                # the full sweep, 960 course pages
     python -m etl.probe_pwcs --limit 50     # a quick run, and it says it is one
+                                            # (dangling counts are a ceiling then)
     python -m etl.probe_pwcs --json         # machine-readable, with timestamp
 
 Prince William County Schools publishes `catalog.pwcs.edu` on Clean Catalog, a
@@ -39,10 +40,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
-
-from etl.pwcs_pages import classify
 from datetime import datetime, timezone
 from pathlib import Path
+
+from etl.pwcs_pages import classify, level
 
 SITEMAP = "https://catalog.pwcs.edu/sitemap.xml"
 USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
@@ -301,23 +302,37 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     # and then written no edge, and the count and the graph would have
     # disagreed with nothing to say why. Zero links do that in this catalogue —
     # asserted in `tests/test_pwcs_classify.py`, not assumed.
-    result = resolve(records, catalogue=course_urls_read)
+    #
+    # Narrowing to COURSES is that fix. Narrowing to the courses we happened to
+    # READ is a different change, and it made every prerequisite pointing at an
+    # unopened page dangle — `--limit 50` reported the catalogue as broken in
+    # proportion to how little of it was read. A page never opened is unknown,
+    # not absent. Depth is the only evidence we have about one, and `level` is
+    # wrong for exactly four pages here; being wrong in the generous direction
+    # keeps an unopened page from counting as a broken link. On a full run
+    # nothing is unopened, this list is empty, and the headline figures are
+    # unchanged — which is what `resolve`'s docstring already promised.
+    opened = set(read)
+    unopened_courses = [u for u in urls
+                        if u not in opened and level(u) == "course"]
+    catalogue = course_urls_read + unopened_courses
+    result = resolve(records, catalogue=catalogue)
     coverage = ("every catalogue page in the sitemap" if not limit
                 else f"the first {len(read)} of {population} sitemap pages — "
-                     f"a partial run, not the catalogue")
+                     f"a partial run, not the catalogue. Prerequisite "
+                     f"resolution below is measured against the courses read "
+                     f"plus {len(unopened_courses)} unopened pages at course "
+                     f"depth, so dangling counts are a ceiling, not a finding")
     result |= {"population": population, "pages_read": len(read),
                "subjects": kinds["subject"], "pathways": kinds["pathway"],
                "unclassified": kinds["unclassified"],
                "not_a_course_page": skipped,
                "unread": len(unread), "unread_examples": unread[:5], "coverage": coverage,
-               # The number reported must BE the set used for resolution.
-               # Reporting a wider one made the 100% look like it was checked
-               # against more than it was.
-               # COURSE paths, matching what resolution actually ran against.
-               # This said 960 while resolution used 791, so the line claiming
-               # "the whole catalogue" overstated the set by every subject
-               # index and pathway page in it.
-               "published_paths": len({path_of(u) for u in course_urls_read}
+               # The number reported must BE the set resolution ran
+               # against, so it is derived from `catalogue` and not rebuilt
+               # from a wider or narrower list. Reporting 960 while resolution
+               # used 791 made the 100% look checked against more than it was.
+               "published_paths": len({path_of(u) for u in catalogue}
                                       - {None})}
 
     if not quiet:
