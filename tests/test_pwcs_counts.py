@@ -288,5 +288,62 @@ def test_the_coverage_line_says_when_the_eligible_set_was_widened(monkeypatch):
         "https://catalog.pwcs.edu/agriculture/landscaping-4":
             PREREQ_ON_AN_UNREADABLE_PAGE})
     coverage = probe.probe(quiet=True)["coverage"]
-    assert "not opened or not parsed" in coverage
+    assert "never opened" in coverage
     assert "ceiling rather than a finding" in coverage
+
+
+PATHWAY_AT_COURSE_DEPTH = """<html><body><h1 class="page-title">IB Programme</h1>
+<div class="field--name-field-degree-section-courses">
+<article about="/agriculture/landscaping-1" class="degree-row"></article>
+</div></body></html>"""
+
+PREREQ_ON_A_PATHWAY = """<html><body><h1 class="page-title">Landscaping 5</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/specialty-programs/ib-programme">IB Programme</a></div></body></html>"""
+
+
+def test_a_pathway_at_course_depth_is_not_re_admitted_by_depth(monkeypatch):
+    """Depth is the FALLBACK, not the rule — the previous fix got this wrong.
+
+    Four real pages carry a pathway's course table at course depth, and #87
+    exists because reading them by depth cost 172 published rows. Widening the
+    eligible set with `level(u) == "course"` for every page absent from the
+    parsed set re-admitted exactly those four, undoing that fix in the one
+    place it is about.
+
+    A page the classifier reached is trusted; depth is used only where markup
+    is missing entirely.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            '<loc>https://catalog.pwcs.edu/specialty-programs/ib-programme</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-5</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/specialty-programs/ib-programme":
+            PATHWAY_AT_COURSE_DEPTH,
+        "https://catalog.pwcs.edu/agriculture/landscaping-5": PREREQ_ON_A_PATHWAY})
+    result = probe.probe(quiet=True)
+
+    # It is at course depth and it is not counted as a course.
+    assert (result["courses"], result["pathways"]) == (1, 1)
+    # And a prerequisite pointing at it does NOT resolve: it is a pathway, the
+    # loader writes no course-to-course edge to it, so calling it resolved
+    # would put the count and the graph back into disagreement.
+    assert result["published_paths"] == 1
+    assert result["dangling_links"] == 1
+    assert result["resolvable_edges"] == 0
+
+
+def test_the_breakdown_is_counted_against_the_pages_opened(capsys, monkeypatch):
+    """It sat under a heading claiming it accounted for the whole sitemap.
+
+    `population` is every page listed; the three lines below it count only
+    pages this run opened, so under `--limit` they summed to the limit while
+    the heading said 960.
+    """
+    serve(monkeypatch, PARTIAL_PAGES)
+    probe.probe(limit=1)
+    printed = capsys.readouterr().out
+    assert "of the 1 opened:" in printed, (
+        "the breakdown does not say how many pages it counted")

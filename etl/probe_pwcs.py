@@ -266,6 +266,12 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     # the reason depth alone is not enough (#87).
     kinds: Counter[str] = Counter()
     course_urls_read: list[str] = []
+    # Every page we managed to classify, and separately every page the
+    # classifier called a course. The second is not the same as
+    # `course_urls_read`: a page can be a course and still fail to parse, and
+    # it is published either way.
+    classified_any: set[str] = set()
+    classified_course: list[str] = []
     records, skipped, unread = [], 0, []
     for url in read:
         # One slow page must not lose the whole sweep. Retried once, then
@@ -282,6 +288,9 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
                 continue
         kind = classify(url, markup) or "unclassified"
         kinds[kind] += 1
+        classified_any.add(url)
+        if kind == "course":
+            classified_course.append(url)
         parsed = parse_course(markup, url)
         # A subject index and a pathway page both parse as courses — they have
         # a title and no prerequisite field — so `parse_course` returning a
@@ -303,22 +312,22 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     # disagreed with nothing to say why.
     #
     # But "we could not open it" is not "it is not published". Three ways a
-    # course page can be absent from `course_urls_read` while still existing:
-    # never attempted (`--limit`), attempted and unreadable (both fetches
-    # failed), or read but unparsed. The first was handled; the other two were
-    # not, so a prerequisite pointing at a page whose fetch timed out was
-    # reported as a DANGLING LINK — the catalogue accused of being broken
-    # because our own read was.
+    # course page can be missing from the parsed set while still existing:
+    # never attempted (`--limit`), attempted and unreadable, or read and
+    # unparsed. All three belong in the eligible set.
     #
-    # So the eligible set is every sitemap URL at course depth that we did not
-    # positively classify. `level` is used rather than `classify` on purpose:
-    # classification needs markup, and markup is exactly what is missing for
-    # these. Depth is what the sitemap can tell us without opening anything.
-    # On a full, clean run this list is empty and the figures are unchanged.
-    classified = set(course_urls_read)
-    unopened_courses = [u for u in urls
-                        if u not in classified and level(u) == "course"]
-    catalogue = course_urls_read + unopened_courses
+    # **Depth is the FALLBACK, not the rule.** Using it for every page absent
+    # from the parsed set re-admitted the four pages whose markup says pathway
+    # at course depth — undoing #87 in the one place that fix is about. So a
+    # page the classifier reached is trusted: its kind decides. Depth is used
+    # only for pages we never classified at all, where markup is exactly what
+    # is missing.
+    #
+    # On a full, clean run `never_classified` is empty and the eligible set is
+    # the classified courses, unchanged.
+    never_classified = [u for u in urls
+                        if u not in classified_any and level(u) == "course"]
+    catalogue = classified_course + never_classified
     result = resolve(records, catalogue=catalogue)
     coverage = ("every catalogue page in the sitemap" if not limit
                 else f"the first {len(read)} of {population} sitemap pages — "
@@ -327,12 +336,12 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     # `--limit`. A full run can still leave pages unclassified — a fetch that
     # failed twice, or a page that parsed to nothing — and the caveat belongs
     # wherever that happened, not wherever we chose to stop early.
-    if unopened_courses:
+    if never_classified:
         coverage += (f". Prerequisite resolution is measured against the "
-                     f"{len(course_urls_read)} courses read plus "
-                     f"{len(unopened_courses)} pages at course depth that were "
-                     f"not opened or not parsed, so dangling counts are a "
-                     f"ceiling rather than a finding")
+                     f"{len(classified_course)} classified courses plus "
+                     f"{len(never_classified)} pages at course depth that "
+                     f"were never opened, so dangling counts are a ceiling "
+                     f"rather than a finding")
     result |= {"population": population, "pages_read": len(read),
                "subjects": kinds["subject"], "pathways": kinds["pathway"],
                "unclassified": kinds["unclassified"],
@@ -348,8 +357,12 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     if not quiet:
         print(f"\nPWCS course catalogue — catalog.pwcs.edu\n")
         print(f"  coverage               {coverage}")
-        print(f"  sitemap pages          {result['population']:>6,}"
-              f"   of which:")
+        print(f"  sitemap pages          {result['population']:>6,}")
+        # AGAINST PAGES READ, not against the sitemap. `population` is every
+        # page the sitemap lists; the breakdown below counts only pages this
+        # run opened, so under `--limit` the three lines summed to the limit
+        # and sat under a heading claiming they accounted for all 960.
+        print(f"  of the {result['pages_read']:,} opened:")
         print(f"    subject indexes      {result['subjects']:>6,}")
         print(f"    COURSES              {result['courses']:>6,}"
               f"   <- every rate below is quoted against this")
