@@ -346,3 +346,114 @@ def test_no_document_renders_the_trademark_as_emphasis():
     assert scanned[licences] == [], "the licence page has a bare trademark"
     assert licences.read_text().count(r"O\*NET") >= 5, \
         "the licence page no longer discusses the trademark — did it move?"
+
+
+# --------------------------------------------------------------------------
+# the fetch boundary — a failure to reach is not a failure to publish
+# --------------------------------------------------------------------------
+
+def test_a_page_that_does_not_answer_raises_unreachable(monkeypatch):
+    """Two different facts, and only one is about the publisher.
+
+    Reporting a timeout as `MalformedSource` invites the next reader to
+    conclude the terms changed. `Unreachable` subclasses it, so every existing
+    handler still catches it and the CLI keeps one exit code.
+    """
+    def refuse(*_a, **_k):
+        raise OSError("connection reset")
+
+    monkeypatch.setattr(lp.urllib.request, "urlopen", refuse)
+    with pytest.raises(lp.Unreachable, match="did not answer"):
+        lp.page_text("https://example.invalid/terms")
+    # And it is still a MalformedSource, or `main` stops catching it.
+    assert issubclass(lp.Unreachable, lp.MalformedSource)
+
+
+def test_the_response_charset_is_honoured_not_assumed(monkeypatch):
+    """These are three third-party pages quoted VERBATIM as licence positions.
+
+    A publisher serving Latin-1 would have turned every accented character in
+    a quoted sentence into a replacement character, silently.
+    """
+    # No em dash: it has no Latin-1 encoding, and the fixture must be a page
+    # a publisher could actually serve.
+    body = "Café Frais licence".encode("latin-1")
+
+    class Response:
+        headers = type("H", (), {
+            "get_content_charset": staticmethod(lambda: "latin-1")})()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return body
+
+    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
+    read = lp.page_text("https://example.test/x")
+    assert "Café Frais" in read
+    # Decoded as UTF-8 the accented byte is a replacement character, so this
+    # fails loudly if the charset is ignored rather than passing on a
+    # substring that happens to survive.
+    assert "\ufffd" not in read
+
+
+def test_an_unknown_charset_falls_back_rather_than_raising(monkeypatch):
+    """A codec name Python does not know must not become a traceback."""
+    class Response:
+        headers = type("H", (), {
+            "get_content_charset": staticmethod(lambda: "not-a-real-codec")})()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"plain text"
+
+    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
+    assert lp.page_text("https://example.test/x") == "plain text"
+
+
+def test_each_reader_refuses_in_words_that_name_its_own_guard():
+    """Why `match=` on the shared boilerplate is not a test.
+
+    Every `_one` refusal ends "Refusing rather than recording a blank", so
+    matching that passes whenever ANY guard fires — including one belonging to
+    a different reader. The three `what` strings have to be distinct, or the
+    parametrised refusal tests above cannot tell which guard they exercised.
+    """
+    said = {}
+    for reader, page, missing in (
+            (lp.onet_database, DATABASE_PAGE, "Creative Commons Attribution 4.0"),
+            (lp.onet_crosswalks, CROSSWALKS_PAGE, "Crosswalk Files by"),
+            (lp.urban_portal, URBAN_PAGE, "Open Data Commons")):
+        with pytest.raises(lp.MalformedSource) as raised:
+            reader(page.replace(missing, "REMOVED"))
+        said[reader.__name__] = str(raised.value)
+
+    assert len(said) == 3
+    # Distinct beyond the shared sentence: strip it and they must still differ.
+    stripped = {name: message.replace("Refusing rather than recording a blank.", "")
+                for name, message in said.items()}
+    assert len(set(stripped.values())) == 3, \
+        f"two readers refuse in the same words: {stripped}"
+
+
+# --------------------------------------------------------------------------
+# the trademark scanner, against the shapes that fooled it
+# --------------------------------------------------------------------------
+
+def test_a_fence_opened_inside_a_blockquote_is_still_a_fence():
+    """`> ``` ` never matched, so a quoted example was scanned as prose."""
+    quoted = "> Example:\n>\n> ```\n> O*NET bare inside a quoted fence\n> ```\n"
+    assert bare_trademark(quoted) == []
+
+
+def test_a_double_backtick_span_is_not_split_at_its_inner_backtick():
+    """``a `b` c`` is ONE code span containing a backtick.
+
+    Matching the single form first cut it in two and left the middle exposed
+    as prose, so an asterisk inside a code span was reported.
+    """
+    assert bare_trademark("Use ``the `O*NET` field`` here.\n") == []
+
+
+def test_genuine_prose_is_still_reported():
+    """The false-negative direction. A scanner that finds nothing passes
+    everything, which is how this guard would quietly stop working."""
+    assert bare_trademark("O*NET is a trademark.\n") == ["O*NET is a trademark."]
+    assert bare_trademark("O" + chr(92) + "*NET is a trademark.\n") == []
