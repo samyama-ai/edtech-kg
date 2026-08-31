@@ -63,7 +63,7 @@ def probe(quiet: bool = False) -> dict:
               if named else
               "               ^ the crosswalks page is NOT on that list")
 
-        print("\nO*NET crosswalk files — {ONET_CROSSWALKS}\n")
+        print(f"\nO*NET crosswalk files — {ONET_CROSSWALKS}\n")
         print(f"  licence      {crosswalks['licence']}")
         print(f"  this repo reads {len(crosswalks['files_this_repo_reads'])} of "
               f"them: {', '.join(crosswalks['files_this_repo_reads'])}")

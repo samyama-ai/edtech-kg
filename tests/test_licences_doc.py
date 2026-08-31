@@ -281,3 +281,25 @@ def test_genuine_prose_is_still_reported():
     everything, which is how this guard would quietly stop working."""
     assert bare_trademark("O*NET is a trademark.\n") == ["O*NET is a trademark."]
     assert bare_trademark("O" + chr(92) + "*NET is a trademark.\n") == []
+
+
+def test_the_probe_prints_the_address_it_read_not_the_variable_name():
+    """A lint fix broke a different line, and the output shipped wrong.
+
+    Removing an `f` prefix to silence F541 on one string took it off another,
+    so the probe printed the literal `{ONET_CROSSWALKS}` to anyone who ran it.
+    Nothing caught it: the print block was exercised, but only for the two
+    lines the assertions named.
+    """
+    import re as _re
+
+    source = (ROOT / "etl" / "probe_licences.py").read_text(encoding="utf-8")
+    # Any print whose text contains a `{…}` placeholder must be an f-string.
+    for line in source.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("print("):
+            continue
+        if "{" in stripped and not _re.search(r'print\(\s*f["\']', stripped):
+            raise AssertionError(
+                f"this print has a placeholder and is not an f-string, so it "
+                f"will print the braces: {stripped[:90]}")

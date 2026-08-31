@@ -5,15 +5,14 @@ page TEXT rather than a URL, so these hand it fixtures directly instead of
 monkeypatching a fetch — the seam exists precisely so the indirection does not
 have to be rebuilt here.
 
-The page is checked against `docs/sources/licences-measured.json`, written by
-`python -m etl.probe_licences --record`. That is the SCED arrangement: a
-committed record makes the doc checkable offline, and the live pages are
-re-read when a person decides to run the probe.
+The PAGE and the record are checked in `tests/test_licences_doc.py`, which is
+where they moved when this file passed the 500-line limit. This one is the
+readers and the fetch boundary only — the docstring went on describing the
+other half after the split, along with a `record` fixture nothing here uses.
 """
 
 from __future__ import annotations
 
-import json
 import pathlib
 import re
 
@@ -22,13 +21,6 @@ import pytest
 from etl import licence_positions as lp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PAGE = ROOT / "docs" / "sources" / "licences.md"
-RECORD = ROOT / "docs" / "sources" / "licences-measured.json"
-
-
-@pytest.fixture(scope="module")
-def record() -> dict:
-    return json.loads(RECORD.read_text())
 
 
 DATABASE_PAGE = """
