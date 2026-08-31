@@ -228,3 +228,65 @@ def test_the_probe_prints_the_exception_finding(capsys, monkeypatch):
     printed = capsys.readouterr().out
     assert "the crosswalks page is NOT on that list" in printed
     assert "(ODC-By) v1.0" in printed
+
+
+def bare_trademark(text: str) -> list[str]:
+    """Lines carrying an unescaped `O*NET` that markdown will render as emphasis.
+
+    Code spans, fenced blocks and indented blocks are excluded: an asterisk
+    inside them is literal, and `code-sets.md` quotes a console listing that
+    must keep its bare form.
+    """
+    found = []
+    fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fence = not fence
+            continue
+        if fence or line.startswith("    ") or line.startswith("\t"):
+            continue
+        spans = [(m.start(), m.end()) for m in re.finditer(r"`[^`]*`", line)]
+        for m in re.finditer(r"O(?!\\)\*NET", line):
+            if not any(a <= m.start() < b for a, b in spans):
+                found.append(line.strip())
+    return found
+
+
+def test_the_attribution_quote_reproduces_the_trademark():
+    """The one string this page argues hardest must be reproduced exactly.
+
+    Markdown pairs bare asterisks into emphasis within a block. The
+    attribution blockquote carries two, so unescaped it renders as italics
+    with both asterisks eaten — "ONET 31.0 Database ... ONET is a trademark" —
+    which is the one form O*NET's own terms do not permit.
+
+    The two quote tests either side of this one cannot see it: both normalise
+    through `[^a-z0-9 ]+`, which deletes the asterisk on both sides, so they
+    pass identically whether the trademark survives rendering or not.
+    """
+    page = PAGE.read_text()
+    attribution = re.search(r"(?m)^> This page includes information.*?(?=\n\n)",
+                            page, re.S)
+    assert attribution, "the attribution blockquote is no longer on the page"
+    assert attribution.group(0).count(r"O\*NET") == 2, \
+        "the attribution quote must escape both trademarks, or they italicise"
+
+
+def test_no_document_renders_the_trademark_as_emphasis():
+    """A repo-wide ratchet, because this regresses on the next edit anywhere.
+
+    Asserted against every page rather than this PR's own, since the failure
+    is invisible in the source and only shows in the rendered document.
+    """
+    scanned = {}
+    for doc in sorted((ROOT / "docs").rglob("*.md")):
+        scanned[doc] = bare_trademark(doc.read_text())
+    offenders = {str(d.relative_to(ROOT)): lines
+                 for d, lines in scanned.items() if lines}
+    assert not offenders, f"unescaped O*NET will italicise: {offenders}"
+
+    # Not vacuous: the corpus really does discuss the trademark. Without this,
+    # a rename of the docs tree would pass the assertion above by scanning
+    # nothing at all.
+    escaped = sum(d.read_text().count(r"O\*NET") for d in scanned)
+    assert escaped >= 40, f"only {escaped} escaped uses found — scanned nothing?"
