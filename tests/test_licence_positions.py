@@ -129,19 +129,34 @@ def test_the_crosswalk_files_carry_their_own_notice():
     assert len(read["files_this_repo_reads"]) == 2
 
 
-def test_a_crosswalks_page_that_stops_publishing_our_files_says_so():
-    """`len(...) == 2` alone was satisfied by returning both names blindly.
+def test_a_crosswalks_page_naming_neither_workbook_is_refused():
+    """An empty list read as an ordinary result while saying the opposite.
 
-    The list is what anchors the licence claim to the downloads it is made
-    about. If O*NET moves these workbooks, this repo's clearance stops
-    covering what it reads, and a hardcoded pair would never notice.
+    The notice on that page is what clears the two workbooks this repo reads.
+    A page carrying the notice and naming neither file does not clear them —
+    but `files_this_repo_reads: []` alongside a perfectly good licence string
+    looks like a page that simply lists nothing, and the caller records it as
+    cleared.
     """
     moved = CROSSWALKS_PAGE.replace("Classfication", "Renamed").replace(
         "Registered Apprenticeship Partners", "Renamed Apprenticeship")
-    assert lp.onet_crosswalks(moved)["files_this_repo_reads"] == []
-    # and the licence is still readable — this is a change of contents, not a
-    # failed load, so it must not be confused with the refusal case.
-    assert lp.onet_crosswalks(moved)["licence"].startswith("Crosswalk Files")
+    assert moved != CROSSWALKS_PAGE
+    with pytest.raises(lp.MalformedSource, match="named neither workbook"):
+        lp.onet_crosswalks(moved)
+
+
+def test_one_workbook_renamed_is_recorded_not_refused():
+    """A publisher retiring one file is ordinary; retiring both is not.
+
+    Refusing on either would make an unremarkable rename look like a licence
+    failure, which is the direction that gets a guard switched off.
+    """
+    one_gone = CROSSWALKS_PAGE.replace("Classfication", "Renamed")
+    assert one_gone != CROSSWALKS_PAGE
+    read = lp.onet_crosswalks(one_gone)
+    assert read["files_this_repo_reads"] == [
+        "Registered Apprenticeship Partners Information Data System (RAPIDS)"]
+    assert read["licence"].startswith("Crosswalk Files")
 
 
 def test_the_urban_portal_licence_and_citation_are_read():
@@ -150,20 +165,30 @@ def test_the_urban_portal_licence_and_citation_are_read():
     assert read["citation"].startswith("[dataset names]")
 
 
-@pytest.mark.parametrize("reader,page,missing", [
-    (lp.onet_database, DATABASE_PAGE, "Creative Commons Attribution 4.0"),
-    (lp.onet_crosswalks, CROSSWALKS_PAGE, "Crosswalk Files by"),
-    (lp.urban_portal, URBAN_PAGE, "Open Data Commons"),
+@pytest.mark.parametrize("reader,page,missing,names", [
+    (lp.onet_database, DATABASE_PAGE, "Creative Commons Attribution 4.0",
+     "the Creative Commons licence sentence"),
+    (lp.onet_crosswalks, CROSSWALKS_PAGE, "Crosswalk Files by",
+     "the crosswalk files licence notice"),
+    (lp.urban_portal, URBAN_PAGE, "Open Data Commons",
+     "the Open Data Commons licence sentence"),
 ])
-def test_a_page_without_its_licence_sentence_is_refused(reader, page, missing):
+def test_a_page_without_its_licence_sentence_is_refused(reader, page, missing, names):
     """A cookie wall answers 200. Every field then comes back blank.
 
-    `match=` is on each of these because a bare `raises(MalformedSource)`
-    passes when a DIFFERENT guard fires — which is how a refusal test can be
-    green while the guard it was written for does nothing.
+    `match=` names the SPECIFIC guard. Matching on "Refusing rather than" —
+    the boilerplate every `_one` call shares — is exactly the failure this
+    test's own docstring warned about: it passes when a different guard fires,
+    so a reader whose own guard had been deleted stayed green as long as
+    something else refused first.
+
+    The removal is asserted too. A `replace` that matches nothing presents an
+    intact page to a refusal test.
     """
-    with pytest.raises(lp.MalformedSource, match="Refusing rather than"):
-        reader(page.replace(missing, "REMOVED"))
+    damaged = page.replace(missing, "REMOVED")
+    assert damaged != page, f"{missing!r} is not in the fixture as written"
+    with pytest.raises(lp.MalformedSource, match=re.escape(names)):
+        reader(damaged)
 
 
 def test_the_record_and_the_page_quote_the_same_licences(record):
@@ -240,12 +265,23 @@ def bare_trademark(text: str) -> list[str]:
     found = []
     fence = False
     for line in text.splitlines():
-        if line.lstrip().startswith("```"):
+        # `lstrip("> ")` as well as whitespace: a fence inside a blockquote
+        # opens with `> ```, and the plain `lstrip()` never saw it — so an
+        # example quoted inside a blockquote was scanned as prose and its
+        # bare asterisks reported.
+        opener = line.lstrip().lstrip("> ").lstrip()
+        if opener.startswith("```") or opener.startswith("~~~"):
             fence = not fence
             continue
         if fence or line.startswith("    ") or line.startswith("\t"):
             continue
-        spans = [(m.start(), m.end()) for m in re.finditer(r"`[^`]*`", line)]
+        # DOUBLE backticks first, and they are the wider span. ``a `b` c`` is
+        # one code span containing a backtick, and matching the single form
+        # first splits it into two, leaving the middle exposed as prose.
+        spans = [(m.start(), m.end()) for m in re.finditer(r"``.+?``", line)]
+        for m in re.finditer(r"`[^`]*`", line):
+            if not any(a <= m.start() < b for a, b in spans):
+                spans.append((m.start(), m.end()))
         for m in re.finditer(r"O(?!\\)\*NET", line):
             if not any(a <= m.start() < b for a, b in spans):
                 found.append(line.strip())
@@ -265,18 +301,30 @@ def test_the_attribution_quote_reproduces_the_trademark():
     pass identically whether the trademark survives rendering or not.
     """
     page = PAGE.read_text()
-    attribution = re.search(r"(?m)^> This page includes information.*?(?=\n\n)",
-                            page, re.S)
-    assert attribution, "the attribution blockquote is no longer on the page"
-    assert attribution.group(0).count(r"O\*NET") == 2, \
+    # The blockquote is its own contiguous run of `>` lines. Bounding it on a
+    # trailing blank line meant the quote ending the file, or followed
+    # directly by a heading, matched nothing — and the assertion below then
+    # failed for a reason that has nothing to do with the trademark.
+    lines = page.splitlines()
+    start = next((i for i, line in enumerate(lines)
+                  if line.startswith("> This page includes information")), None)
+    assert start is not None, "the attribution blockquote is no longer on the page"
+    end = start
+    while end + 1 < len(lines) and lines[end + 1].startswith(">"):
+        end += 1
+    attribution = "\n".join(lines[start:end + 1])
+    assert attribution.count(r"O\*NET") == 2, \
         "the attribution quote must escape both trademarks, or they italicise"
 
 
 def test_no_document_renders_the_trademark_as_emphasis():
     """A repo-wide ratchet, because this regresses on the next edit anywhere.
 
-    Asserted against every page rather than this PR's own, since the failure
-    is invisible in the source and only shows in the rendered document.
+    **Deliberately wider than this PR.** The failure is invisible in the
+    source and only shows in the rendered page, so a check scoped to the file
+    that happened to introduce it would let the next document reintroduce it
+    silently. The cost is that an unrelated branch can fail this test; the
+    message names the file and the line, so the fix is one escape.
     """
     scanned = {}
     for doc in sorted((ROOT / "docs").rglob("*.md")):
@@ -288,5 +336,13 @@ def test_no_document_renders_the_trademark_as_emphasis():
     # Not vacuous: the corpus really does discuss the trademark. Without this,
     # a rename of the docs tree would pass the assertion above by scanning
     # nothing at all.
-    escaped = sum(d.read_text().count(r"O\*NET") for d in scanned)
-    assert escaped >= 40, f"only {escaped} escaped uses found — scanned nothing?"
+    #
+    # Asserted on the DOCUMENT that must contain them, not on a repo-wide
+    # count. `escaped >= 40` was a number nobody could derive — it drifts with
+    # every unrelated edit, and it says nothing about whether the one page
+    # this PR is about was scanned.
+    licences = ROOT / "docs" / "sources" / "licences.md"
+    assert licences in scanned, "the licence page was not scanned at all"
+    assert scanned[licences] == [], "the licence page has a bare trademark"
+    assert licences.read_text().count(r"O\*NET") >= 5, \
+        "the licence page no longer discusses the trademark — did it move?"

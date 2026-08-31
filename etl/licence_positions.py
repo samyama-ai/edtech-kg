@@ -29,6 +29,18 @@ class MalformedSource(Exception):
     """A page that answered, but not with what it publishes."""
 
 
+class Unreachable(MalformedSource):
+    """The page could not be fetched at all.
+
+    A SUBCLASS, so every existing `except MalformedSource` still catches it and
+    the CLI keeps mapping both to one exit code. But the two are different
+    facts: "the licence sentence is missing" is a finding about the document,
+    "the host did not answer" is a finding about the network, and reporting a
+    timeout in the words of the first invites someone to conclude the
+    publisher changed their terms.
+    """
+
+
 USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 ONET_DATABASE = "https://www.onetcenter.org/license_db.html"
@@ -37,13 +49,34 @@ URBAN_PORTAL = "https://educationdata.urban.org/documentation/"
 
 
 def page_text(url: str) -> str:
-    """One page, or a refusal naming it."""
+    """One page, or a refusal naming it.
+
+    `OSError` alone. `URLError` and `TimeoutError` are both subclasses of it,
+    so the three-item tuple caught nothing the one does and read as though it
+    covered more.
+
+    The charset comes from the RESPONSE, not from an assumption. These are
+    three third-party pages this repo does not control; O*NET serves UTF-8
+    today, and a publisher moving to Latin-1 would have turned every accented
+    character into a replacement character inside a sentence being quoted
+    VERBATIM as a licence position. `errors="replace"` stays as the last
+    resort, so a mis-declared charset still yields readable text rather than
+    an exception.
+    """
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
-            return response.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise MalformedSource(f"{url} did not answer ({exc})") from exc
+            body = response.read()
+            charset = response.headers.get_content_charset() or "utf-8"
+    except OSError as exc:
+        raise Unreachable(f"{url} did not answer ({exc})") from exc
+    try:
+        return body.decode(charset, errors="replace")
+    except LookupError:
+        # A charset name Python does not know. Named rather than swallowed:
+        # falling back silently is how a page gets quoted through the wrong
+        # codec and nobody finds out.
+        return body.decode("utf-8", errors="replace")
 
 
 def flatten(page: str) -> str:
@@ -112,6 +145,37 @@ def onet_database(page: str) -> dict:
     }
 
 
+# The two workbooks this repo actually reads, as O*NET titles them on the
+# crosswalks page. "Classfication" is their spelling and is left alone.
+CROSSWALK_FILES = ("Classfication of Instructional Programs (CIP)",
+                   "Registered Apprenticeship Partners Information Data System "
+                   "(RAPIDS)")
+
+
+def _files_on(text: str) -> list[str]:
+    """Which of our two workbooks this page still publishes.
+
+    REFUSES on none. The module's own docstring says a licence position that
+    comes back wrong from a page nobody could read is a statement about what
+    this project may lawfully use — and an empty list here says exactly that
+    while looking like an ordinary result. If O*NET moves both workbooks, the
+    page's clearance stops covering what this repo reads, and that has to
+    surface as a refusal rather than as a quiet zero.
+
+    One of two is not a refusal: a publisher may rename or retire a single
+    file, and the caller records which survived.
+    """
+    found = [name for name in CROSSWALK_FILES if name in text]
+    if not found:
+        raise MalformedSource(
+            f"{ONET_CROSSWALKS} named neither workbook this repo reads "
+            f"({len(text)} characters of text). The licence notice on that "
+            f"page is what clears these two files; a page carrying the notice "
+            f"and neither file does not clear them. Refusing rather than "
+            f"returning an empty list, which reads as an ordinary result.")
+    return found
+
+
 def onet_crosswalks(page: str) -> dict:
     """The notice on the page that publishes the two workbooks this repo reads.
 
@@ -127,11 +191,7 @@ def onet_crosswalks(page: str) -> dict:
             r"(Crosswalk Files by U\.S\. Department of Labor.{0,120}?licensed "
             r"under a Creative Commons Attribution 4\.0 International License)",
             text, ONET_CROSSWALKS, "the crosswalk files licence notice"),
-        "files_this_repo_reads": [
-            name for name in ("Classfication of Instructional Programs (CIP)",
-                              "Registered Apprenticeship Partners Information "
-                              "Data System (RAPIDS)")
-            if name in text],
+        "files_this_repo_reads": _files_on(text),
         "read_or_measured": "read",
     }
 
