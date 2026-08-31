@@ -443,13 +443,23 @@ def test_a_fence_opened_inside_a_blockquote_is_still_a_fence():
     assert bare_trademark(quoted) == []
 
 
-def test_a_double_backtick_span_is_not_split_at_its_inner_backtick():
+@pytest.mark.parametrize("line", [
+    "Use ``O*NET `x` y`` here.",
+    "Use ``a `b` O*NET`` here.",
+    "``O*NET``",
+])
+def test_a_double_backtick_span_is_not_split_at_its_inner_backtick(line):
     """``a `b` c`` is ONE code span containing a backtick.
 
-    Matching the single form first cut it in two and left the middle exposed
-    as prose, so an asterisk inside a code span was reported.
+    Matching the single form first cut it in two, and the trademark landed in
+    the gap between the halves — reported as prose from inside a code span.
+
+    The fixtures are chosen to DIFFER between the two implementations. The
+    first attempt used ``the `O*NET` field``, where the inner single-backtick
+    span happens to cover the trademark on its own, so both versions passed
+    and the mutation that removed double-backtick handling survived.
     """
-    assert bare_trademark("Use ``the `O*NET` field`` here.\n") == []
+    assert bare_trademark(line + "\n") == []
 
 
 def test_genuine_prose_is_still_reported():
