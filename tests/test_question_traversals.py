@@ -56,20 +56,50 @@ def answered(path: pathlib.Path) -> list[str]:
     return re.findall(r"^// (Q\d+)\.", path.read_text(encoding="utf-8"), re.M)
 
 
+#: A question STARTS a block. Two spellings ship — `**Q1.** text` and
+#: `**Q61. text**` — and the second was invisible to a parser that required
+#: the closing `**` right after the number, so five questions were not read at
+#: all. Marks are read from the block, not the line, because a question that
+#: wraps carries its mark on the continuation.
+QUESTION = re.compile(r"^\*\*(Q\d+)\.", re.M)
+
+
+def blocks() -> dict[str, str]:
+    """Each question with everything up to the next one.
+
+    Line-by-line was wrong in two ways at once. It required `**Qn.**`, so
+    `**Q61. What is…**` was not a question; and it read the mark from the
+    FIRST physical line, so a question wrapping onto a second was reported
+    unmarked while its mark sat one line down. Eighteen were, and an unmarked
+    question is exempt from the ratchet — so eighteen answerable questions
+    could have had no traversal and nothing would have said so.
+    """
+    text = QUESTIONS.read_text(encoding="utf-8")
+    starts = [(m.group(1), m.start()) for m in QUESTION.finditer(text)]
+    found = {}
+    for index, (name, at) in enumerate(starts):
+        end = starts[index + 1][1] if index + 1 < len(starts) else len(text)
+        # A block also stops at the next HEADING, or the prose between tiers
+        # is read as part of the last question in the tier above.
+        heading = text.find("\n## ", at)
+        if heading != -1 and heading < end:
+            end = heading
+        found[name] = text[at:end]
+    return found
+
+
 def marks() -> dict[str, str]:
     """Every question in the document, with its mark."""
     found = {}
-    for line in QUESTIONS.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^\*\*(Q\d+)\.\*\*", line)
-        if m:
-            # The FIRST mark in the line, by position. A fixed priority order
-            # reads a status character mentioned in an explanation as the
-            # question's own mark — which is exactly what happened when Q19's
-            # re-marking said what it used to be.
-            positions = [(line.index(c), name) for c, name in
-                         (("✅", "ok"), ("⚠️", "caveat"), ("❌", "no"))
-                         if c in line]
-            found[m.group(1)] = min(positions)[1] if positions else "unmarked"
+    for name, block in blocks().items():
+        # The FIRST mark in the block, by position. A fixed priority order
+        # reads a status character mentioned in an explanation as the
+        # question's own mark — which is what happened when Q19's re-marking
+        # said what it used to be.
+        positions = [(block.index(c), state) for c, state in
+                     (("✅", "ok"), ("⚠️", "caveat"), ("❌", "no"))
+                     if c in block]
+        found[name] = min(positions)[1] if positions else "unmarked"
     return found
 
 
@@ -78,10 +108,48 @@ def test_there_are_benchmark_files_to_check():
     assert files(), f"no tier-*.cypher under {BENCHMARKS}"
 
 
-def test_the_questions_document_still_parses_into_marks():
+def test_the_parser_reads_every_question_in_the_document():
+    """`> 50` was the old bound and it was far too loose.
+
+    The parser saw 97 of 102 and reported 18 of those as unmarked, so 79 were
+    classified correctly and the bound passed anyway. An unmarked question is
+    exempt from the ratchet below, so twenty-three answerable questions could
+    have had no traversal and nothing would have said so.
+
+    Counted against the document rather than a number written here, and
+    nothing may be left unmarked — "unmarked" is the state that quietly
+    excuses a question.
+    """
+    text = QUESTIONS.read_text(encoding="utf-8")
+    in_document = {m.group(1) for m in QUESTION.finditer(text)}
     found = marks()
-    assert len(found) > 50, f"only {len(found)} questions read from questions.md"
-    assert "ok" in found.values() and "no" in found.values()
+    assert set(found) == in_document, (
+        f"the parser missed {sorted(in_document - set(found))} and invented "
+        f"{sorted(set(found) - in_document)}")
+    unmarked = [q for q, state in found.items() if state == "unmarked"]
+    assert not unmarked, (
+        f"{unmarked} carry no status, so the ratchet cannot tell whether they "
+        f"need a traversal")
+    assert {"ok", "caveat", "no"} <= set(found.values())
+
+
+def test_the_tally_the_document_prints_is_the_one_the_parser_reads():
+    """The document's own table is machine-checked by `test_questions.py`
+    against a different parser. If the two disagree, one of them is wrong
+    about the same file — and this one drives which questions need a
+    traversal."""
+    from collections import Counter
+
+    counted = Counter(marks().values())
+    text = QUESTIONS.read_text(encoding="utf-8")
+    row = re.search(r"\| \*\*Total\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \| "
+                    r"\*\*(\d+)\*\* \| \*\*(\d+)\*\* \|", text)
+    assert row, "the totals row is no longer in questions.md"
+    total, ok, caveat, no = (int(g) for g in row.groups())
+    assert (counted["ok"], counted["caveat"], counted["no"]) == (ok, caveat, no), (
+        f"the document's table says {ok}/{caveat}/{no} and this parser reads "
+        f"{counted['ok']}/{counted['caveat']}/{counted['no']}")
+    assert sum(counted.values()) == total
 
 
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
@@ -226,4 +294,46 @@ def test_the_schema_still_declares_almost_nothing_but_keys():
         f"{sorted(with_attributes)}. Every one of those has a loader; if a "
         f"label gained properties another way, this check is now reading the "
         f"wrong source")
+
+
+# --------------------------------------------------------------------------
+# The extractor, driven. It decides which gaps get reported, so a hole in it
+# is a gap nobody hears about — and it had two, both found writing tier 2.
+# --------------------------------------------------------------------------
+
+def test_a_property_matched_inline_is_reached_for():
+    """`MATCH (c:Completion {award_level: "X"})` reaches for `award_level`
+    exactly as much as `c.award_level` does. Reading only the dotted form
+    missed it, so a query could match on an undeclared property and the check
+    would report no gap at all."""
+    from tests.schema_properties import accesses
+
+    found = accesses('MATCH (cm:Completion {award_level: "Certificate"}) RETURN cm')
+    assert found == {"Completion": {"award_level"}}
+
+
+def test_an_anonymous_node_still_attributes_its_property():
+    """`(:School {ncessch: …})` names a label, which is all that is needed."""
+    from tests.schema_properties import accesses
+
+    assert accesses('MATCH (:School {ncessch: "1"}) RETURN 1') == {
+        "School": {"ncessch"}}
+
+
+def test_a_colon_inside_a_value_is_not_read_as_a_property():
+    """`{url: "https://…"}` yielded a property called `https` — the extractor
+    inventing a gap the schema could never declare, in a check whose whole job
+    is to say what is missing."""
+    from tests.schema_properties import accesses
+
+    found = accesses('MATCH (c:Course {url: "https://x/y"}) RETURN c')
+    assert found == {"Course": {"url"}}
+
+
+def test_a_declared_key_matched_inline_is_not_a_gap():
+    """The other direction, or the two tests above pass by reporting
+    everything."""
+    from tests.schema_properties import undeclared
+
+    assert undeclared('MATCH (c:Course {url: "https://x/y"}) RETURN c.name') == set()
 
