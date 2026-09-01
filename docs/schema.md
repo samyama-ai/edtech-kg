@@ -297,6 +297,21 @@ rather than worked around silently. A **pattern used as an expression inside
 | `WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->() }` | ✅ |
 | `OPTIONAL MATCH … WITH c, r WHERE r IS NULL` | ✅ |
 
+**This table is executed, not observed.** `tests/test_schema_parse_table.py`
+reads these six rows out of this page and runs each one against a live engine,
+so the page and the engine cannot drift apart quietly. The rows are read from
+here rather than restated in the test: editing this table changes what runs.
+
+Re-executed against **1.7.0** on 2026-09-01 and all six verdicts are unchanged.
+The heading states 1.1.0 because that is the version this repo pins and the one
+the figures elsewhere on this page were measured on — see #24.
+
+The verdicts are expected to change: [samyama-graph#21](https://git.samyama.ai/Samyama.ai/samyama-graph/issues/21)
+asks for pattern predicates in `WHERE` to parse, and on the day that lands four
+of these rows become wrong. The test fails that day and says which direction
+the engine moved, rather than leaving this page recommending a workaround for a
+limitation that no longer exists.
+
 The capability is there; the inline pattern-expression syntax is not. So Q34 —
 *"which courses have no prerequisite, the entry points"* — is answerable, in
 this form:
