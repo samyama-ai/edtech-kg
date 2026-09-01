@@ -22,6 +22,7 @@ import re
 
 import pytest
 
+from tests.schema_properties import undeclared
 from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -65,10 +66,10 @@ def marks() -> dict[str, str]:
             # reads a status character mentioned in an explanation as the
             # question's own mark — which is exactly what happened when Q19's
             # re-marking said what it used to be.
-            marks = [(line.index(c), name) for c, name in
-                     (("✅", "ok"), ("⚠️", "caveat"), ("❌", "no"))
-                     if c in line]
-            found[m.group(1)] = min(marks)[1] if marks else "unmarked"
+            positions = [(line.index(c), name) for c, name in
+                         (("✅", "ok"), ("⚠️", "caveat"), ("❌", "no"))
+                         if c in line]
+            found[m.group(1)] = min(positions)[1] if positions else "unmarked"
     return found
 
 
@@ -119,7 +120,8 @@ def test_the_file_answers_a_question_for_every_statement_it_carries(path):
 def test_it_does_not_claim_to_answer_a_question_marked_unanswerable(path):
     """❌ means the schema does not serve it. A query here would mean the mark
     is wrong, which is a document change rather than a quiet extra file."""
-    wrong = [q for q in answered(path) if marks().get(q) == "no"]
+    every = marks()                    # hoisted: this re-read questions.md per question
+    wrong = [q for q in answered(path) if every.get(q) == "no"]
     assert not wrong, (
         f"{path.name} answers {wrong}, which questions.md marks ❌. Either the "
         f"mark is wrong and the document should say so, or the query is not "
@@ -151,3 +153,77 @@ def test_every_answerable_question_in_a_covered_tier_has_a_traversal():
     assert not missing, (
         f"these questions are marked answerable, sit in a tier that has a "
         f"benchmark file, and have no traversal: {sorted(missing)}")
+
+
+# --------------------------------------------------------------------------
+# Parsing is a weak check, and this is the half it misses. `schema/
+# edtech_kg.cypher` declares KEYS — measured, it declares no other property at
+# all — so a traversal naming `o.name` on an `Occupation` parses, looks like an
+# answer, and reaches for something no loader writes.
+#
+# Sixteen of tier 1's property accesses are in that state (#123). They are not
+# removed: the questions are answerable once the schema declares them, which is
+# a different thing from Q19's "no node holds a cost at all". They are DECLARED
+# INLINE instead, so the gap is visible in the file and cannot grow quietly as
+# tiers 2 to 6 are written.
+# --------------------------------------------------------------------------
+
+NEEDS = re.compile(r"^//\s+NEEDS: (.+)$", re.M)
+
+
+def statement_blocks(path: pathlib.Path) -> list[str]:
+    """Each query with the comments that belong to it."""
+    return [b for b in re.split(r"(?<=;)\n", path.read_text(encoding="utf-8"))
+            if uncommented(b).strip()]
+
+
+@pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
+def test_every_undeclared_property_is_declared_as_undeclared(path):
+    """A traversal may reach past the schema. It may not do so silently."""
+    missing = []
+    for block in statement_blocks(path):
+        gaps = undeclared(uncommented(block))
+        noted = set()
+        for line in NEEDS.findall(block):
+            noted |= {part.strip() for part in line.split(",")}
+        for gap in sorted(gaps - noted):
+            first = uncommented(block).strip().splitlines()[0][:52]
+            missing.append(f"{gap}  in `{first}`")
+    assert not missing, (
+        f"{path.name} reaches for properties the schema does not declare and "
+        f"does not say so. Add a `//   NEEDS:` line naming them, or use a "
+        f"property that is declared: {missing}")
+
+
+@pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
+def test_no_query_claims_a_gap_it_does_not_have(path):
+    """The other direction. A NEEDS line that stops being true is a warning
+    about nothing, and the first one teaches the reader to skip them all."""
+    stale = []
+    for block in statement_blocks(path):
+        gaps = undeclared(uncommented(block))
+        for line in NEEDS.findall(block):
+            for part in line.split(","):
+                if part.strip() and part.strip() not in gaps:
+                    stale.append(part.strip())
+    assert not stale, (
+        f"{path.name} declares gaps that no longer exist — the schema may have "
+        f"caught up: {stale}")
+
+
+def test_the_schema_still_declares_almost_nothing_but_keys():
+    """The premise the annotations rest on, asserted rather than assumed.
+
+    If this fails the schema has gained properties, which is #123 being fixed —
+    and the NEEDS lines above should shrink with it rather than linger.
+    """
+    from tests.schema_properties import declared
+
+    known = declared()
+    with_attributes = {label for label, props in known.items() if len(props) > 1}
+    assert with_attributes == {"Course", "Subject", "Pathway", "Requirement"}, (
+        f"the set of labels carrying more than a key has changed: "
+        f"{sorted(with_attributes)}. Every one of those has a loader; if a "
+        f"label gained properties another way, this check is now reading the "
+        f"wrong source")
+

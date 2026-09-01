@@ -14,9 +14,15 @@
 // `NOT EXISTS { MATCH ... }` throughout.
 
 // Q1. What is this programme called, and what is its CIP code?
+//   NEEDS: Programme.name
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (p:Programme {cip_code: "11.0101"}) RETURN p.cip_code, p.name;
 
 // Q2. What occupation does this SOC code name?
+//   NEEDS: Occupation.name
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (o:Occupation {soc_code: "15-1252"}) RETURN o.soc_code, o.name;
 
 // Q3. How many institutions are in the directory?
@@ -44,27 +50,50 @@ MATCH (c:Course {district: "Prince William County Public Schools"})
 RETURN count(c) AS courses;
 
 // Q9. What are this course's grade levels and length?
+//   NEEDS: Course.grade_levels, Course.length
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
 RETURN c.name, c.grade_levels, c.length;
 
 // Q10. Which schools teach this course?
+//   NEEDS: School.name
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (s:School)-[:TEACHES]->(c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
 RETURN s.ncessch, s.name;
 
 // Q11. What award levels does this institution grant?
+//   NEEDS: Completion.award_level
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (cm:Completion)-[:AT]->(i:Institution {unitid: "100654"})
 RETURN DISTINCT cm.award_level;
 
 // Q12. Where is this institution, and is it public or private?
+//   NEEDS: Institution.control, Institution.name
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
+//
+//   `pl.state` is NOT used, and that is a different objection. `Place` is
+//   keyed `"<kind>|<published identifier>"` — "state|VA" — so a state IS a
+//   Place, and `state` as a property contradicts the key's own shape rather
+//   than merely being undeclared. The id is what the model commits to.
 MATCH (i:Institution {unitid: "100654"})-[:LOCATED_IN]->(pl:Place)
-RETURN i.name, i.control, pl.name, pl.state;
+RETURN i.name, i.control, pl.id;
 
 // Q13. How many people completed this programme at this institution?
+//   NEEDS: Completion.awards
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (cm:Completion)-[:AT]->(i:Institution {unitid: "100654"})
 MATCH (cm)-[:IN]->(p:Programme {cip_code: "11.0101"})
 RETURN sum(cm.awards) AS completions;
 
 // Q14. What is this course's description, as the district publishes it?
+//   NEEDS: Course.description
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
 RETURN c.name, c.description, c.source;
 
@@ -84,11 +113,17 @@ RETURN count(DISTINCT c) AS courses_with_free_text;
 // Q17. What does this occupation pay?  [caveat: source named, not yet measured]
 // EarningsRecord is declared and empty. The traversal is right; the answer is
 // not available until a BLS loader exists.
+//   NEEDS: EarningsRecord.median, EarningsRecord.source, EarningsRecord.year
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (er:EarningsRecord)-[:FOR_OCCUPATION]->(o:Occupation {soc_code: "15-1252"})
 RETURN er.year, er.median, er.source;
 
 // Q18. Is this occupation growing or shrinking?  [caveat: not yet measured]
 // Two records for one occupation, compared. Nothing loaded supplies them.
+//   NEEDS: EarningsRecord.employment, EarningsRecord.year
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (er:EarningsRecord)-[:FOR_OCCUPATION]->(o:Occupation {soc_code: "15-1252"})
 RETURN o.soc_code, er.year, er.employment ORDER BY er.year;
 
