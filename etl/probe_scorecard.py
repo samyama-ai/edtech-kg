@@ -35,9 +35,10 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from etl.identity import USER_AGENT
+
 DATA_PAGE = "https://collegescorecard.ed.gov/data/"
 GLOSSARY = "https://collegescorecard.ed.gov/data/glossary/"
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 ARCHIVE = Path("data/scorecard-field-of-study.zip")
 
 # The two markers this file uses where a value is not published. Guessing them

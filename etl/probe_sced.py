@@ -42,6 +42,7 @@ from datetime import datetime, timezone
 # their `r` attribute — Excel omits a blank cell, so appending in order shifts
 # every later column left. A second reader is how this file missed
 # ` Course Title`.
+from etl.identity import USER_AGENT
 from etl.probe_cipsoc import rows, sheets
 # The reach measurement lives next door; this module reads the sources and
 # prints the page. `MalformedSource` is raised by both, so it stays here.
@@ -72,9 +73,6 @@ MASTER_LINK = re.compile(r"""href=["']([^"']*SCEDv(\d+)File[^"']*\.xlsx)["']""",
 #: by SHAPE so it cannot collide with the elements sheet, which is selected by
 #: a substring: a sheet called `SCED Elements` would satisfy both.
 SCED_SHEET = re.compile(r"\ASCED\s+\d+(?:\.\d+)*\Z")
-
-
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 
 def fetch(url: str) -> bytes:

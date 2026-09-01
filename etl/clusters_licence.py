@@ -17,6 +17,8 @@ import re
 import urllib.error
 import urllib.request
 
+from etl.identity import USER_AGENT
+
 
 class MalformedSource(Exception):
     """A source that answered, but not with what it publishes.
@@ -26,8 +28,6 @@ class MalformedSource(Exception):
     once. Putting it in the half that imports this one is a cycle.
     """
 
-
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 CLUSTERS = "https://careertech.org/career-clusters/"
 CLUSTER_CROSSWALKS = "https://careertech.org/crosswalks/"

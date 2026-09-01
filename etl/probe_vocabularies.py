@@ -20,10 +20,10 @@ import sys
 import urllib.error
 import urllib.request
 
+from etl.identity import USER_AGENT
 from etl.vocabularies import (MalformedSource, case_licence, case_terms,
                               edfi_resources, json_object)
 
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 EDFI_SPEC = ("https://raw.githubusercontent.com/Ed-Fi-Alliance-OSS/"
              "Ed-Fi-API-Specifications/main/api-specifications/resources/"
              "resources-ds-6.0.yaml")

@@ -22,8 +22,9 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+from etl.identity import USER_AGENT
+
 VOCAB = "https://schema.org/version/latest/schemaorg-current-https.jsonld"
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 # The terms the reuse decision (#33) has to rule on, one per row of its table.
 WANTED = [

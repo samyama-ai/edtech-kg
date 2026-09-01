@@ -31,7 +31,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
 
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
+from etl.identity import USER_AGENT
+
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
 

@@ -20,9 +20,9 @@ import sys
 import urllib.error
 import urllib.request
 
+from etl.identity import USER_AGENT
 from etl.ceds_ontology import (MalformedSource, classes, shapes, unique_labels)
 
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 ONTOLOGY = ("https://raw.githubusercontent.com/CEDStandards/CEDS-Ontology/"
             "main/src/CEDS-Ontology.rdf")
 LICENCE = "https://api.github.com/repos/CEDStandards/CEDS-Ontology"
