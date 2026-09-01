@@ -46,6 +46,23 @@ USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 # A ceiling on what is read, not on how long it takes. See `page_text`.
 MAX_PAGE = 5 * 1024 * 1024
 
+#: One name, used by the decode AND by the message that reports it. They were
+#: two literals, so a test asserting "utf-8" appears in the warning passed
+#: while the code fell back to something else entirely.
+FALLBACK_CHARSET = "utf-8"
+
+
+def _looks_like_prose(body: bytes, text: str) -> bool:
+    """Did that decode produce English, or mojibake?
+
+    These are three English licence pages. A non-empty body whose decoding
+    carries no ASCII letter was not read by the codec that was declared —
+    which is the `punycode` case, and no exception is raised for it.
+    """
+    if not body:
+        return True
+    return any(c.isascii() and c.isalpha() for c in text)
+
 ONET_DATABASE = "https://www.onetcenter.org/license_db.html"
 ONET_CROSSWALKS = "https://www.onetcenter.org/crosswalks.html"
 URBAN_PORTAL = "https://educationdata.urban.org/documentation/"
@@ -82,25 +99,39 @@ def page_text(url: str, timeout: int = 60) -> str:
             charset = response.headers.get_content_charset() or "utf-8"
     except OSError as exc:
         raise Unreachable(f"{url} did not answer ({exc})") from exc
+    # TWO codecs raise, not three. `idna` and `undefined` are names Python
+    # knows and refuses for bytes, raising `UnicodeError` where a guard written
+    # for an unknown name expected `LookupError`.
+    #
+    # `punycode` does NOT raise. It decodes, to nonsense — an ASCII licence
+    # page comes back as two characters of mojibake — so it walks straight past
+    # any `except` and reaches the "quoted through the wrong codec" outcome
+    # this warning exists to prevent. The comment here used to group all three
+    # together while the test one file over said the opposite about `punycode`.
+    #
+    # So the check is on the RESULT, not on which exception was raised. A
+    # licence page is English prose; a decode of a non-empty body that yields
+    # no ASCII letters at all did not read that page, whatever the codec was
+    # called. Without this the refusal misdirects — it reports "what came back
+    # is not this page", sending the next reader to look for a redirect or a
+    # changed licence when the cause is one response header.
     try:
-        return body.decode(charset, errors="replace")
-    except (LookupError, UnicodeError):
-        # A charset name Python does not know, or one it knows and refuses:
-        # `idna`, `punycode` and `undefined` raise `UnicodeError` rather than
-        # `LookupError`, so they escaped a guard written for the first alone.
-        #
-        # NAMED, and this said so while doing the opposite. The fallback was
-        # silent, which is the thing the sentence below warns against — a
-        # comment claiming a property the code does not have is worse than no
-        # comment, because the next reader stops checking. It goes to stderr
-        # rather than raising: the sentences here are quoted verbatim as a
-        # licence position, and refusing the whole run over a header a
-        # publisher mistyped would be a worse answer than reading the page and
-        # saying which codec it was read through.
-        print(f"warning: {url} declared charset {charset!r}, which Python "
-              f"cannot use. Read as utf-8 — check any quote taken from it.",
-              file=sys.stderr)
-        return body.decode("utf-8", errors="replace")
+        text = body.decode(charset, errors="replace")
+        why = None if _looks_like_prose(body, text) else "decoded to nonsense"
+    except (LookupError, UnicodeError) as exc:
+        text, why = None, str(exc)
+    if why is None:
+        return text
+
+    # stderr rather than raising: the sentences here are quoted verbatim as a
+    # licence position, and abandoning the run over a header a publisher
+    # mistyped is a worse answer than reading the page and saying which codec
+    # it was read through. NAMED, because a silent fallback is how a page gets
+    # quoted through the wrong codec and nobody finds out.
+    print(f"warning: {url} declared charset {charset!r} and it {why}. "
+          f"Read as {FALLBACK_CHARSET} instead — check any quote taken from "
+          f"it.", file=sys.stderr)
+    return body.decode(FALLBACK_CHARSET, errors="replace")
 
 
 def flatten(page: str) -> str:

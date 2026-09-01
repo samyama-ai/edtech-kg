@@ -459,7 +459,14 @@ def main(argv: list[str] | None = None) -> int:
         RECORD.write_text(
             json.dumps(record(result["new_york"], result["district"]),
                        indent=2, ensure_ascii=False) + "\n")
-        print(f"wrote {RECORD.relative_to(Path.cwd())}")
+        # Relative to the REPO, not the cwd, and guarded. `relative_to` RAISES
+        # when its argument is not an ancestor, so this crashed from any cwd
+        # outside the repo — `~`, a sibling checkout — and it crashed AFTER
+        # the write landed, so the record was correct and the command still
+        # exited on a traceback. Same two lines as `probe_licences`.
+        root = Path(__file__).resolve().parents[1]
+        where = RECORD.relative_to(root) if RECORD.is_relative_to(root) else RECORD
+        print(f"wrote {where}")
         return 0
     if args.json:
         print(json.dumps(result, indent=2))

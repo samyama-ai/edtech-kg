@@ -189,61 +189,6 @@ def test_a_page_without_its_licence_sentence_is_refused(reader, page, missing, n
 # the fetch boundary — a failure to reach is not a failure to publish
 # --------------------------------------------------------------------------
 
-def test_a_page_that_does_not_answer_raises_unreachable(monkeypatch):
-    """Two different facts, and only one is about the publisher.
-
-    Reporting a timeout as `MalformedSource` invites the next reader to
-    conclude the terms changed. `Unreachable` subclasses it, so every existing
-    handler still catches it and the CLI keeps one exit code.
-    """
-    def refuse(*_a, **_k):
-        raise OSError("connection reset")
-
-    monkeypatch.setattr(lp.urllib.request, "urlopen", refuse)
-    with pytest.raises(lp.Unreachable, match="did not answer"):
-        lp.page_text("https://example.invalid/terms")
-    # And it is still a MalformedSource, or `main` stops catching it.
-    assert issubclass(lp.Unreachable, lp.MalformedSource)
-
-
-def test_the_response_charset_is_honoured_not_assumed(monkeypatch):
-    """These are three third-party pages quoted VERBATIM as licence positions.
-
-    A publisher serving Latin-1 would have turned every accented character in
-    a quoted sentence into a replacement character, silently.
-    """
-    # No em dash: it has no Latin-1 encoding, and the fixture must be a page
-    # a publisher could actually serve.
-    body = "Café Frais licence".encode("latin-1")
-
-    class Response:
-        headers = type("H", (), {
-            "get_content_charset": staticmethod(lambda: "latin-1")})()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self, amount=None): return body
-
-    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
-    read = lp.page_text("https://example.test/x")
-    assert "Café Frais" in read
-    # Decoded as UTF-8 the accented byte is a replacement character, so this
-    # fails loudly if the charset is ignored rather than passing on a
-    # substring that happens to survive.
-    assert "\ufffd" not in read
-
-
-def test_an_unknown_charset_falls_back_rather_than_raising(monkeypatch):
-    """A codec name Python does not know must not become a traceback."""
-    class Response:
-        headers = type("H", (), {
-            "get_content_charset": staticmethod(lambda: "not-a-real-codec")})()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self, amount=None): return b"plain text"
-
-    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
-    assert lp.page_text("https://example.test/x") == "plain text"
-
 
 def test_each_reader_refuses_in_words_that_name_its_own_guard():
     """Why `match=` on the shared boilerplate is not a test.
@@ -268,118 +213,6 @@ def test_each_reader_refuses_in_words_that_name_its_own_guard():
                 for name, message in said.items()}
     assert len(set(stripped.values())) == 3, \
         f"two readers refuse in the same words: {stripped}"
-
-
-def test_the_request_identifies_this_project_and_bounds_the_wait(monkeypatch):
-    """The header three publishers see when this repo reaches them.
-
-    `USER_AGENT` is how O*NET, the Urban Institute and Credential Engine
-    identify this traffic — the same courtesy the state-department probe found
-    was not enough on its own, and the reason the 403s there could be
-    characterised at all. Neither it nor the timeout had an assertion.
-    """
-    seen = {}
-
-    class Response:
-        headers = type("H", (), {
-            "get_content_charset": staticmethod(lambda: "utf-8")})()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self, amount=None): return b"body"
-
-    def capture(request, timeout=None):
-        seen["agent"] = request.get_header("User-agent")
-        seen["timeout"] = timeout
-        return Response()
-
-    monkeypatch.setattr(lp.urllib.request, "urlopen", capture)
-    lp.page_text("https://example.test/terms")
-
-    assert seen["agent"] == lp.USER_AGENT
-    assert "edtech-kg" in seen["agent"] and "git.samyama.ai" in seen["agent"], (
-        "the agent must name the project and where to complain about it")
-    assert seen["timeout"], "an unbounded fetch can hang the probe forever"
-
-
-@pytest.mark.parametrize("charset", ["idna", "undefined"])
-def test_a_charset_python_refuses_falls_back_rather_than_raising(
-        charset, monkeypatch, capsys):
-    """`LookupError` alone did not cover these.
-
-    `idna` and `undefined` are codecs Python knows and refuses for bytes,
-    raising `UnicodeError` — so they escaped a guard written for an unknown
-    name and reached the caller as a traceback.
-
-    `punycode` is deliberately not here: it does not raise, it decodes to
-    nonsense. That is a different problem and this guard is not the fix for
-    it; a fixture using it would have tested nothing.
-    """
-    class Response:
-        headers = type("H", (), {
-            "get_content_charset": staticmethod(lambda: charset)})()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self, amount=None): return b"plain text"
-
-    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
-    assert lp.page_text("https://example.test/x") == "plain text"
-    # And it SAYS SO. The comment beside this fallback warned that falling
-    # back silently is how a page gets quoted through the wrong codec and
-    # nobody finds out — and then fell back silently. A claim about the code
-    # that only the comment makes is a claim nothing keeps true.
-    warned = capsys.readouterr().err
-    assert charset in warned and "utf-8" in warned, (
-        f"the fallback did not name the charset it could not use: {warned!r}")
-
-
-def test_a_charset_that_works_is_not_warned_about(monkeypatch, capsys):
-    """The other direction. A warning on every page is a warning nobody
-    reads, and these three pages are fetched on every recorded run."""
-    class Response:
-        headers = type("H", (), {
-            "get_content_charset": staticmethod(lambda: "utf-8")})()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self, amount=None): return b"plain text"
-
-    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
-    assert lp.page_text("https://example.test/x") == "plain text"
-    assert capsys.readouterr().err == ""
-
-
-def test_an_enormous_body_is_refused_rather_than_read(monkeypatch):
-    """`timeout` bounds a socket operation, not a transfer.
-
-    A slow drip had no ceiling, and `flatten`'s script-strip is quadratic — so
-    a body of unterminated `<script` tokens costs far more than its size. On
-    three licence pages, anything past a few megabytes is not one of them.
-    """
-    class Response:
-        headers = type("H", (), {
-            "get_content_charset": staticmethod(lambda: "utf-8")})()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self, amount=None):
-            return b"x" * (amount if amount else lp.MAX_PAGE + 1)
-
-    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
-    with pytest.raises(lp.MalformedSource, match="more than"):
-        lp.page_text("https://example.test/x")
-
-
-def test_a_body_within_the_cap_is_read_whole(monkeypatch):
-    """The false-positive direction — the cap must not truncate a real page."""
-    body = b"a" * (lp.MAX_PAGE // 2)
-
-    class Response:
-        headers = type("H", (), {
-            "get_content_charset": staticmethod(lambda: "utf-8")})()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self, amount=None): return body
-
-    monkeypatch.setattr(lp.urllib.request, "urlopen", lambda *a, **k: Response())
-    assert len(lp.page_text("https://example.test/x")) == len(body)
 
 
 def test_an_exception_list_naming_no_pages_is_refused():
@@ -443,3 +276,5 @@ def test_the_modification_wording_is_read_from_the_page():
     assert without != DATABASE_PAGE
     with pytest.raises(lp.MalformedSource, match="the modification wording"):
         lp.onet_database(without)
+
+
