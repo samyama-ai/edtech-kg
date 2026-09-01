@@ -1,0 +1,44 @@
+{
+  "_": "One measured run of `python -m etl.probe_education --record`, committed so DATASET-CARD.md and docs/sources/education-data.md can be checked without four live calls to the Urban wrapper.",
+  "retrieved_at": "2026-09-01T07:26:20+00:00",
+  "year": 2022,
+  "api": "https://educationdata.urban.org/api/v1",
+  "sources": [
+    {
+      "source": "IPEDS completions (CIP 6-digit)",
+      "count": 9026310,
+      "note": "Awards conferred, by institution x programme x award level",
+      "path": "college-university/ipeds/completions-cip-6/2022/"
+    },
+    {
+      "source": "IPEDS institution directory",
+      "count": 6256,
+      "note": "Colleges and universities",
+      "path": "college-university/ipeds/directory/2022/"
+    },
+    {
+      "source": "CCD school directory",
+      "count": 102268,
+      "note": "US public schools",
+      "path": "schools/ccd/directory/2022/"
+    },
+    {
+      "source": "CCD district directory",
+      "count": 19714,
+      "note": "US public school districts",
+      "path": "school-districts/ccd/directory/2022/"
+    }
+  ],
+  "not_probed": [
+    {
+      "source": "NCES-BLS CIP-SOC crosswalk",
+      "access": "see probe_cipsoc",
+      "note": "The programme-to-occupation join — its own probe, since it is a spreadsheet"
+    },
+    {
+      "source": "O*NET occupation database",
+      "access": "bulk download",
+      "note": "Occupation attributes, skills and earnings"
+    }
+  ]
+}

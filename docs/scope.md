@@ -133,7 +133,7 @@ question assumed: the Database content licence names the pages it applies to
 and the crosswalks page is not among them, so the workbooks this repo reads
 are covered by a separate notice that happens to say the same thing.
 
-**Reachability is a separate question from permission**, and three of five
+**Reachability is a separate question from permission**, and four of five
 state education departments do not answer an automated request at all — see
 [`sources/state-access.md`](sources/state-access.md), measured 2026-08-28.
 
