@@ -37,7 +37,7 @@ def pathway(url: str, *rows) -> dict:
 
 def test_a_pathway_course_resolves_through_by_path():
     """This matched on `absolute(href)` while Course nodes are created from the
-    sitemap URL verbatim, and the two normalise differently — `course_urls()`
+    sitemap URL verbatim, and the two normalise differently — `catalogue_urls()`
     leaves `<loc>` untouched, `absolute()` strips a trailing slash. A mismatch
     writes no edge and still increments the counter."""
     edges = edges_mod.pathway_edges([pathway("https://catalog.pwcs.edu/p",
