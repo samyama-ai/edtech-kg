@@ -16,15 +16,15 @@ issue closes on merge.
 
 ## Keep it under ~700 insertions, and under 250 if you can
 
-Measured across **36 merged PRs**, counting `REQUEST_CHANGES` reviews. Every figure here is printed by
+Measured across **38 merged PRs**, counting `REQUEST_CHANGES` reviews. Every figure here is printed by
 `python -m etl.probe_review_cost` and committed as
 [`docs/sources/review-cost-measured.json`](docs/sources/review-cost-measured.json)
 — this page states that rule below, so it had better follow it.
 
 | insertions | PRs | mean review rounds | worst |
 |---|---:|---:|---:|
-| under 250 | 9 | **0.1** | 1 |
-| 250–700 | 13 | **1.1** | 3 |
+| under 250 | 10 | **0.1** | 1 |
+| 250–700 | 14 | **1.0** | 3 |
 | 700–1500 | 6 | **5.8** | 10 |
 | over 1500 | 8 | **9.6** | 14 |
 
@@ -34,7 +34,8 @@ round finds defects in that surface.
 
 Refresh with `python -m etl.probe_review_cost --record`. It needs a Gitea
 token and makes one API call per merged PR, which is why the run is
-committed rather than repeated by the suite.
+committed rather than repeated by the suite. It skipped
+**7** merges that name no PR — branch syncs, not reviewed changes — and says so rather than dropping them quietly.
 
 ## The evidence standard
 

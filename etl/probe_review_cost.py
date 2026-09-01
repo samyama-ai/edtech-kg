@@ -70,6 +70,19 @@ def get(path: str, attempts: int = 4):
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return json.loads(response.read())
+        # FIRST, because `HTTPError` subclasses `URLError`. A 401 from a bad
+        # token burned four attempts with backoff and then reported that the
+        # forge "did not answer" — the wrong diagnosis for the failure a reader
+        # is most likely to hit, arrived at slowly.
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500:
+                raise Unreachable(
+                    f"{path} answered HTTP {exc.code} ({exc.reason}). A 401 is "
+                    f"a token problem and a 404 is a PR this token cannot see; "
+                    f"neither is worth retrying.") from exc
+            if attempt == attempts - 1:
+                raise Unreachable(f"{path} answered HTTP {exc.code}") from exc
+            time.sleep(1.5 * (attempt + 1))
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             if attempt == attempts - 1:
                 raise Unreachable(f"{path} did not answer ({exc})") from exc
@@ -84,24 +97,38 @@ def band(insertions: int) -> str:
     raise AssertionError("BANDS must end in an open band")
 
 
-def merged_sizes() -> dict[int, int]:
-    """PR number to insertions, read from the merge commits on main."""
+def merged_sizes() -> tuple[dict[int, int], list[str]]:
+    """PR number to insertions, read from the merge commits on main.
+
+    Returns what was skipped as well. A PARTIALLY dropped walk produces a table
+    that looks complete and is not — the same failure the refusal below exists
+    to prevent, arrived at quietly instead of loudly.
+    """
     log = subprocess.run(
         ["git", "log", "--merges", "--format=%H%x09%s", "origin/main"],
-        capture_output=True, text=True, cwd=ROOT).stdout.splitlines()
-    sizes = {}
+        capture_output=True, text=True, cwd=ROOT, check=True).stdout.splitlines()
+    sizes, skipped = {}, []
     for line in log:
         sha, _, subject = line.partition("\t")
-        found = re.search(r"#(\d+)", subject)
+        # ANCHORED to the merge-subject form, not the first `#N` in the line.
+        # `Merge pull request '<title>' (#N) from <branch>` — and this repo's
+        # titles reference issues in prose routinely, this probe's own
+        # docstring included. The first such title would have attributed
+        # another PR's review rounds to it, silently, and the table would still
+        # have looked right.
+        found = re.search(r"\(#(\d+)\) from ", subject)
         if not found:
+            skipped.append(f"{sha[:9]} names no PR: {subject[:56]}")
             continue
         stat = subprocess.run(
             ["git", "show", "--shortstat", "--format=", "-m", "--first-parent", sha],
-            capture_output=True, text=True, cwd=ROOT).stdout
+            capture_output=True, text=True, cwd=ROOT, check=True).stdout
         insertions = re.search(r"(\d+) insertion", stat)
         if insertions:
             sizes[int(found.group(1))] = int(insertions.group(1))
-    return sizes
+        else:
+            skipped.append(f"#{found.group(1)} has no insertions in its merge")
+    return sizes, skipped
 
 
 def rounds(number: int) -> int:
@@ -110,7 +137,7 @@ def rounds(number: int) -> int:
 
 
 def probe(quiet: bool = False) -> dict:
-    sizes = merged_sizes()
+    sizes, skipped = merged_sizes()
     if not sizes:
         raise Unreachable(
             "no merge commits on origin/main name a PR — a table built from "
@@ -125,11 +152,16 @@ def probe(quiet: bool = False) -> dict:
                     "worst": max(v)}
              for name, v in tally.items() if v}
     result = {"pull_requests": len(sizes), "bands": table,
+              # Reported, not swallowed. A silent partial walk is a table that
+              # looks complete; the count is on the page so a reader can see
+              # what the figures rest on.
+              "merges_skipped": len(skipped), "skipped": skipped,
               "read_or_measured": "measured"}
 
     if not quiet:
         print("\nWhat a PR's size costs in review — edtech-kg#26\n")
-        print(f"  {len(sizes)} merged PRs matched to a size\n")
+        print(f"  {len(sizes)} merged PRs matched to a size", end="")
+        print(f", {len(skipped)} merges skipped\n" if skipped else "\n")
         print(f"  {'insertions':<12} {'PRs':>4} {'mean rounds':>12} {'worst':>6}")
         for name, row in table.items():
             print(f"  {name:<12} {row['prs']:>4} {row['mean_rounds']:>12.1f} "

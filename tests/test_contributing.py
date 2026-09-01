@@ -194,7 +194,7 @@ def test_a_walk_that_found_no_pull_requests_is_refused(monkeypatch):
     """Zero PRs would print an empty table under a heading claiming evidence."""
     from etl import probe_review_cost as p
 
-    monkeypatch.setattr(p, "merged_sizes", dict)
+    monkeypatch.setattr(p, "merged_sizes", lambda: ({}, []))
     with pytest.raises(p.Unreachable, match="no merge commits"):
         p.probe(quiet=True)
 
@@ -208,4 +208,99 @@ def test_a_missing_token_is_named_rather_than_a_traceback(monkeypatch):
     monkeypatch.delenv("SAMYAMA_GITEA_TOKEN", raising=False)
     with pytest.raises(p.Unreachable, match="no Gitea token"):
         p.token()
+
+
+# --------------------------------------------------------------------------
+# Driving the probe. `merged_sizes` had no test at all, and it is the function
+# that decides which PR a size belongs to.
+# --------------------------------------------------------------------------
+
+def test_a_pr_number_comes_from_the_merge_form_not_the_first_hash(monkeypatch):
+    """The defect: `#(\d+)` took the first `#N` in the line, and this repo's
+    titles reference issues in prose constantly — this probe's own docstring
+    says `edtech-kg#26`. The first such title would have attributed another
+    PR's review rounds to it, silently, and the table would still look right.
+    """
+    from etl import probe_review_cost as p
+
+    subjects = [
+        "aaaaaaa\tMerge pull request 'chore: close #26 properly' (#117) from x into main",
+        "bbbbbbb\tMerge pull request 'fix: thing' (#99) from y into main",
+        "ccccccc\tMerge remote-tracking branch 'origin/main' into feat/18/ci",
+    ]
+
+    def fake_run(args, **kwargs):
+        class Result:
+            stdout = ("\n".join(subjects) if "log" in args
+                      else " 3 files changed, 42 insertions(+)")
+        return Result()
+
+    monkeypatch.setattr(p.subprocess, "run", fake_run)
+    sizes, skipped = p.merged_sizes()
+    assert set(sizes) == {117, 99}, (
+        f"the PR numbers read were {sorted(sizes)} — a title mentioning #26 "
+        f"must not be read as PR 26")
+    assert len(skipped) == 1 and "names no PR" in skipped[0]
+
+
+def test_a_merge_with_no_insertions_is_reported_not_dropped(monkeypatch):
+    """A partially dropped walk produces a table that looks complete."""
+    from etl import probe_review_cost as p
+
+    def fake_run(args, **kwargs):
+        class Result:
+            stdout = ("aaaaaaa\tMerge pull request 'x' (#5) from y into main"
+                      if "log" in args else " 1 file changed, 2 deletions(-)")
+        return Result()
+
+    monkeypatch.setattr(p.subprocess, "run", fake_run)
+    sizes, skipped = p.merged_sizes()
+    assert not sizes
+    assert skipped and "#5" in skipped[0]
+
+
+def test_a_bad_token_is_named_rather_than_retried_as_unreachable(monkeypatch):
+    """`HTTPError` subclasses `URLError`, so a 401 burned four attempts with
+    backoff and then reported that the forge "did not answer" — the wrong
+    diagnosis for the likeliest failure, arrived at slowly."""
+    import urllib.error
+
+    from etl import probe_review_cost as p
+
+    slept = []
+    monkeypatch.setattr(p.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(p, "token", lambda: "nope")
+
+    def refuse(request, timeout=30):
+        raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(p.urllib.request, "urlopen", refuse)
+    with pytest.raises(p.Unreachable, match="401"):
+        p.get("/pulls/1/reviews")
+    assert not slept, "a 401 was retried; it will never become a 200"
+
+
+def test_a_server_error_is_still_retried(monkeypatch):
+    """The other side of that check, or 5xx stops being tolerated."""
+    import urllib.error
+
+    from etl import probe_review_cost as p
+
+    slept = []
+    monkeypatch.setattr(p.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(p, "token", lambda: "yes")
+
+    def refuse(request, timeout=30):
+        raise urllib.error.HTTPError(request.full_url, 503, "Unavailable", {}, None)
+
+    monkeypatch.setattr(p.urllib.request, "urlopen", refuse)
+    with pytest.raises(p.Unreachable, match="503"):
+        p.get("/pulls/1/reviews")
+    assert slept, "a 503 was not retried"
+
+
+def test_the_page_says_how_many_merges_were_skipped():
+    """Silent truncation reads as complete coverage."""
+    assert str(measured()["merges_skipped"]) in page(), (
+        "the page does not say how many merges the walk skipped")
 
