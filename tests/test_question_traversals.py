@@ -42,6 +42,10 @@ def uncommented(text: str) -> str:
                      if not line.strip().startswith("//"))
 
 
+def SCHEMA_TEXT() -> str:
+    return (ROOT / "schema" / "edtech_kg.cypher").read_text(encoding="utf-8")
+
+
 def files() -> list[pathlib.Path]:
     return sorted(BENCHMARKS.glob("tier-*.cypher"))
 
@@ -279,27 +283,61 @@ def test_no_query_claims_a_gap_it_does_not_have(path):
         f"caught up: {stale}")
 
 
-def test_the_schema_still_declares_almost_nothing_but_keys():
-    """The premise the annotations rest on, asserted rather than assumed.
+def test_the_schema_declares_the_attributes_the_questions_need():
+    """This replaces a test that asserted the OPPOSITE.
 
-    If this fails the schema has gained properties, which is #123 being fixed —
-    and the NEEDS lines above should shrink with it rather than linger.
+    It used to assert only four labels carried more than a key, and said in its
+    own docstring: "when #123 fixes that, this fails and the NEEDS lines shrink
+    with it rather than lingering." #123 is fixed, it failed, and 27 NEEDS lines
+    went with it.
+
+    What remains is the honest floor: the labels a question asks for by name
+    must carry one, because `Q2. What occupation does this SOC code name?` is
+    entirely the name.
     """
     from tests.schema_properties import declared
 
     known = declared()
-    with_attributes = {label for label, props in known.items() if len(props) > 1}
-    assert with_attributes == {"Course", "Subject", "Pathway", "Requirement"}, (
-        f"the set of labels carrying more than a key has changed: "
-        f"{sorted(with_attributes)}. Every one of those has a loader; if a "
-        f"label gained properties another way, this check is now reading the "
-        f"wrong source")
+    for label in ("Occupation", "Programme", "Institution", "School", "District"):
+        assert "name" in known.get(label, set()), (
+            f"{label} carries no name, so a question asking what something is "
+            f"called cannot be answered")
+    assert {"awards", "award_level"} <= known.get("Completion", set())
 
 
-# --------------------------------------------------------------------------
-# The extractor, driven. It decides which gaps get reported, so a hole in it
-# is a gap nobody hears about — and it had two, both found writing tier 2.
-# --------------------------------------------------------------------------
+def test_nothing_is_declared_without_a_source_field_behind_it():
+    """The point of the PROPERTIES block. A property with no field behind it is
+    a wish, and a schema that grants wishes stops describing what anyone
+    publishes."""
+    from tests.schema_properties import declared_block
+
+    lines = [line for line in declared_block().splitlines()
+             if re.match(r"^//\s+\w+\.\w+", line)]
+    assert len(lines) >= 10, f"the PROPERTIES block reads {len(lines)} entries"
+    for line in lines:
+        assert "<-" in line, f"no source named: {line.strip()}"
+        source = line.split("<-", 1)[1].strip()
+        assert len(source) > 8 and "," in source, (
+            f"the source is not a named file and field: {line.strip()}")
+
+
+def test_the_undeclared_ones_are_undeclared_deliberately():
+    """Five remain, and each is refused for a reason the schema states. A test
+    that only checked what IS declared would let the next author quietly add
+    `EarningsRecord.median` with no source loaded."""
+    from tests.schema_properties import declared
+
+    known = declared()
+    assert "length" not in known.get("Course", set()), (
+        "Course.length is declared, and no source publishes it — the catalogue "
+        "carries credits and grades and no length field at all")
+    for prop in ("median", "year", "source", "employment"):
+        assert prop not in known.get("EarningsRecord", set()), (
+            f"EarningsRecord.{prop} is declared before any earnings source is "
+            f"loaded, which fixes a shape before anything has been read")
+    schema = SCHEMA_TEXT()
+    assert "NOT declared, and each for its own reason" in schema
+
 
 def test_a_property_matched_inline_is_reached_for():
     """`MATCH (c:Completion {award_level: "X"})` reaches for `award_level`

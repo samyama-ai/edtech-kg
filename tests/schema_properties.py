@@ -24,14 +24,24 @@ SCHEMA = ROOT / "schema" / "edtech_kg.cypher"
 def declared() -> dict[str, set[str]]:
     """Label to the properties this repo has committed to.
 
-    Two sources, and both are needed. The constraint declares the KEY. The
-    loaders declare everything else, because a property nothing writes is a
-    property that will not be there.
+    THREE sources, and the order matters. The constraint declares the key. The
+    schema's PROPERTIES block declares the attributes, each naming the source
+    field it comes from (#123). The loaders declare what they additionally
+    write, because a property nothing writes is a property that will not be
+    there.
+
+    The PROPERTIES block is what changed. Before it, the schema declared keys
+    and nothing else, so this function inferred attributes from loader source
+    — which meant a label with no loader could commit to nothing, and
+    `Occupation.name` was undeclared while every source publishes it.
     """
     found: dict[str, set[str]] = {}
     schema = SCHEMA.read_text(encoding="utf-8")
     for var, label, prop in re.findall(
             r"CREATE CONSTRAINT ON \((\w+):(\w+)\) ASSERT \1\.(\w+)", schema):
+        found.setdefault(label, set()).add(prop)
+
+    for label, prop in re.findall(r"^//\s+(\w+)\.(\w+)\s+<-", declared_block(), re.M):
         found.setdefault(label, set()).add(prop)
 
     for source in sorted((ROOT / "etl").glob("*.py")):
@@ -43,6 +53,19 @@ def declared() -> dict[str, set[str]]:
             found.setdefault(label, set()).add(key)
             found[label] |= set(re.findall(r'"(\w+)":', body))
     return found
+
+
+def declared_block() -> str:
+    """The schema's PROPERTIES block, between its own markers.
+
+    Sliced rather than pattern-matched across the whole file: a bare
+    `Label.property <-` regex would also read the NOT-declared paragraph below
+    it, which exists precisely to say what the schema does not commit to.
+    """
+    schema = SCHEMA.read_text(encoding="utf-8")
+    start = schema.index("// PROPERTIES")
+    end = schema.index("// END PROPERTIES", start)
+    return schema[start:end]
 
 
 def accesses(cypher: str) -> dict[str, set[str]]:

@@ -70,7 +70,7 @@ hidden behind a national phrasing.
 **Q6.** How many distinct programmes appear in the crosswalk? ✅ — 2,143, of which 1,949 map to an occupation
 **Q7.** How many distinct occupations? ✅ — 867 (`99-9999 NO MATCH` is a sentinel, not an occupation — #70)
 **Q8.** How many courses does this district publish? ✅ — **791**, out of 960 catalogue pages
-**Q9.** What are this course's grade levels and length? ✅
+**Q9.** What are this course's grade levels and length? ⚠️ — **re-marked by #22 and #123.** Grade levels yes, from the catalogue's own `field-grades`. Length no: the catalogue publishes `field-credits` and no length or duration field at all, and credits are not length — a one-credit course can run a semester or a year. The query answers the half that exists.
 **Q10.** Which schools teach this course? ✅
 **Q11.** What award levels does this institution grant? ✅
 **Q12.** Where is this institution, and is it public or private? ✅
@@ -269,19 +269,19 @@ than assuming a shape.
 
 | Tier | Questions | ✅ | ⚠️ | ❌ |
 |---|---:|---:|---:|---:|
-| 1 — lookup | 20 | 16 | 2 | 2 |
+| 1 — lookup | 20 | 15 | 3 | 2 |
 | 2 — one hop | 22 | 15 | 3 | 4 |
 | 3 — change impact | 18 | 13 | 1 | 4 |
 | 4 — graph algorithms | 20 | 19 | 0 | 1 |
 | 5 — multi-domain | 14 | 3 | 7 | 4 |
 | 6 — whole-graph | 8 | 8 | 0 | 0 |
-| **Total** | **102** | **74** | **13** | **15** |
+| **Total** | **102** | **73** | **14** | **15** |
 
 This table is checked by `tests/test_questions.py`, which counts the questions
 and their status marks and fails if it disagrees. It exists because the first
 version of the table was written by hand and got three rows wrong.
 
-**Seventy-four answerable, and nineteen of the twenty tier-4 questions among
+**Seventy-three answerable, and nineteen of the twenty tier-4 questions among
 them.** That is the argument for building this as a graph rather than a
 database, and three days ago it was not true — every tier-4 question was blocked
 on prerequisites that #63 has since measured.
@@ -308,7 +308,7 @@ predicate device. It is worth its own research issue.
 
 ## What this tells us before designing anything
 
-The schema has to serve the 74. In particular it has to make tier 4 cheap, which
+The schema has to serve the 73. In particular it has to make tier 4 cheap, which
 means the prerequisite edge is the load-bearing structure and everything else
 hangs off the CIP-SOC join.
 

@@ -425,3 +425,53 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 // 6. PREPARES_FOR is a published claim, not causation. The crosswalk says a
 //    programme prepares for an occupation. It does not say graduates get those
 //    jobs, and no data here supports that reading.
+
+
+// -----------------------------------------------------------------------------
+// Attributes — edtech-kg#123
+// -----------------------------------------------------------------------------
+// Every constraint above declares a KEY. Until now the schema declared nothing
+// else, so a traversal naming `o.name` on an Occupation parsed, returned null,
+// and looked like an answer — and #22 found fifteen of those across the six
+// tiers. `Q2. What occupation does this SOC code name?` is entirely the name,
+// and the schema promised only the code.
+//
+// Each line below is `Label.property <- the field a source publishes it as`.
+// The source field is the point: a property with no field behind it is a wish,
+// and the whole reason for this section is that a reader can check the
+// commitment rather than trust it. `tests/schema_properties.py` reads these,
+// and `tests/test_schema_attributes.py` holds every one to a named source.
+//
+// PROPERTIES
+//   Occupation.name        <- CIP2020_SOC2018_Crosswalk.xlsx, SOC2018Title
+//   Programme.name         <- CIP2020_SOC2018_Crosswalk.xlsx, CIP2020Title
+//   Institution.name       <- IPEDS HD, INSTNM
+//   Institution.control    <- IPEDS HD, CONTROL
+//   School.name            <- CCD school directory, school_name
+//   District.name          <- CCD district directory, lea_name
+//   Completion.awards      <- IPEDS C, CTOTALT
+//   Completion.award_level <- IPEDS C, AWLEVEL
+//   Course.description     <- catalog.pwcs.edu, field--name-field-description
+//   Course.grade_levels    <- catalog.pwcs.edu, field--name-field-grades
+// END PROPERTIES
+//
+// NOT declared, and each for its own reason:
+//
+//   Course.length — no source publishes it. The catalogue carries
+//   `field-credits` and `field-grades` and no length or duration field at all,
+//   so Q9's "grade levels and length" is answerable in one half. Declaring a
+//   property to satisfy a question is how a schema starts describing what
+//   somebody wanted rather than what anyone publishes.
+//
+//   EarningsRecord.median, .year, .source, .employment — no loader exists and
+//   the key's own note above says the components firm up when the first source
+//   is loaded (#21, #37). Declaring them now would fix a shape before anything
+//   has been read, which is the mistake `Pathway` already made once when it
+//   was keyed on `ctid` and left empty.
+//
+// Award level is the one attribute anything FILTERS on — `Q25`, `Q32`, `Q85`
+// and `Q91` all select by it — so it is the one that earns an index. The rest
+// are returned, not searched, and indexing them would claim a lookup pattern
+// this graph does not have.
+CREATE INDEX ON :Completion(award_level);
+
