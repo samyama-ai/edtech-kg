@@ -110,10 +110,25 @@ anything is published from it.
 | College Scorecard | US Dept of Education | US-government public domain |
 | Urban Institute Education Data API | Urban Institute | Republishes the federal data above; **wrapper's own terms not yet checked** |
 | PWCS course catalogue | Prince William County Public Schools | **A public catalogue, but reuse permission is a human decision — not settled.** See #4 |
+| Credential Registry **data** | many publishers, operated by Credential Engine | **Not cleared — do not load.** Terms of use grant internal use only and route any application or redistribution through a signed Developer Agreement, checked 2026-08-31 — [`sources/registry-data-licence.md`](sources/registry-data-licence.md). The CC BY 4.0 finding is about CTDL the **vocabulary** (#28), not this. |
 
-Two of those are open questions, and they are open in this document rather than
-discovered later. **Neither the Urban Institute wrapper nor the PWCS catalogue
-should be treated as cleared until someone has cleared them.**
+**Four of those are not cleared**, and they are open in this document rather
+than discovered later.
+
+- **O\*NET** is public and asks for attribution, but the exact wording of that
+  request has not been read off the licence page. The position is expected to
+  be permissive; it is the obligation that is unconfirmed. It is the mildest
+  of the four, which is exactly why the count omitted it and nothing below
+  named it — the quietest row is the one a count loses.
+- **The Urban Institute wrapper** and **the PWCS catalogue** are open
+  questions — nobody has read the terms yet.
+- **The Credential Registry's data is a settled no.** Its terms were read on
+  2026-08-31 and they do not permit loading or redistribution. That row is not
+  waiting on anyone; it is waiting on a signed Developer Agreement, which is a
+  decision rather than a reading.
+
+The distinction matters: three of these could clear on a morning's work, and
+the fourth cannot clear without somebody signing something.
 
 **Reachability is a separate question from permission**, and three of five
 state education departments do not answer an automated request at all — see
