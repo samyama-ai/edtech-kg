@@ -6,7 +6,7 @@ own quick start. More files carried template placeholders, `LICENSE` among
 them, in a public repo.
 
 None of it was caught because nothing looked at the repo as a thing someone
-else installs and reads. These tests do that — edtech-kg#17, #6, #26.
+else installs and reads. These tests do that — edtech-kg#17 and #6.
 """
 
 from __future__ import annotations
@@ -41,9 +41,14 @@ def test_no_tracked_file_still_carries_a_template_placeholder():
     the three known names, because the template can add a fourth and the point
     is that no placeholder ships, not that these three do not.
 
-    f-strings produce `{{` legitimately, so the pattern requires the closing
-    `}}` with nothing but an upper-case identifier between — which no f-string
-    brace-escape looks like.
+    f-strings produce `{{` legitimately, and the pattern no longer excludes
+    them by shape: widening it to Jinja's spaced and lower-case spellings means
+    `f"{{literal}}"` matches too. That is a deliberate trade — measured over
+    every tracked file, the wider pattern matches exactly what the narrow one
+    did, and the four `{{ }}` users in `etl/` all produce `{{{key}: …}}`
+    shapes it does not touch. If an f-string escape ever collides, the fix is
+    an exemption for that file, not a narrower pattern: a template placeholder
+    in a comment ships to a reader and an f-string escape does not.
     """
     # `\s*` and `A-Za-z`, because `{{ KG_NAME }}` is Jinja's CANONICAL
     # spelling and `{{kg_name}}` is ordinary. The narrow upper-case-only form
