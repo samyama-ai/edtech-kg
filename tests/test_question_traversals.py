@@ -337,3 +337,25 @@ def test_a_declared_key_matched_inline_is_not_a_gap():
 
     assert undeclared('MATCH (c:Course {url: "https://x/y"}) RETURN c.name') == set()
 
+
+def test_no_question_carries_an_orphaned_fragment():
+    """A by-line re-mark leaves the continuation behind, and the tier count
+    does not notice.
+
+    Q75's re-mark left two orphan lines and the document's own guards caught it
+    — the tier read 21 questions. Q78's left one, and nothing caught it,
+    because the fragment does not begin with `**Q` so the count stayed at 20.
+    The ratchet detects one shape of this bug and not the other.
+
+    What the fragment DOES carry is an unmatched `*`: `cover over paths.*` is
+    the tail of an italic whose opening went with the replaced line. Emphasis
+    markers pair, so an odd count in a block is a truncated one — measured,
+    Q78 was the only block in the document with one.
+    """
+    ragged = {q: block.count("*") for q, block in blocks().items()
+              if block.count("*") % 2}
+    assert not ragged, (
+        f"these questions have unbalanced emphasis markers, which is what a "
+        f"line-replaced re-mark leaves behind: {ragged}. Replace the whole "
+        f"block, not its first line.")
+

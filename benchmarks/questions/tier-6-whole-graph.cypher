@@ -2,7 +2,9 @@
 //
 // edtech-kg#22. These run against the loaded prerequisite graph rather than an
 // empty label, so unlike most of the other tiers they return real answers
-// today. All eight are answerable and all eight are written.
+// today. All eight are answerable and all eight are written — Q95 in two
+// statements, because "how many components" has no component procedure here
+// and the isolated count and the linked count are the two halves of it.
 
 // Q95. What does the prerequisite graph look like — how many components?
 // COMPONENTS without a component algorithm: a course outside every chain is

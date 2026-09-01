@@ -22,7 +22,9 @@ RETURN DISTINCT closed.url, closed.name;
 // Q62. What is the shortest route from where I am now to this programme?
 // Course to course, which is what "route" means inside a catalogue. See the
 // note on Q75: there is no academic edge from a district course to a
-// post-secondary programme, so "to this programme" cannot be walked.
+// post-secondary programme, so "to this programme" cannot be walked — and the
+// question is re-marked ⚠️ in docs/questions.md for that reason, rather than
+// leaving the justification here where the status table cannot see it.
 // Both endpoints need a VARIABLE — `shortestPath` on this engine refuses an
 // anonymous target ("shortestPath target must have a variable"), which is not
 // a Cypher rule and is worth knowing before writing fifteen of these.
@@ -115,7 +117,11 @@ MATCH p = (:Course)-[:REQUIRES*]->(:Course {url: "https://catalog.pwcs.edu/agric
 RETURN count(p) AS chains;
 
 // Q74. Which courses sit on the most paths between others?
-// BETWEENNESS, counted over paths rather than normalised. `UNWIND` does not
+// BETWEENNESS, counted over paths rather than normalised. Like Q68 this is a
+// REPORT rather than an interactive query: it enumerates every path in the
+// graph, which is exponential in a dense one and merely large here. Say so
+// before someone runs it against a national graph and concludes the engine
+// hung. `UNWIND` does not
 // parse as a leading clause on this engine but does after a `MATCH`, which is
 // all this needs.
 MATCH p = (:Course)-[:REQUIRES*]->(:Course)

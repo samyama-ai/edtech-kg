@@ -156,8 +156,7 @@ from this institution? ✅
 *Blast radius — transitive closure over prerequisites, unknown depth.* District-
 scoped. Structurally identical to the regulatory KG's *"this rule changed, which
 devices are affected?"*
-**Q62. What is the shortest route from where I am now to this programme?** ✅
-*Shortest path.* District-scoped.
+**Q62. What is the shortest route from where I am now to this programme?** ⚠️ — **re-marked by #22.** Answerable as course to course, which is what "route" means inside a catalogue, and that is the query written. Not answerable as far as a *programme*: the same missing join that blocked Q75 (#66). Held at a caveat rather than blocked outright, because the narrowed reading is the one a student asks and it is fully answered — the caveat is which "there" the route reaches. *Shortest path.* District-scoped.
 **Q63. I'm in year 11 and I've taken these five courses. What am I still
 missing?** ✅ *Set difference over a reachability set.*
 **Q64. I was heading for accounting, now I want data analysis. What carries
@@ -187,8 +186,7 @@ centrality* — the real bottleneck courses.
 *Descendant count.*
 **Q77.** Is this programme reachable from this school's course offering at all? ✅
 *Reachability.*
-**Q78.** What is the minimum set of courses covering the most pathways? ❌ — **re-marked by #22.** Set cover is an optimisation over the graph rather than a traversal of it: the data is all here and the operation is not Cypher. The greedy first step — rank courses by pathways included — is expressible and answers a different question
-cover over paths.*
+**Q78.** What is the minimum set of courses covering the most pathways? ❌ — **re-marked by #22.** Set cover is an optimisation over the graph rather than a traversal of it: the data is all here and the operation is not Cypher. The greedy first step — rank courses by pathways included — is expressible and answers a different question. *Set cover over paths* is still the operation it names; it is not a traversal.
 **Q79.** Which prerequisite chains cross subject boundaries? ✅ *Path
 enumeration with a property filter on the nodes.*
 **Q80.** Nationally, what is the shortest path from any course to any
@@ -270,16 +268,16 @@ than assuming a shape.
 | 1 — lookup | 20 | 16 | 2 | 2 |
 | 2 — one hop | 22 | 15 | 3 | 4 |
 | 3 — change impact | 18 | 13 | 1 | 4 |
-| 4 — graph algorithms | 20 | 17 | 0 | 3 |
+| 4 — graph algorithms | 20 | 16 | 1 | 3 |
 | 5 — multi-domain | 14 | 0 | 4 | 10 |
 | 6 — whole-graph | 8 | 8 | 0 | 0 |
-| **Total** | **102** | **69** | **10** | **23** |
+| **Total** | **102** | **68** | **11** | **23** |
 
 This table is checked by `tests/test_questions.py`, which counts the questions
 and their status marks and fails if it disagrees. It exists because the first
 version of the table was written by hand and got three rows wrong.
 
-**Sixty-nine answerable, and seventeen of the twenty tier-4 questions among
+**Sixty-eight answerable, and sixteen of the twenty tier-4 questions among
 them.** That is the argument for building this as a graph rather than a
 database, and three days ago it was not true — every tier-4 question was blocked
 on prerequisites that #63 has since measured.
@@ -307,7 +305,7 @@ predicate device. It is worth its own research issue.
 
 ## What this tells us before designing anything
 
-The schema has to serve the 69. In particular it has to make tier 4 cheap, which
+The schema has to serve the 68. In particular it has to make tier 4 cheap, which
 means the prerequisite edge is the load-bearing structure and everything else
 hangs off the CIP-SOC join.
 
