@@ -19,6 +19,7 @@ import re
 import pytest
 
 from etl import registry_licence as rl
+from tests.spelling import position, spelled
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PAGE = ROOT / "docs" / "sources" / "registry-data-licence.md"
@@ -170,12 +171,28 @@ def test_every_recorded_sentence_is_quoted_on_the_page(record):
 
 
 def test_the_page_states_the_count_and_the_date_the_record_holds(record):
-    page = PAGE.read_text()
+    page = PAGE.read_text(encoding="utf-8")
     counted = record["records"]
     assert (f"{counted['carrying_copyright_holder']} of {counted['envelopes']}"
             in page), "the page no longer states the measured count"
     read_on = re.search(r"Read on \*\*(\d{4}-\d{2}-\d{2})\*\*", page)
     assert read_on and read_on.group(1) == record["retrieved_at"]
+
+    # The rights-term count, which was typed on the page and in a docstring and
+    # pinned in neither. The docstring said four while everything else said
+    # five; removing the number from the docstring did not close the gap, it
+    # moved it one file over. The page states it AND tabulates them, so both
+    # are checked against the record rather than against each other.
+    returns = re.search(r"returns \*\*(\w+)\*\*", page)
+    assert returns, "the page no longer states how many rights-shaped terms"
+    terms = record["rights_terms_in_ctdl"]
+    assert spelled(returns.group(1)) == len(terms), (
+        f"the page says the search returns {returns.group(1)}; the record "
+        f"holds {len(terms)}: {terms}")
+    for term in terms:
+        assert f"`{term}`" in page, (
+            f"{term} is in the record and not in the page's table, so a "
+            f"reader counting the rows gets a different answer")
 
 
 def test_the_page_does_not_call_the_registry_data_cleared():
@@ -272,7 +289,11 @@ def test_the_record_carries_the_verdict_not_only_the_evidence(record):
 #: the counter read three, agreed with prose that said three, and both were
 #: wrong by the same row. A fourth phrasing would do it again — which is why
 #: the test below does not stop at counting.
-UNRESOLVED = ("not cleared", "not settled", "not yet checked", "to confirm")
+#: "terms to confirm", not "to confirm". The looser form inverts: a cleared
+#: cell reading "Cleared — public domain, no need to confirm" would be counted
+#: as unresolved, so the check fires on somebody at the moment they CLEAR a
+#: row, which reads as "you broke the document".
+UNRESOLVED = ("not cleared", "not settled", "not yet checked", "terms to confirm")
 
 
 def _scope_rows() -> list[tuple[str, str, str]]:
@@ -295,10 +316,26 @@ def test_scope_counts_the_uncleared_rows_it_actually_lists():
                  if any(p in r[2].lower() for p in UNRESOLVED)]
     claimed = re.search(r"\*\*(\w+) of those are not cleared\*\*", scope)
     assert claimed, "scope.md no longer states how many rows are not cleared"
-    words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
-    assert words[claimed.group(1).lower()] == len(uncleared), (
+    # `spelled`, not a five-entry dict. The table has eight rows, so six
+    # through eight are reachable and the dict raised a bare `KeyError` there
+    # — a traceback from a test whose whole subject is legibility.
+    assert spelled(claimed.group(1)) == len(uncleared), (
         f"scope.md claims {claimed.group(1)} uncleared rows; the table has "
         f"{len(uncleared)}: {[r[0].strip() for r in uncleared]}")
+
+    # The SECOND spelled number about the same table, three lines below the
+    # first. It said "two of these … and the third" while the count above it
+    # said four — the same miscount, in the sentence a reader acts on when
+    # sizing the backlog, and nothing read it.
+    split = re.search(r"(\w+) of these could clear.*?the (\w+) cannot clear",
+                      scope, re.S)
+    assert split, "scope.md no longer splits the uncleared rows into can and cannot"
+    assert spelled(split.group(1)) + 1 == len(uncleared), (
+        f"scope.md says {split.group(1)} rows could clear on a reading plus "
+        f"one that cannot, against {len(uncleared)} uncleared rows")
+    assert position(split.group(2)) == len(uncleared), (
+        f"scope.md calls the row needing a signature the {split.group(2)} of "
+        f"{len(uncleared)}")
 
 
 def test_every_uncleared_row_is_named_in_the_paragraph_that_counts_them():
@@ -315,16 +352,40 @@ def test_every_uncleared_row_is_named_in_the_paragraph_that_counts_them():
     worded, so it survives a fifth phrasing the counter would miss.
     """
     scope = (ROOT / "docs" / "scope.md").read_text(encoding="utf-8")
+    # THE BULLET RUN, not everything up to the next heading. The span was
+    # ~1,100 characters running past the bullets through two more paragraphs,
+    # so any incidental word in the trailing prose satisfied a row: deleting
+    # the O\\*NET bullet passed if "network" appeared anywhere in it, and
+    # deleting the Credential Registry bullet passed on a stray mention of
+    # "Credential Engine". Both are ordinary edits. `main` has since added
+    # another paragraph inside the old span, which is more prose for a missing
+    # bullet to hide behind.
     after = scope[scope.index("of those are not cleared"):]
-    paragraph = after[:after.index("\n## ")] if "\n## " in after else after
+    bullets = []
+    for line in after.splitlines()[1:]:
+        if line.startswith("- "):
+            bullets.append(line)
+        elif bullets and not line.startswith(" "):
+            break
+        elif bullets:
+            bullets.append(line)
+    paragraph = "\n".join(bullets)
+    assert paragraph.strip(), "no bullet list follows the uncleared count"
 
     missing = []
     for name, _publisher, licence in _scope_rows():
         if not any(p in licence.lower() for p in UNRESOLVED):
             continue
-        # The longest word in the source name — "Institute", "catalogue",
-        # "Registry", "NET". Distinctive enough to find, loose enough that
-        # the prose can call a row by a different phrase than the table does.
+        # The longest word in the source name — "Credential", "Institute",
+        # "catalogue", "NET". The gaps this had were both in the SPAN, not
+        # here: a stray "network" or "Credential Engine" in the trailing prose
+        # covered a deleted bullet. With the span cut to the bullets those
+        # sentences are outside it, and a bullet is only ever about its own
+        # row. Requiring every word instead would fail honestly-worded prose —
+        # the Urban row carries "Education", which no bullet says.
+        #
+        # Strict on renaming either side. That is the trade; the failure names
+        # the row, so the fix is obvious.
         words = [w for w in re.findall(r"[A-Za-z]+", name) if len(w) > 2]
         assert words, f"the row name {name!r} has no word to look for"
         if max(words, key=len) not in paragraph:

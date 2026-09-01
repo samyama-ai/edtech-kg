@@ -29,6 +29,24 @@ class Unspellable(AssertionError):
     """
 
 
+#: Ordinals, for prose that counts by position — "the fourth cannot clear
+#: without somebody signing something". Separate from WORDS so "second" can
+#: never be read as a cardinal 2 by a check that meant to read a count.
+ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+            "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
+
+
+def position(word: str) -> int:
+    """`"fourth"` -> `4`. For a document that names a row by its place in a
+    list rather than by counting one."""
+    key = (word or "").strip().lower()
+    if key not in ORDINALS:
+        raise Unspellable(
+            f"cannot read {key!r} as an ordinal — either the document should "
+            f"use one this knows, or the word belongs in ORDINALS.")
+    return ORDINALS[key]
+
+
 def spelled(word: str) -> int:
     """`"seventy-four"` -> `74`. Digits pass through, so a document may write
     either and the check still reads it."""

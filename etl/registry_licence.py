@@ -260,19 +260,22 @@ def probe(quiet: bool = False) -> dict:
         # what the walk actually reached, so both are borrowed rather than
         # re-derived. The description goes into the record and onto the page:
         # a reader cannot check a sample they cannot see the shape of.
-        # INSIDE the conversion. `total` reaches the Registry too, and it sat
-        # outside the try that turns `registry_read`'s own exception classes
-        # into this module's — so a 503 while sizing the sample escaped
-        # `main` as a traceback, which is the exact failure the borrowed-layer
-        # bridge below was added to prevent, one call earlier.
-        # `total` does not RAISE on a Registry failure. It catches
-        # `HttpStatus` itself and returns a string saying what went wrong —
-        # `"secured"`, `"error 503"`, `"unreachable"`, `"no x-total header"`.
-        # So the conversion below was unreachable in production, and the
+        # HOW A REGISTRY FAILURE ARRIVES HERE. `total` does not raise on one:
+        # it catches `HttpStatus` itself and RETURNS a string saying what went
+        # wrong — `"secured"`, `"error 503"`, `"unreachable"`, `"no x-total
+        # header"`. An earlier version guarded only the exception, so the
         # string fell through to `sample_pages`, which cannot spread pages
-        # over a population it does not have and returns the head of the
-        # list: exactly the sampling this module was changed to stop doing,
-        # reported as a success. The sentinel is checked, not the exception.
+        # over a population it does not have and returns the head of the list:
+        # exactly the sampling this module was changed to stop doing, reported
+        # as a success. The sentinel is what is checked.
+        #
+        # The `except` below is therefore unreachable TODAY, and kept
+        # deliberately. `registry_read` is a borrowed layer with its own
+        # exception classes, one of which shares this module's name for a
+        # different type; if `total` or `sample_pages` ever grows a raising
+        # path, the conversion is what stops it escaping `main` as a traceback
+        # instead of a refusal. Its test says so rather than pretending the
+        # path is live.
         try:
             population = total(f"/ce-registry/{kind}/search")
             if not isinstance(population, int):

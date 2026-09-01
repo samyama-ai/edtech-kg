@@ -21,17 +21,13 @@ import urllib.error
 import pytest
 
 from etl import registry_licence as rl
-from tests.test_registry_licence import RECORD, TERMS_PAGE, VOCABULARY
+from tests.test_registry_licence import TERMS_PAGE, VOCABULARY
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PAGE = ROOT / "docs" / "sources" / "registry-data-licence.md"
 
-
-@pytest.fixture(scope="module")
-def record() -> dict:
-    """Its own, rather than imported — an imported fixture binds a module
-    global that every test taking `record` then shadows."""
-    return json.loads(RECORD.read_text(encoding="utf-8"))
+# `PAGE`, the `record` fixture and the `RECORD` import went with the six
+# document tests that moved to `test_registry_licence.py`. Nothing in this
+# file reads the committed record any more — it drives `probe`.
 
 
 # --------------------------------------------------------------------------
@@ -303,11 +299,14 @@ def test_the_reporting_path_reads_only_keys_the_result_has(monkeypatch):
 
 
 def test_a_registry_outage_while_sizing_is_refused_not_a_traceback(monkeypatch):
-    """`total` sat outside the conversion, one call before the one that had it.
+    """A CONTRACT, not a live path — and worth being honest about which.
 
-    Sizing the sample reaches the Registry too, so a 503 there escaped `main`
-    as a traceback — the exact failure the borrowed-layer bridge was added to
-    prevent, one line earlier than it was guarding.
+    `total` cannot reach this today: it catches `HttpStatus` itself and
+    returns a sentinel string, which is what
+    `test_a_registry_that_answers_with_a_sentinel_is_refused_not_head_sampled`
+    covers. This pins the other half — that if `registry_read` ever grows a
+    raising path, it converts to a refusal rather than escaping `main` as a
+    traceback. Its stub raises what the real function does not, deliberately.
     """
     from etl.registry_read import HttpStatus
 
@@ -383,6 +382,13 @@ def test_record_writes_a_file_that_reads_back(monkeypatch, tmp_path):
     # account of how to reproduce it.
     assert list(written)[0] == "_", "the record does not open with its own note"
     assert "--record" in written["_"]
+    # THE WRITER, not the artifact. Its sibling reads the committed file, so
+    # it pins what is on disk and says nothing about the code that put it
+    # there — removing `ensure_ascii=False` left the whole suite green. Read
+    # as raw text, because `json.loads` decodes the escape either way.
+    assert "\\u" not in destination.read_text(encoding="utf-8"), (
+        "the writer escaped a character it should have written; the record "
+        "and its siblings would differ only in encoding")
 
 
 def test_a_page_that_cannot_be_reached_is_refused_not_a_traceback(monkeypatch):

@@ -127,8 +127,8 @@ than discovered later.
   waiting on anyone; it is waiting on a signed Developer Agreement, which is a
   decision rather than a reading.
 
-The distinction matters: two of these could clear on a morning's work, and the
-third cannot clear without somebody signing something.
+The distinction matters: three of these could clear on a morning's work, and
+the fourth cannot clear without somebody signing something.
 
 Raw data is never committed. The repo ships downloaders, loaders, schema and a
 bounded demo, and cites its sources — the convention across every `*-kg` repo.
