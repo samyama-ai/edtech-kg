@@ -13,7 +13,11 @@ issue and a second PR.
 
 `feat` `fix` `chore` `docs` `refactor` `test` `research`, optionally scoped —
 `feat(etl)/7/national-spine`. The PR body must contain `Closes #<N>` so the
-issue closes on merge.
+issue closes on merge — not a commit message, not a comment.
+
+**Never stack more than two PRs deep.** One stack four deep
+(#84 → #83 → #82 → #68) cost more delay than every review round in this repo
+combined: one slow review blocked four PRs, and each took four rounds.
 
 ## Keep it under ~700 insertions, and under 250 if you can
 
@@ -82,9 +86,30 @@ else is a claim wearing a number's clothes.
 
 ## Before you push
 
-Read your own diff as if someone else wrote it, and ask the three questions
-that catch the most:
+    SAMYAMA_TEST_URL=http://localhost:8201 SAMYAMA_URL=http://localhost:8201 \
+      SAMYAMA_REQUIRE_ENGINE=1 python3.11 -m pytest -q
+
+    python3.11 -m pyflakes <changed files>
+    python3.11 -m flake8 --select=E301,E302,E303,E304,E741,F <changed files>
+
+`SAMYAMA_REQUIRE_ENGINE=1` turns an unreachable engine into a failure rather
+than a skip, because "verified against the engine" must never reach a document
+on the strength of a run nobody made.
+
+**Run the style pass last.** A PR was reported style-clean and then edited
+further, and the review found two violations introduced after the check. A
+check that ran before the last edit is not a check.
+
+Then read your own diff as if someone else wrote it, and ask the three
+questions that catch the most:
 
 1. Every figure I put in a document — did a probe print it, or did I?
 2. Every guard I added — is there a sibling call site with the same hole?
 3. Every fix — does it break a promise made two lines up?
+
+## Which engine produced a figure
+
+Every figure here was measured against one engine build, recorded in
+`etl/engine.py`. **The image tag and the engine version are different
+numbers.** On a bump, every published figure is unverified until re-measured —
+which is worse than wrong, because nothing looks different.
