@@ -5,11 +5,24 @@ or ❌ not. Those marks were a judgement. This turns them into a check: a
 question marked answerable whose query the engine will not parse is a question
 the schema does not serve, and the mark is wrong.
 
-**Parsing is the honest bound.** Nothing is loaded, so a query returning rows
-is not available as evidence; what these establish is that the traversal is
-expressible against the declared schema. A query that parses and names a
-property no loader writes would still pass — stated here rather than left for a
-reader to assume otherwise.
+**Parsing is a weak bound, and Q68 is the proof.** That query parsed, ran
+without error, and returned "there are no articulation points" on a graph that
+has them — because `IN` over a list of nodes matches nothing either way rather
+than refusing. A parses-only gate passed a query that answers wrongly.
+
+So two things are checked, and they are not the same:
+
+* **Parsing**, ratcheted below against whatever engine is reachable. Cheap, and
+  it runs on an empty one.
+* **Execution against LOADED data**, which is what caught Q68 — and which an
+  empty engine cannot do, because a predicate inside a `WHERE` is never
+  evaluated when nothing matches. `test_every_statement_runs_where_there_is_
+  data_to_run_against` does this when the graph holds courses, and says so
+  loudly when it cannot.
+
+A query that parses, runs, and names a property nothing writes would still
+pass. That is what the `NEEDS:` annotations are for, and #123 is closing the
+gap they document.
 
 Written for the engine this repo pins: a pattern inside `WHERE` does not parse
 (see `docs/schema.md`), so absence is `NOT EXISTS { MATCH ... }` throughout.
@@ -17,6 +30,7 @@ Written for the engine this repo pins: a pattern inside `WHERE` does not parse
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 
@@ -359,3 +373,38 @@ def test_no_question_carries_an_orphaned_fragment():
         f"line-replaced re-mark leaves behind: {ragged}. Replace the whole "
         f"block, not its first line.")
 
+
+@pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
+def test_every_statement_runs_where_there_is_data_to_run_against(path):
+    """EXECUTION, not parsing. The distinction Q68 cost a round to learn.
+
+    A predicate inside a `WHERE` is never evaluated on an empty graph, so a
+    type error that would fail on real data passes on an empty engine. Q68
+    parsed, ran, and returned a confident wrong answer for exactly that reason,
+    and the validation that missed it ran against an engine holding nothing.
+
+    Gated on the graph holding COURSES rather than on the engine answering.
+    Skipping when there is no data is honest; skipping when there IS data would
+    be the failure this file is about, so `SAMYAMA_REQUIRE_ENGINE=1` turns the
+    skip into a failure the same way the schema tests do.
+    """
+    require_engine()
+    loaded = query(SAMYAMA_URL, "MATCH (c:Course) RETURN count(c) AS n")
+    held = (loaded.get("records") or [[0]])[0][0] if "error" not in loaded else 0
+    if not held:
+        message = (f"the graph at {SAMYAMA_URL} holds no Course nodes, so a "
+                   f"predicate inside a WHERE is never evaluated and this "
+                   f"checks nothing — load a district first")
+        if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
+            pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
+        pytest.skip(message)
+
+    broken = []
+    for statement in statements(path):
+        result = query(SAMYAMA_URL, statement)
+        if "error" in result and not result.get("transport"):
+            broken.append(f"{statement.splitlines()[0][:56]} -> "
+                          f"{result['error'][:110]}")
+    assert not broken, (
+        f"{path.name} carries statements that PARSE and fail when run against "
+        f"{held:,} loaded courses: {broken}")

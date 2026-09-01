@@ -294,7 +294,7 @@ on prerequisites that #63 has since measured.
 | Not a traversal | Q78 | set cover is an optimisation over the graph, not a walk of it; #22 |
 | The engine cannot | Q68 | `IN` over a node list is unusable, so articulation points return a confident zero; #22 |
 
-That last cluster is the interesting one, and it was missed on the first pass.
+**Rules joining the two tiers** is the interesting cluster, and it was missed on the first pass — named rather than pointed at, because two clusters have since been appended below it and "that last one" now means something else.
 Course-to-programme entry rules, state graduation requirements, accreditation
 and dual enrolment are four different questions with one shape: **the rule that
 connects secondary to post-secondary exists, and is published as prose for

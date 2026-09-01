@@ -6,13 +6,22 @@
 // real data rather than an empty label.
 //
 // What the engine has, measured rather than assumed: variable-length paths
-// bounded and unbounded, `shortestPath`, `allShortestPaths`, `length()`,
-// `nodes()`, `relationships()`, and `NOT x IN nodes(p)` inside a nested
-// `NOT EXISTS`. What it does not have: GDS (`Unknown procedure`), `count{}`,
-// `size(pattern)`, and `UNWIND` as a leading clause.
+// bounded and unbounded, `shortestPath` (with a VARIABLE at each end),
+// `allShortestPaths`, `length()`, `nodes()`, `relationships()`, `UNWIND` after
+// a `MATCH`, and `WITH DISTINCT`.
 //
-// Two questions in this tier cannot be answered and are re-marked, with the
-// reasons in `docs/questions.md`. Neither is a gap in the engine.
+// What it does not have: GDS (`Unknown procedure`), `count{}`,
+// `size(pattern)`, `UNWIND` as a leading clause, two `MATCH` clauses inside
+// `NOT EXISTS`, and — the one that cost this file a round — **`IN` over a list
+// of nodes**, which parses, runs, and matches nothing either way rather than
+// refusing. `NOT x IN nodes(p)` was listed HERE as a capability until the Q68
+// note below proved it is not one; a reader who took that at face value would
+// have written another silently-zero query.
+//
+// FOUR questions in this tier are re-marked: Q68, Q75 and Q78 to ❌ and Q62 to
+// ⚠️. Q68 IS a gap in the engine — it is the sole member of the cluster
+// `docs/questions.md` calls "The engine cannot". The other three are gaps in
+// the schema or in what a traversal can express.
 
 // Q61. If I skip chemistry this year, what does that close off later?
 // The blast radius, and the same closure as Q49 asked from the student's side.
