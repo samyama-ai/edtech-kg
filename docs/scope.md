@@ -68,6 +68,11 @@ course prerequisites:
   exchange data with their own vendors, not a public feed
 - State course directories publish titles and descriptions; prerequisites
   appear in prose if at all
+- **SCED**, the national course taxonomy, defines a `Sequence of Course`
+  element — and it means "part *n* of *m* parts", one course split across
+  terms, not a prerequisite between two courses. Neither the master file nor
+  the one SCED-keyed state directory publishes it anyway. See
+  [`sources/sced.md`](sources/sced.md)
 
 What does exist: individual districts publishing a program of studies. **Prince
 William County Public Schools** publishes 982 course pages with an explicit
@@ -101,14 +106,36 @@ anything is published from it.
 | IPEDS (completions, directory) | NCES | US-government public domain |
 | CCD (schools, districts) | NCES | US-government public domain |
 | CIP-SOC crosswalk | NCES + BLS | US-government public domain |
-| O\*NET | US Dept of Labor | Public, attribution requested — **terms to confirm** |
+| O\*NET crosswalk workbooks | US Dept of Labor | CC BY 4.0 by the crosswalks page's own notice, checked 2026-08-31 — **not** the Database licence, which excludes that page. Attribution wording and the version rule in [`sources/licences.md`](sources/licences.md) |
 | College Scorecard | US Dept of Education | US-government public domain |
-| Urban Institute Education Data API | Urban Institute | Republishes the federal data above; **wrapper's own terms not yet checked** |
+| Urban Institute Education Data API | Urban Institute | Republishes the federal data above under Open Data Commons Attribution (ODC-By) v1.0, checked 2026-08-31. Reuse and re-sharing permitted; citation requested — [`sources/licences.md`](sources/licences.md) |
 | PWCS course catalogue | Prince William County Public Schools | **A public catalogue, but reuse permission is a human decision — not settled.** See #4 |
+| Credential Registry **data** | many publishers, operated by Credential Engine | **Not cleared — do not load.** Terms of use grant internal use only and route any application or redistribution through a signed Developer Agreement, checked 2026-08-31 — [`sources/registry-data-licence.md`](sources/registry-data-licence.md). The CC BY 4.0 finding is about CTDL the **vocabulary** (#28), not this. |
 
-Two of those are open questions, and they are open in this document rather than
-discovered later. **Neither the Urban Institute wrapper nor the PWCS catalogue
-should be treated as cleared until someone has cleared them.**
+**Two of those are not cleared**, and they are open in this document rather
+than discovered later.
+
+- **The PWCS catalogue** is an open question — a public catalogue whose reuse
+  permission is a human decision rather than a published licence, and nobody
+  has settled it.
+- **The Credential Registry's data is a settled no.** Its terms were read on
+  2026-08-31 and they do not permit loading or redistribution. That row is not
+  waiting on a reading; it is waiting on a signed Developer Agreement, which is
+  a decision rather than a reading.
+
+The distinction matters: one of these could clear on a morning's work, and
+the second cannot clear without somebody signing something.
+
+Two rows closed on 2026-08-31: the Urban Institute wrapper and O\*NET, both
+cleared by reading the terms rather than assuming them; see
+[`sources/licences.md`](sources/licences.md). O\*NET did not clear the way the
+question assumed: the Database content licence names the pages it applies to
+and the crosswalks page is not among them, so the workbooks this repo reads
+are covered by a separate notice that happens to say the same thing.
+
+**Reachability is a separate question from permission**, and four of five
+state education departments do not answer an automated request at all — see
+[`sources/state-access.md`](sources/state-access.md), measured 2026-08-28.
 
 Raw data is never committed. The repo ships downloaders, loaders, schema and a
 bounded demo, and cites its sources — the convention across every `*-kg` repo.

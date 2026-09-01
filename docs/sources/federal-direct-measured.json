@@ -1,0 +1,97 @@
+{
+  "_": "One measured run of `python -m etl.probe_federal_direct --deep --record`, committed so docs/sources/federal-direct.md can be checked without downloading a year of IPEDS.",
+  "retrieved_at": "2026-09-01",
+  "routes": {
+    "IPEDS completions, direct": {
+      "url": "https://nces.ed.gov/ipeds/datacenter/data/C2022_A.zip",
+      "status": 200,
+      "bytes": 8288979,
+      "note": ""
+    },
+    "CCD file index": {
+      "url": "https://nces.ed.gov/ccd/files.asp",
+      "status": 200,
+      "bytes": 30220,
+      "note": ""
+    },
+    "CCD data page": {
+      "url": "https://nces.ed.gov/ccd/ccddata.asp",
+      "status": 200,
+      "bytes": 14955,
+      "note": ""
+    },
+    "Scorecard bulk, institution": {
+      "url": "https://ed-public-download.scorecard.network/downloads/Most-Recent-Cohorts-Institution_06102026.zip",
+      "status": 200,
+      "bytes": 23559465,
+      "note": ""
+    },
+    "Scorecard API": {
+      "url": "https://api.data.gov/ed/collegescorecard/v1/schools?per_page=1",
+      "status": 403,
+      "bytes": null,
+      "needs_a_key": true,
+      "note": "{ \"error\": { \"code\": \"API_KEY_MISSING\", \"message\": \"College Scorecard requires an API Key for access. To obtain a key, visit https://api.data.gov/signup. You will receive an email with your key. When "
+    },
+    "Urban wrapper, for comparison": {
+      "url": "https://educationdata.urban.org/api/v1/college-university/ipeds/completions-cip-6/2022/",
+      "status": 200,
+      "bytes": null,
+      "note": "{\"count\":9026310,\"next\":\"https://educationdata.urban.org/api/v1/college-university/ipeds/completions-cip-6/2022/?page=2\",\"previous\":null,\"results\":[{\"unitid\":100654,\"year\":2022,\"fips\":1,\"cipcode_6digi"
+    }
+  },
+  "read_or_measured": "measured",
+  "wrapper_licence": "ODC-By, checked 2026-08-31 (#101) — so this is a robustness question, not a licence one",
+  "ipeds": {
+    "download_bytes": 8288979,
+    "members": [
+      "c2022_a.csv",
+      "c2022_a_rv.csv"
+    ],
+    "awards_first_major": 10620172,
+    "file_read": "c2022_a.csv",
+    "rows": 300877,
+    "key_columns": [
+      "UNITID",
+      "CIPCODE",
+      "MAJORNUM",
+      "AWLEVEL"
+    ],
+    "flag_columns": 30,
+    "count_columns": [
+      "CTOTALT",
+      "CTOTALM",
+      "CTOTALW",
+      "CAIANT",
+      "CAIANM",
+      "CAIANW",
+      "CASIAT",
+      "CASIAM",
+      "CASIAW",
+      "CBKAAT",
+      "CBKAAM",
+      "CBKAAW",
+      "CHISPT",
+      "CHISPM",
+      "CHISPW",
+      "CNHPIT",
+      "CNHPIM",
+      "CNHPIW",
+      "CWHITT",
+      "CWHITM",
+      "CWHITW",
+      "C2MORT",
+      "C2MORM",
+      "C2MORW",
+      "CUNKNT",
+      "CUNKNM",
+      "CUNKNW",
+      "CNRALT",
+      "CNRALM",
+      "CNRALW  "
+    ],
+    "rows_x_counts": 9026310,
+    "wrapper_rows": 9026310,
+    "reconciles": true
+  }
+}

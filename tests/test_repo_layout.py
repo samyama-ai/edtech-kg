@@ -377,6 +377,19 @@ def test_the_documented_style_check_catches_what_this_repo_contains(tmp_path):
         out = subprocess.run(
             [sys.executable, "-m", "flake8", f"--select={line.group(1)}",
              str(sample)], capture_output=True, text=True)
+        # flake8 exits 0 when clean and 1 when it reports something. ANYTHING
+        # else is flake8 failing to run — and so is a non-empty stderr, which
+        # is the case that matters: `python -m missing_module` exits **1**,
+        # the same code flake8 uses for "I found something", so the return
+        # code alone does not separate them. Its stdout is empty either way,
+        # so the
+        # assertion below would report "the documented selection does not
+        # catch E302" when the truth is that flake8 is not installed. The
+        # wrong cause, stated confidently.
+        if out.returncode not in (0, 1) or out.stderr.strip():
+            pytest.fail(
+                f"flake8 did not run (exit {out.returncode}): "
+                f"{out.stderr.strip()[:200] or '(no stderr)'}")
         assert code in out.stdout, (
             f"the documented selection {line.group(1)} does not catch {code}, "
             f"which this repo relies on being caught:\n{out.stdout}")

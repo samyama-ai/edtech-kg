@@ -6,8 +6,9 @@ which, and *"answering that question comes before the ontology"*. If a real
 district publishes prerequisites that resolve to real courses, prerequisite
 chains are the demo. If not, the demo is programme → occupation → earnings.
 
-    python -m etl.probe_pwcs                # the full sweep, 960 course pages
+    python -m etl.probe_pwcs                # the full sweep, 960 catalogue pages
     python -m etl.probe_pwcs --limit 50     # a quick run, and it says it is one
+                                            # (dangling counts are a ceiling then)
     python -m etl.probe_pwcs --json         # machine-readable, with timestamp
 
 Prince William County Schools publishes `catalog.pwcs.edu` on Clean Catalog, a
@@ -38,11 +39,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from etl.identity import USER_AGENT
+from etl.pwcs_pages import classify, level
+
 SITEMAP = "https://catalog.pwcs.edu/sitemap.xml"
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 CACHE = Path("data/pwcs")
 DELAY = 0.3          # seconds between live fetches; this is a school district
 RED_FLAG = "!! "     # prefixes a count that means the parser, not the source, is wrong
@@ -125,7 +129,15 @@ def fetch(url: str, use_cache: bool = True) -> str:
     return body
 
 
-def course_urls(use_cache: bool = True) -> list[str]:
+def catalogue_urls(use_cache: bool = True) -> list[str]:
+    """Every catalogue page in the sitemap, furniture removed.
+
+    Named for what it returns. It was `course_urls`, and it never returned
+    only courses — 127 of the 960 are subject indexes and 42 are CTE pathways.
+    The probe took the name at its word and quoted every rate against 960,
+    which is edtech-kg#74. A name that has to be remembered as untrue is the
+    same defect as a wrong number, one step earlier.
+    """
     sitemap = fetch(SITEMAP, use_cache)
     if "<loc>" not in sitemap:
         raise MalformedSource(
@@ -244,10 +256,21 @@ def resolve(records: list[dict], catalogue: list[str] | None = None) -> dict:
 
 def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False) -> dict:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    urls = course_urls(use_cache)
+    urls = catalogue_urls(use_cache)
     population = len(urls)
     read = urls[:limit] if limit else urls
 
+    # Classified as they are read. A page's kind decides whether it belongs in
+    # the denominator, so it has to be decided from the page — `classify` reads
+    # the markup, and the four pages whose markup contradicts their depth are
+    # the reason depth alone is not enough (#87).
+    kinds: Counter[str] = Counter()
+    # Every page we managed to classify, and separately every page the
+    # classifier called a course. The second is not the same as
+    # the parsed set: a page can be a course and still fail to parse, and it
+    # is published either way.
+    classified_any: set[str] = set()
+    classified_course: list[str] = []
     records, skipped, unread = [], 0, []
     for url in read:
         # One slow page must not lose the whole sweep. Retried once, then
@@ -262,7 +285,18 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
             except RuntimeError as exc:
                 unread.append({"url": url, "why": str(exc)})
                 continue
+        kind = classify(url, markup) or "unclassified"
+        kinds[kind] += 1
+        classified_any.add(url)
+        if kind == "course":
+            classified_course.append(url)
         parsed = parse_course(markup, url)
+        # A subject index and a pathway page both parse as courses — they have
+        # a title and no prerequisite field — so `parse_course` returning a
+        # record is not evidence that the page is one. Only the classifier's
+        # answer puts a page in the denominator.
+        if kind != "course":
+            continue
         if parsed:
             records.append(parsed)
         else:
@@ -270,24 +304,82 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
     if not records:
         raise ValueError("no course pages parsed — refusing to report a rate over zero")
 
-    result = resolve(records, catalogue=urls)
-    coverage = ("every course page in the sitemap" if not limit
-                else f"the first {len(read)} of {population} sitemap course pages — "
+    # Resolved against COURSE paths, not against every published page. A
+    # prerequisite pointing at a subject index would have counted as resolved
+    # and then written no edge, and the count and the graph would have
+    # disagreed with nothing to say why.
+    #
+    # But "we could not open it" is not "it is not published". Three ways a
+    # course page can be missing from the parsed set while still existing:
+    # never attempted (`--limit`), attempted and unreadable, or read and
+    # unparsed. All three belong in the eligible set.
+    #
+    # **Depth is the FALLBACK, not the rule.** Using it for every page absent
+    # from the parsed set re-admitted the four pages whose markup says pathway
+    # at course depth — undoing #87 in the one place that fix is about. So a
+    # page the classifier reached is trusted: its kind decides. Depth is used
+    # only for pages we never classified at all, where markup is exactly what
+    # is missing.
+    #
+    # On a full, clean run `never_classified` is empty and the eligible set is
+    # the classified courses, unchanged.
+    never_classified = [u for u in urls
+                        if u not in classified_any and level(u) == "course"]
+    catalogue = classified_course + never_classified
+    result = resolve(records, catalogue=catalogue)
+    coverage = ("every catalogue page in the sitemap" if not limit
+                else f"the first {len(read)} of {population} sitemap pages — "
                      f"a partial run, not the catalogue")
+    # Said whenever the eligible set had to be widened, not only under
+    # `--limit`. A full run can still leave pages unclassified — a fetch that
+    # failed twice, or a page that parsed to nothing — and the caveat belongs
+    # wherever that happened, not wherever we chose to stop early.
+    if never_classified:
+        coverage += (f". Prerequisite resolution is measured against the "
+                     f"{len(classified_course)} classified courses plus "
+                     f"{len(never_classified)} pages at course depth that "
+                     f"were never opened, so dangling counts are a ceiling "
+                     f"rather than a finding")
     result |= {"population": population, "pages_read": len(read),
-               "not_a_course_page": skipped,
+               "subjects": kinds["subject"], "pathways": kinds["pathway"],
+               "unclassified": kinds["unclassified"],
+               # A course the classifier accepted and the parser could not
+               # read — a missing `<h1>`. It was called `not_a_course_page`,
+               # which is what it counted before the classifier decided that
+               # question, and the opposite of what it counts now.
+               "courses_that_did_not_parse": skipped,
                "unread": len(unread), "unread_examples": unread[:5], "coverage": coverage,
-               # The number reported must BE the set used for resolution.
-               # Reporting a wider one made the 100% look like it was checked
-               # against more than it was.
-               "published_paths": len({path_of(u) for u in urls} - {None})}
+               # The number reported must BE the set resolution ran
+               # against, so it is derived from `catalogue` and not rebuilt
+               # from a wider or narrower list. Reporting 960 while resolution
+               # used 791 made the 100% look checked against more than it was.
+               "published_paths": len({path_of(u) for u in catalogue}
+                                      - {None})}
 
     if not quiet:
-        print(f"\nPWCS course catalogue — catalog.pwcs.edu\n")
+        print("\nPWCS course catalogue — catalog.pwcs.edu\n")
         print(f"  coverage               {coverage}")
-        print(f"  course pages parsed    {result['courses']:>6,}")
+        print(f"  sitemap pages          {result['population']:>6,}")
+        # AGAINST PAGES ATTEMPTED, not against the sitemap. `population` is
+        # every page the sitemap lists; the breakdown below counts only pages
+        # this run reached for, so under `--limit` the lines summed to the
+        # limit and sat under a heading claiming they accounted for all 960.
+        # Every attempt lands in exactly one line below — a page that could
+        # not be read is one of them, so the group closes on the heading.
+        print(f"  of the {result['pages_read']:,} attempted:")
+        print(f"    subject indexes      {result['subjects']:>6,}")
+        print(f"    COURSES              {len(classified_course):>6,}")
+        print(f"      of those, parsed   {result['courses']:>6,}"
+              f"   <- every rate below is quoted against this")
+        if skipped:
+            print(f"      unreadable         {skipped:>6,}"
+                  f"   — classified a course, no title to parse")
+        print(f"    CTE pathways         {result['pathways']:>6,}")
+        if result["unclassified"]:
+            print(f"    unclassified         {result['unclassified']:>6,}"
+                  f"   — neither depth nor markup named these")
         if result["unread"]:
-            print(f"  could not be read      {result['unread']:>6,}"
+            print(f"    could not be read    {result['unread']:>6,}"
                   f"   — excluded, not counted as having no prerequisite")
         print(f"  linking a prerequisite {result['stating_a_prerequisite']:>6,}"
               f"   ({pct(result['stating_a_prerequisite'], result['courses'])})")
@@ -297,8 +389,8 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
         print(f"    no link resolves     {result['no_link_resolves']:>6,}")
         print(f"  resolvable edges       {result['resolvable_edges']:>6,}")
         print(f"  resolved against       {result['published_paths']:>6,}"
-              f"   published course paths, from the sitemap — the whole catalogue,")
-        print(f"                                  not only the pages read")
+              f"   published COURSE paths — subject indexes and pathway")
+        print("                                  pages are excluded, as they are from the count above")
         print(f"  dangling links         {result['dangling_links']:>6,}")
         print(f"  free-text requirements alongside: "
               f"{result['with_free_text_requirements']:,} courses")
@@ -313,7 +405,14 @@ def probe(limit: int | None = None, use_cache: bool = True, quiet: bool = False)
 
 
 def pct(part: int, whole: int) -> str:
-    return f"{100 * part / whole:.0f}%" if whole else "—"
+    """One decimal place.
+
+    It rounded to whole percent, and the two candidate denominators for the
+    prerequisite rate — 960 pages against 791 courses — print as 24% and 29%.
+    The documents quote this figure, so the digit that distinguishes 29.0 from
+    28.8 is the digit that says which denominator was used.
+    """
+    return f"{100 * part / whole:.1f}%" if whole else "—"
 
 
 def main(argv: list[str] | None = None) -> int:

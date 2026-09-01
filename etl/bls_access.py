@@ -26,7 +26,8 @@ import re
 import urllib.error
 import urllib.request
 
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
+from etl.identity import USER_AGENT
+
 
 OEWS_GEOGRAPHIES = ("nat", "st", "ma")
 OEWS_URL = "https://www.bls.gov/oes/special-requests/oesm{yy}{geography}.zip"

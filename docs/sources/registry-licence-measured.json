@@ -1,0 +1,33 @@
+{
+  "_": "One measured run of `python -m etl.registry_licence --record`, committed so the page can be checked without reaching the Credential Registry. Update the checked-on date in docs/scope.md and on docs/sources/registry-data-licence.md to match.",
+  "retrieved_at": "2026-08-31",
+  "verdict": "not cleared — do not load or redistribute; internal use only, and any application or redistribution requires a signed Developer Agreement",
+  "terms_of_use": {
+    "source": "https://credentialengine.org/terms/",
+    "grant": "Credential Engine grants you a personal, limited, revocable, nonexclusive, and nontransferable license to view, access, and use the Websites and the Credential Registry, solely for your personal use and internal use within your organization",
+    "restriction": "You may not reproduce, publish, distribute, display, modify, create derivative works from, sell in any way, in whole or in part, or make commercial use of the Credential Registry or any content on the Websites without the separate prior consent of Credential Engine",
+    "developer_agreement": "develop software applications that access and use data from the Websites and the Credential Registry; or (ii) aggregate, publish, transmit or otherwise reproduce, transfer, distribute or disseminate data from the Websites and the Credential Registry to third parties, whether for commercial or noncommercial purposes; must in addition to these Terms of Use agree to and sign our Developer Agreement",
+    "read_or_measured": "read"
+  },
+  "rights_terms_in_ctdl": [
+    "ceterms:License",
+    "ceterms:RightsAction",
+    "ceterms:copyrightHolder",
+    "ceterms:rightSource",
+    "statementCat:TerminationTerms"
+  ],
+  "records": {
+    "envelopes": 398,
+    "carrying_copyright_holder": 0,
+    "fields_looked_for": [
+      "ceterms:copyrightHolder"
+    ],
+    "read_or_measured": "measured",
+    "sampling": {
+      "course": "2 pages of 50 at a stride of 479, reaching pages 1-480 of 958 (47,862 records); the last 478 pages are not sampled — deterministic, not random",
+      "credential": "2 pages of 50 at a stride of 1334, reaching pages 1-1335 of 2,669 (133,428 records); the last 1,334 pages are not sampled — deterministic, not random",
+      "learning_opportunity_profile": "2 pages of 50 at a stride of 222, reaching pages 1-223 of 445 (22,247 records); the last 222 pages are not sampled — deterministic, not random",
+      "pathway": "every page — 98 records is the whole population, not a sample"
+    }
+  }
+}

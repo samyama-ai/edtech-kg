@@ -3,7 +3,7 @@
 ![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
 
 **1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
-you can walk — plus eight measured public sources for the college and career side.**
+you can walk — plus nine measured public sources for the college and career side.**
 
 > Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
 > This repo holds the loader and source-data specifics for the KG.
@@ -111,14 +111,15 @@ Every figure below is printed by a probe in `etl/`. None is hand-typed.
 
 | Source | Probe | Measured |
 |---|---|---|
-| PWCS course catalogue | `probe_pwcs` | 960 pages, 240 resolvable prerequisite edges, 0 dangling |
+| PWCS course catalogue | `probe_pwcs` | 960 catalogue pages — 791 courses, 240 resolvable prerequisite edges, 0 dangling |
 | CIP-SOC crosswalk | `probe_cipsoc` | **5,903** programme→occupation mappings over 2,143 programmes — 194 of the 6,097 rows say there is no mapping |
-| IPEDS / CCD | `probe_education` | 9,026,310 completion rows, 6,256 institutions, 102,268 schools, 19,714 districts |
+| IPEDS / CCD | `probe_education` | 9,026,310 completion **rows** describing 10,620,172 awards (#43), 6,256 institutions, 102,268 schools, 19,714 districts |
 | Credential Registry | `probe_registry` | 47,861 courses, 133,346 credentials, **98** pathways |
 | CTDL vocabulary | `probe_ctdl` | the prerequisite property exists — and is used **0 times in 600 courses** |
 | schema.org | `probe_schemaorg` | 14 of the 14 terms this graph needs are present |
 | State course directories | `probe_state_courses` | statewide directories publish **no** prerequisites |
 | College Scorecard | `probe_scorecard` | median earnings for **25.5%** of programme rows — 58,112 of 169,868 |
+| Registered Apprenticeship | `probe_apprenticeship` | **419** occupations reachable by apprenticeship, **0** of them missing from the crosswalk this repo loads — the two published CIP-SOC crosswalks disagree by **63** |
 
 ---
 

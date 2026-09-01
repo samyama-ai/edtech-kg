@@ -181,7 +181,7 @@ def test_catalogue_furniture_is_not_treated_as_a_course():
     import etl.probe_pwcs as m
     original, m.fetch = m.fetch, fetch
     try:
-        urls = probe.course_urls()
+        urls = probe.catalogue_urls()
     finally:
         m.fetch = original
     assert len(urls) == 2
@@ -191,14 +191,14 @@ def test_catalogue_furniture_is_not_treated_as_a_course():
 def test_a_sitemap_that_is_not_a_sitemap_is_refused(monkeypatch):
     serve(monkeypatch, {probe.SITEMAP: "<html>503 Service Unavailable</html>"})
     with pytest.raises(probe.MalformedSource, match="no <loc> entries"):
-        probe.course_urls()
+        probe.catalogue_urls()
 
 
 def test_a_sitemap_with_no_course_pages_is_refused(monkeypatch):
     serve(monkeypatch, {probe.SITEMAP:
                         "<urlset><loc>https://catalog.pwcs.edu/high-school-course-catalog/x</loc></urlset>"})
     with pytest.raises(ValueError, match="refusing"):
-        probe.course_urls()
+        probe.catalogue_urls()
 
 
 def test_a_page_that_cannot_be_read_is_reported_not_dropped(monkeypatch):
@@ -220,7 +220,7 @@ def test_a_partial_run_says_it_is_partial(monkeypatch):
     partial = probe.probe(limit=1, quiet=True)
     full = probe.probe(quiet=True)
     assert "partial run, not the catalogue" in partial["coverage"]
-    assert "every course page" in full["coverage"]
+    assert "every catalogue page" in full["coverage"]
 
 
 def test_no_courses_parsed_is_refused(monkeypatch):
@@ -243,7 +243,7 @@ def test_a_malformed_sitemap_exits_three(monkeypatch):
 
 
 def test_an_unreachable_source_exits_two(monkeypatch):
-    monkeypatch.setattr(probe, "course_urls",
+    monkeypatch.setattr(probe, "catalogue_urls",
                         lambda use_cache=True: (_ for _ in ()).throw(RuntimeError("dns")))
     assert probe.main([]) == 2
 

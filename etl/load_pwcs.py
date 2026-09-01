@@ -22,13 +22,13 @@ Those are DEPTHS, and they sum to 960. The loaded classification is 127
 subjects, 791 courses and 42 pathways, which also sums to 960 — four pages move
 from Course to Pathway because their markup says so.
 
-See `pwcs_source.classify`.
+See `pwcs_pages.classify`.
 
-**The probe reports all 960 as courses. They are not.** 127 are subject index
-pages and 42 are pathway pages; 791 are courses. No page at depth 1 or 3
-states a prerequisite and no prerequisite points at one, so the 240 edges are
-unaffected — but the rate they are quoted against is 229 of 791, not 229 of 960.
-Raised as #74; this loader states both figures rather than quietly picking one.
+**The probe classifies before it counts** (#74). It quotes its prerequisite
+rate against the 791 courses, the same denominator this loader writes, so the
+console and the graph now agree. The 240 edges were never affected either way:
+no page at depth 1 or 3 states a prerequisite and no prerequisite points at
+one.
 
 Reading the catalogue is `etl/pwcs_source.py`; talking to the engine is
 `etl/engine.py`. Split out when this file reached 616 lines — over the size

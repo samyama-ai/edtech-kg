@@ -42,6 +42,23 @@ def engine_available():
         return False
 
 
+def require_engine():
+    """Skip, or FAIL under `SAMYAMA_REQUIRE_ENGINE=1`.
+
+    Three copies of this existed, differing only in wording, and a fourth was
+    about to be written. That matters more here than in most places: this is
+    the guard that decides whether "verified against the engine" is a claim or
+    a skip, and a copy that drifts is a file that quietly stops requiring what
+    its siblings require.
+    """
+    if engine_available():
+        return
+    message = f"no Samyama engine at {SAMYAMA_URL}"
+    if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
+        pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
+    pytest.skip(message)
+
+
 def query(url, statement):
     """One statement, one reply. `{"error": …}` for anything that went wrong,
     because the caller's job is to report which statement broke — an exception
@@ -97,11 +114,7 @@ def test_schema_executes_against_the_engine():
     Skipping this silently is how "verified against the engine" ends up in a
     README on the strength of a run nobody made.
     """
-    if not engine_available():
-        message = f"no Samyama engine at {SAMYAMA_URL}"
-        if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
-            pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
-        pytest.skip(message)
+    require_engine()
 
     for statement in statements():
         result = run(statement)

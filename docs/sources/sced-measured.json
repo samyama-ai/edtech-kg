@@ -1,0 +1,67 @@
+{
+  "_": "A trimmed record of one measured run, committed so the page can be checked without reaching the network. Refresh with `python -m etl.probe_sced --record`.",
+  "new_york": {
+    "columns": [
+      "Course Code (Course ID)",
+      "Course Code Description",
+      "Course Description",
+      "Course Level",
+      "Course Subject Area",
+      "CTE Indicator",
+      "AP Indicator",
+      "IB Indicator"
+    ],
+    "rows": 2012,
+    "courses": 2012,
+    "sced_codes": 2001,
+    "state_extensions": [
+      "01003CC",
+      "02056CC",
+      "02072CC",
+      "03001L",
+      "03051L",
+      "03101L",
+      "03151L",
+      "04052NF",
+      "04101F",
+      "22201W",
+      "22202W"
+    ],
+    "publishes_sequence": false
+  },
+  "district": {
+    "district_courses": 791,
+    "reachable_by_name": 67,
+    "reachable_without_the_parenthetical_rule": 58,
+    "matched_via_state_extension": [],
+    "matched_titles": [
+      "AICE Biology (A Level)",
+      "AICE Sociology",
+      "AP Chemistry",
+      "AP Physics 2",
+      "AP World History",
+      "Discrete Mathematics",
+      "IB Psychology",
+      "Physical Science (Science 8)"
+    ],
+    "unmatched_titles": [
+      "3D Sculpture 1",
+      "Advanced Russian Language 3",
+      "Chemistry 2: Forensic Sciences and Chemical Analysis",
+      "English Language Development for English 12",
+      "Gifted Seminar: Philosophy (1 credit)",
+      "IBMYP Language Arts 7",
+      "Journalism 4",
+      "Psychology 1"
+    ],
+    "ambiguous_titles": 203,
+    "named_cte_unmatched": [
+      "Greenhouse Plant Production & Management",
+      "Horticulture Sciences",
+      "Landscaping 1",
+      "Landscaping 2",
+      "Turfgrass Management",
+      "Turfgrass Management, Advanced"
+    ]
+  }
+}

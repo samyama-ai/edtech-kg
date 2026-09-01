@@ -32,7 +32,7 @@ source holds, not what any graph contains.
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
 | `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key. All 138 sit on course pages; `HAS_REQUIREMENT` accepts a pathway too, and none states one |
 | `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | **42** — 36 under `/career-and-technical-education-cte/` and 6 elsewhere: three specialty programs, the Governor's School, JROTC, and Virtual Prince William. Counted from the loaded urls, not from the section names |
-| `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
+| `Completion` | `id` (sha1) | One institution × programme × award level × **demographic** × year. Not a graduate — a demographic cell | **9,026,310** rows, which is 300,877 IPEDS rows × 30 demographic columns. The awards they describe are **10,620,172** (#43) |
 
 **`Pathway` moved here from tier 2**, and its key changed from `ctid` to `url`.
 It was modelled on the Credential Registry, which publishes 98 pathways against
@@ -46,11 +46,11 @@ Registry's own pathways remain unloaded and will need a distinct label or a
 composite key carrying the publisher; that is **edtech-kg#85**, not a decision
 to take on one publisher's evidence.
 
-**Where the district's figures come from.** `etl/probe_pwcs.py` reports 960 —
-every page in the sitemap — and calls them all courses. The catalogue has three
-kinds: 127 subject indexes, 791 courses, 42 pathway pages, and all three are
-declared above, so the split closes as 127 + 791 + 42 = 960 with nothing left
-over.
+**Where the district's figures come from.** `etl/probe_pwcs.py` reads the
+sitemap's 960 pages and classifies each one before counting it. The catalogue
+has three kinds: 127 subject indexes, 791 courses, 42 pathway pages, and all
+three are declared above, so the split closes as 127 + 791 + 42 = 960 with
+nothing left over. Rates are quoted against the 791, not the 960.
 
 **The kinds are not read off the URL alone.** Depth is the catalogue's own
 structure and it holds for 956 of the 960 pages. Four publish a pathway's
@@ -66,9 +66,19 @@ None of the district rows above is a number the probe prints as such today, and
 table carries the corrected figures because a reader skimming it should not
 take away a number this page goes on to refute.
 
-`Completion` is 9,026,310 because that is what IPEDS publishes. Whether a
-bounded slice or all of it is loaded is **edtech-kg#23** — a question about the
-loader, not about the source.
+`Completion` is 9,026,310 because that is what **the Urban wrapper**
+publishes. IPEDS publishes 300,877 rows for the same collection and year and
+carries the demographics as **columns**; the wrapper unpivots them, and
+300,877 × 30 = 9,026,310 exactly. Measured in
+[`sources/federal-direct.md`](sources/federal-direct.md).
+
+**Neither figure is a number of graduates.** The same file reports
+**10,620,172** awards for first majors — more than the row count it is easy to
+mistake for awards. Quote the award count when describing this graph to
+anyone; quote the row count only when describing the node.
+
+Whether a bounded slice or all of it is loaded is **edtech-kg#23** — a
+question about the loader, not about the source.
 
 ## Node labels — tier 2, modelled and empty
 
@@ -296,6 +306,21 @@ rather than worked around silently. A **pattern used as an expression inside
 | `WHERE exists((c)-[:REQUIRES]->())` | ✗ parse error |
 | `WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->() }` | ✅ |
 | `OPTIONAL MATCH … WITH c, r WHERE r IS NULL` | ✅ |
+
+**This table is executed, not observed.** `tests/test_schema_parse_table.py`
+reads these six rows out of this page and runs each one against a live engine,
+so the page and the engine cannot drift apart quietly. The rows are read from
+here rather than restated in the test: editing this table changes what runs.
+
+Re-executed against **1.7.0** on 2026-09-01 and all six verdicts are unchanged.
+The heading states 1.1.0 because that is the version this repo pins and the one
+the figures elsewhere on this page were measured on — see #24.
+
+The verdicts are expected to change: [samyama-graph#21](https://git.samyama.ai/Samyama.ai/samyama-graph/issues/21)
+asks for pattern predicates in `WHERE` to parse, and on the day that lands four
+of these rows become wrong. The test fails that day and says which direction
+the engine moved, rather than leaving this page recommending a workaround for a
+limitation that no longer exists.
 
 The capability is there; the inline pattern-expression syntax is not. So Q34 —
 *"which courses have no prerequisite, the entry points"* — is answerable, in
