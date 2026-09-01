@@ -113,7 +113,7 @@ Every figure below is printed by a probe in `etl/`. None is hand-typed.
 |---|---|---|
 | PWCS course catalogue | `probe_pwcs` | 960 catalogue pages — 791 courses, 240 resolvable prerequisite edges, 0 dangling |
 | CIP-SOC crosswalk | `probe_cipsoc` | **5,903** programme→occupation mappings over 2,143 programmes — 194 of the 6,097 rows say there is no mapping |
-| IPEDS / CCD | `probe_education` | 9,026,310 completion rows, 6,256 institutions, 102,268 schools, 19,714 districts |
+| IPEDS / CCD | `probe_education` | 9,026,310 completion **rows** describing 10,620,172 awards (#43), 6,256 institutions, 102,268 schools, 19,714 districts |
 | Credential Registry | `probe_registry` | 47,861 courses, 133,346 credentials, **98** pathways |
 | CTDL vocabulary | `probe_ctdl` | the prerequisite property exists — and is used **0 times in 600 courses** |
 | schema.org | `probe_schemaorg` | 14 of the 14 terms this graph needs are present |

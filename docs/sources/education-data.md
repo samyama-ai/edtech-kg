@@ -7,9 +7,13 @@ by hand, and none should be. Re-run the script to verify them.
 
 ## Counted live
 
+**Rows, not awards.** The wrapper unpivots IPEDS's 30 demographic
+columns into rows: 300,877 source rows become 9,026,310, and the awards they
+describe are 10,620,172. See [`federal-direct.md`](federal-direct.md) (#43).
+
 | Source | Records | Endpoint |
 |---|---:|---|
-| IPEDS completions (CIP 6-digit) | **9,026,310** | `college-university/ipeds/completions-cip-6/2022/` |
+| IPEDS completions (CIP 6-digit) | **9,026,310** rows | `college-university/ipeds/completions-cip-6/2022/` |
 | IPEDS institution directory | **6,256** | `college-university/ipeds/directory/2022/` |
 | CCD school directory | **102,268** | `schools/ccd/directory/2022/` |
 | CCD district directory | **19,714** | `school-districts/ccd/directory/2022/` |
