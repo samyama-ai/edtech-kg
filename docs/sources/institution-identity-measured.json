@@ -1,0 +1,39 @@
+{
+  "_": "One measured run of `python -m etl.probe_institution_identity --bridges --record`, committed so docs/sources/institution-identity.md can be checked without downloading IPEDS or querying Wikidata.",
+  "source": "https://nces.ed.gov/ipeds/datacenter/data/HD2022.zip",
+  "identity": {
+    "institutions": 6256,
+    "distinct_unitid": 6256,
+    "unitid_is_unique": true,
+    "distinct_real_opeid": 6174,
+    "on_the_sentinel": 38,
+    "opeids_shared_by_several": 42,
+    "institutions_sharing_an_opeid": 86,
+    "spread": {
+      "1": 6132,
+      "2": 40,
+      "3": 2
+    },
+    "columns_using_the_sentinel": 29,
+    "total_columns": 73
+  },
+  "afterlife": {
+    "with_a_close_date": 46,
+    "with_a_successor": 54,
+    "with_both": 0,
+    "not_currently_active": 73,
+    "successor_targets": 29
+  },
+  "read_or_measured": "measured",
+  "ror": {
+    "sampled": 60,
+    "id_types": {
+      "grid": 60,
+      "isni": 30,
+      "wikidata": 21
+    },
+    "carries_ipeds": false,
+    "carrying_wikidata": 21
+  },
+  "wikidata_items_with_an_ipeds_id": 3856
+}
