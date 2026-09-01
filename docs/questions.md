@@ -168,8 +168,7 @@ The edges are measured and the depth is computed from them; the probe reports
 edge counts, not path length, so the number itself is not in a document yet.
 **Q67.** Which courses are unreachable from any entry point? ✅ *Reachability
 from sources.* Orphans are a data-quality finding as much as a student one.
-**Q68.** Which single course, if removed, disconnects the most others? ✅
-*Articulation points.*
+**Q68.** Which single course, if removed, disconnects the most others? ❌ — **re-marked by #22.** *Articulation points*, and the operation is not available. `NOT x IN nodes(p)` parses and runs, and returns nothing either way: measured on the loaded district, both `x IN nodes(p)` and its negation count 0 rows over 119 chains of length two or more. `IN` over a list of nodes is unusable here, so the query answers "there are none" on a graph that has them. An earlier round marked this answerable on the strength of parsing alone, against an engine holding no data.
 **Q69.** What is the full ancestor set of this course? ✅ *Transitive closure.*
 **Q70.** What is its full descendant set — everything it unlocks? ✅
 **Q71.** Are there cycles in the prerequisite graph? ✅ *Cycle detection.* A cycle
@@ -181,7 +180,7 @@ itself has not been computed and put in a document yet.
 enumeration.*
 **Q74.** Which courses sit on the most paths between others? ✅ *Betweenness
 centrality* — the real bottleneck courses.
-**Q75. Given a target occupation, what is the shortest course sequence in this district that reaches a programme leading to it?** ❌ — **re-marked by #22.** There is no academic edge from a district `Course` to a `Programme`. The only route in the schema is `Course <-TEACHES- School -IN_DISTRICT-> District -LOCATED_IN-> Place <-LOCATED_IN- Institution -OFFERS-> Programme`, which says a college in the same state offers it, not that the course prepares you for it. A traversal would return a geographic path and read as an academic answer. *Shortest path across two domains* is still the operation it needs; the domains are not joined. That join is #66
+**Q75. Given a target occupation, what is the shortest course sequence in this district that reaches a programme leading to it?** ❌ — **re-marked by #22.** There is no academic edge from a district `Course` to a `Programme`. The only route in the schema is `Course <-TEACHES- School -IN_DISTRICT-> District -LOCATED_IN-> Place <-LOCATED_IN- Institution -OFFERS-> Programme`, which says a college in the same state offers it, not that the course prepares you for it. A traversal would return a geographic path and read as an academic answer. *Shortest path across two domains* is still the operation it needs; the domains are not joined. That join is #66.
 **Q76.** Which entry-level courses open the most downstream options? ✅
 *Descendant count.*
 **Q77.** Is this programme reachable from this school's course offering at all? ✅
@@ -268,21 +267,21 @@ than assuming a shape.
 | 1 — lookup | 20 | 16 | 2 | 2 |
 | 2 — one hop | 22 | 15 | 3 | 4 |
 | 3 — change impact | 18 | 13 | 1 | 4 |
-| 4 — graph algorithms | 20 | 16 | 1 | 3 |
+| 4 — graph algorithms | 20 | 15 | 1 | 4 |
 | 5 — multi-domain | 14 | 0 | 4 | 10 |
 | 6 — whole-graph | 8 | 8 | 0 | 0 |
-| **Total** | **102** | **68** | **11** | **23** |
+| **Total** | **102** | **67** | **11** | **24** |
 
 This table is checked by `tests/test_questions.py`, which counts the questions
 and their status marks and fails if it disagrees. It exists because the first
 version of the table was written by hand and got three rows wrong.
 
-**Sixty-eight answerable, and sixteen of the twenty tier-4 questions among
+**Sixty-seven answerable, and fifteen of the twenty tier-4 questions among
 them.** That is the argument for building this as a graph rather than a
 database, and three days ago it was not true — every tier-4 question was blocked
 on prerequisites that #63 has since measured.
 
-**Twenty-three blocked**, in seven clusters:
+**Twenty-four blocked**, in eight clusters:
 
 | Cluster | Questions | Why |
 |---|---|---|
@@ -293,6 +292,7 @@ on prerequisites that #63 has since measured.
 | **Rules joining the two tiers** | Q39, Q57, Q58, Q93, Q75, Q81, Q83, Q89, Q90 | nobody publishes them as data, and the schema has no edge for them — #66 |
 | Not in the schema at all | Q19, Q84, Q92 | cost, and enrolment, have no node or property — #22 |
 | Not a traversal | Q78 | set cover is an optimisation over the graph, not a walk of it; #22 |
+| The engine cannot | Q68 | `IN` over a node list is unusable, so articulation points return a confident zero; #22 |
 
 That last cluster is the interesting one, and it was missed on the first pass.
 Course-to-programme entry rules, state graduation requirements, accreditation
@@ -305,7 +305,7 @@ predicate device. It is worth its own research issue.
 
 ## What this tells us before designing anything
 
-The schema has to serve the 68. In particular it has to make tier 4 cheap, which
+The schema has to serve the 67. In particular it has to make tier 4 cheap, which
 means the prerequisite edge is the load-bearing structure and everything else
 hangs off the CIP-SOC join.
 

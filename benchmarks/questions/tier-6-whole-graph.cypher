@@ -69,9 +69,16 @@ MATCH (pw:Pathway)-[:INCLUDES]->(c:Course)-[:REQUIRES]->(d:Course)
 RETURN pw.kind, count(*) AS chained_courses ORDER BY chained_courses DESC;
 
 // Q102. If we added one course to this district, which would increase reachability most?
-// COUNTERFACTUAL, and the closest measurable thing is where the graph is
-// thinnest: the courses with the most dependants that are themselves entry
-// points. A new course attached below one of those reaches the most.
+// THIS IS Q76'S QUERY, and saying so is the point. A counterfactual is not
+// measurable against a graph that does not contain the counterfactual, so the
+// closest thing is where the graph is thinnest — the entry points with the
+// most dependants, which is exactly what Q76 ranks. Same rows, read for a
+// different purpose: Q76 asks which entry course opens the most, and this asks
+// where a new one would attach to reach the most.
+//
+// A ✅ resting on a query that already answers another question is worth
+// flagging rather than hiding. It is kept because the ranking genuinely is the
+// answer to both readings, not because two questions were merged to save work.
 MATCH (d:Course)-[:REQUIRES*]->(entry:Course)
 WHERE NOT EXISTS { MATCH (entry)-[:REQUIRES]->(:Course) }
 RETURN entry.url, entry.name, count(DISTINCT d) AS would_extend

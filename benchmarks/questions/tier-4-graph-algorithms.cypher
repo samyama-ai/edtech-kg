@@ -74,20 +74,33 @@ WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->(:Course) }
   AND NOT EXISTS { MATCH (:Course)-[:REQUIRES]->(c) }
 RETURN count(c) AS outside_every_chain;
 
-// Q68. Which single course, if removed, disconnects the most others?
-// ARTICULATION POINTS, and expressible after all — a cut vertex for a pair
-// (a, b) is a node on EVERY path from a to b, and `NOT x IN nodes(p)` inside
-// a nested `NOT EXISTS` says exactly that. No GDS is needed.
+// Q68 is re-marked ❌ and has no query. It asked which single course, if
+// removed, disconnects the most others — articulation points.
 //
-// It is quadratic in pairs and cubic with the inner walk, so it is a report
-// rather than an interactive query. Expensive is not the same as impossible,
-// and the mark stands.
-MATCH (a:Course)-[:REQUIRES*]->(b:Course)
-MATCH (x:Course)
-WHERE x.url <> a.url AND x.url <> b.url
-  AND NOT EXISTS { MATCH p = (a)-[:REQUIRES*]->(b) WHERE NOT x IN nodes(p) }
-RETURN x.url, x.name, count(*) AS pairs_it_alone_connects
-ORDER BY pairs_it_alone_connects DESC LIMIT 10;
+// A previous round claimed this WAS expressible: a cut vertex for a pair is a
+// node on every path between them, and `NOT x IN nodes(p)` inside a nested
+// `NOT EXISTS` says so. It parses. It also runs without error. And it is
+// wrong, which is worse than either.
+//
+// Measured against the loaded district — 240 REQUIRES edges, 119 chains of
+// length 2 or more, so cut vertices certainly exist:
+//
+//     MATCH p=(a:Course)-[:REQUIRES*2..]->(b:Course) MATCH (x:Course)
+//     WHERE     x IN nodes(p)  RETURN count(*)   ->  0
+//     WHERE NOT x IN nodes(p)  RETURN count(*)   ->  0
+//
+// BOTH are zero. `IN` over a list of nodes is not usable here, and rather than
+// refusing it matches nothing either way — so the query returns "there are no
+// articulation points" on a graph that has them. A confident wrong answer.
+//
+// The earlier claim was made on PARSING alone, against an engine holding no
+// data, where a predicate inside a WHERE is never evaluated. That is the gap
+// this whole exercise exists to close, and it caught me in the file where the
+// argument is made.
+//
+// It stays unanswered rather than approximated: `count(DISTINCT …)` over
+// prerequisite counts would rank courses by something, and it would not be
+// articulation points.
 
 // Q69. What is the full ancestor set of this course?
 MATCH (:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-4"})-[:REQUIRES*]->(a:Course)
