@@ -105,10 +105,24 @@ def test_the_commands_it_gives_are_the_ones_that_work():
         "both variables are needed; setting one leaves engine tests skipping")
 
 
-def test_it_points_at_the_long_form_rather_than_repeating_it():
-    assert "CLAUDE.md" in page(), (
-        "the twelve failure classes live in CLAUDE.md and this file should "
-        "send the reader there rather than duplicating a second copy to drift")
+def test_it_does_not_cite_a_document_a_reader_cannot_open():
+    """It linked `CLAUDE.md`, which is in no checkout but mine.
+
+    The file is excluded LOCALLY — `.git/info/exclude`, not `.gitignore` — so
+    it sits on one machine and in nobody else's tree. `test_docs_links` caught
+    the dangling link correctly and I never saw it, because the file was there
+    when I ran the suite. The same shape as an engine test skipping into a
+    green run: a check passing on something in my environment.
+
+    Named rather than linked would still send a reader to a file they cannot
+    get, so the page stands alone instead.
+    """
+    text = page()
+    assert "](CLAUDE.md)" not in text, (
+        "CONTRIBUTING.md links CLAUDE.md, which is excluded from the repo and "
+        "exists in no checkout — this is what turned main red")
+    assert "stands alone" in text, (
+        "the page defers to a document a reader cannot open")
 
 
 # --------------------------------------------------------------------------

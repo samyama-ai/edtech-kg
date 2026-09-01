@@ -1,7 +1,8 @@
 # Contributing
 
-Short on purpose. The long version — twelve failure classes taken from every
-review this repo has had — is in [`CLAUDE.md`](CLAUDE.md).
+Short on purpose, and it stands alone — everything a PR here has to satisfy is
+below. The twelve failure classes these rules were distilled from live outside
+the repo; ask a maintainer if you want the long form.
 
 ## One issue, one branch, one PR
 
