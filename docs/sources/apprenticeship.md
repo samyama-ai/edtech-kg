@@ -167,7 +167,7 @@ And the suffix problem holds on a second, independent file. Every O\*NET-SOC
 code carries a `.NN` suffix, so string equality against a SOC code matches
 **nothing**. That is the safe failure — a partial match would be the dangerous
 one — and it is the same result the code-set survival research measured on the
-O*NET occupation listing, which arrives with edtech-kg#36 and is not on this
+O\*NET occupation listing, which arrives with edtech-kg#36 and is not on this
 branch. Confirmed here independently rather than cited, which is the point: two
 files, same rule.
 

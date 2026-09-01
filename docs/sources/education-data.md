@@ -27,7 +27,7 @@ Recording that rather than letting the silence read as absence.
 | Source | Access | Why it matters |
 |---|---|---|
 | NCES-BLS CIP-SOC crosswalk | xlsx download | The programme-to-occupation join this graph rests on |
-| O*NET occupation database | bulk download | Occupation attributes, skills and earnings |
+| O\*NET occupation database | bulk download | Occupation attributes, skills and earnings |
 
 **The CIP-SOC crosswalk is the important one.** It is the join every answerable
 question in `../questions.md` depends on — the government-published link from a
@@ -41,7 +41,7 @@ sheet as `99-9999 NO MATCH` rows, which is why the earlier figures of 6,097 and
 mappings (edtech-kg#70). Full detail in
 [`cip-soc-crosswalk.md`](cip-soc-crosswalk.md).
 
-O*NET remains a bulk download rather than a queryable count, and is still
+O\*NET remains a bulk download rather than a queryable count, and is still
 unprobed.
 
 ## Reproducing
