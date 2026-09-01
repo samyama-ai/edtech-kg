@@ -58,6 +58,20 @@ def accesses(cypher: str) -> dict[str, set[str]]:
         for var, prop in re.findall(r"\b(\w+)\.(\w+)", statement):
             if var in alias:
                 used.setdefault(alias[var], set()).add(prop)
+
+        # INLINE pattern properties too. `MATCH (c:Completion {award_level:
+        # "X"})` reaches for `award_level` exactly as much as `c.award_level`
+        # does, and reading only the dotted form missed it — so a query could
+        # match on an undeclared property and this would report no gap.
+        # Anonymous nodes are included: `(:School {ncessch: …})` names a
+        # label, which is all that is needed to attribute the property.
+        for label, body in re.findall(r"\(\s*\w*\s*:(\w+)\s*\{([^}]*)\}", statement):
+            # Anchored to the start or a comma. A bare `(\w+)\s*:` also matches
+            # inside the VALUE — `{url: "https://…"}` yielded a property named
+            # `https` — so the extractor invented a gap the schema could never
+            # declare, in a check whose whole job is to say what is missing.
+            used.setdefault(label, set()).update(
+                re.findall(r"(?:^|,)\s*(\w+)\s*:", body))
     return used
 
 
