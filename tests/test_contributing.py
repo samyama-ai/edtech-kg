@@ -304,3 +304,88 @@ def test_the_page_says_how_many_merges_were_skipped():
     assert str(measured()["merges_skipped"]) in page(), (
         "the page does not say how many merges the walk skipped")
 
+
+# --------------------------------------------------------------------------
+# The sections folded in from #95, checked SECTION-SCOPED.
+#
+# #95's version of this page asserted a heading and a phrase independently
+# against the whole document, so a phrase living three sections above kept the
+# guard green while the section it named could be deleted entirely. Verified
+# there before that page was dropped. These slice the body between the heading
+# and the next one, so a phrase only counts where it is claimed to be.
+# --------------------------------------------------------------------------
+
+def body_of(heading: str) -> str:
+    """The section's own text, not the whole page."""
+    text = page()
+    start = text.find(f"## {heading}")
+    assert start != -1, f"CONTRIBUTING.md has no '## {heading}' section"
+    end = text.find("\n## ", start + 4)
+    return text[start:end if end != -1 else len(text)]
+
+
+def prose_of(heading: str) -> str:
+    """The section with its wrapping removed.
+
+    A phrase in a hand-wrapped document is split across lines wherever it
+    happens to fall — `rather\nthan a skip` is the same sentence as
+    `rather than a skip`, and an assertion that fails on the difference is
+    failing on the margin width rather than on the content.
+    """
+    return re.sub(r"\s+", " ", body_of(heading))
+
+
+def test_the_section_slice_stops_at_the_next_heading():
+    """The helper the three tests below rest on. If it returned the whole page
+    they would be exactly the check that failed on #95."""
+    first, last = body_of("One issue, one branch, one PR"), body_of("Tests")
+    assert "## Tests" not in first, "the slice ran past its own section"
+    assert "Never stack" not in last, "the slice is not scoped to its heading"
+
+
+def test_the_stacking_limit_is_stated_where_branching_is():
+    """Four deep cost more delay than every review round combined."""
+    section = body_of("One issue, one branch, one PR")
+    assert "two PRs deep" in section
+    assert "#68" in prose_of("One issue, one branch, one PR"), (
+        "the stacking rule no longer carries the case it was measured from, "
+        "which is what makes it a rule rather than a preference")
+
+
+def test_the_commands_a_contributor_runs_are_on_the_page():
+    """The page said what to check and not how. All three are needed: the
+    suite finds behaviour, pyflakes finds dead names, flake8 finds the style
+    codes this repo's reviews actually raise."""
+    section = body_of("Before you push")
+    for command in ("python3.11 -m pytest -q", "python3.11 -m pyflakes",
+                    "python3.11 -m flake8 --select="):
+        assert command in section, f"the pre-push commands omit {command!r}"
+    for code in ("E301", "E302", "E303", "E304", "E741", "F"):
+        assert code in section, (
+            f"the documented flake8 selection omits {code}, which this repo "
+            f"has had a review raise")
+
+
+def test_the_engine_variable_and_the_style_ordering_are_explained():
+    """Both are rules with a reason, and the reason is the part that survives
+    being disagreed with."""
+    section = body_of("Before you push")
+    assert "SAMYAMA_REQUIRE_ENGINE=1" in section
+    assert "rather than a skip" in prose_of("Before you push"), (
+        "the page states the variable without saying what it prevents")
+    assert "style pass last" in section.lower()
+    assert "after the check" in prose_of("Before you push"), (
+        "the style-ordering rule no longer says why — a check that ran before "
+        "the last edit is not a check")
+
+
+def test_the_page_says_which_engine_produced_a_figure():
+    """Nothing else on this page distinguishes an image tag from an engine
+    version, and a bump leaves every figure unverified while looking
+    identical."""
+    section = body_of("Which engine produced a figure")
+    assert ("image tag and the engine version are different"
+            in prose_of("Which engine produced a figure"))
+    assert "etl/engine.py" in section, (
+        "the page does not say where the build is recorded")
+
