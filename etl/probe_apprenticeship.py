@@ -64,8 +64,6 @@ NO_MATCH = "99-9999"
 # Queried alongside the system resolver. The page's whole argument rests on
 # telling "this network cannot resolve it" apart from "it resolves nowhere",
 # and one `gethostbyname()` call cannot make that distinction.
-#: An A or AAAA answer, as `dig +short` prints one. Anything else in that
-#: output is a CNAME, a message, or part of a chain.
 PUBLIC_RESOLVERS = (("Google", "8.8.8.8"), ("Cloudflare", "1.1.1.1"))
 
 
