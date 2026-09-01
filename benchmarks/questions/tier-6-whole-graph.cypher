@@ -1,0 +1,76 @@
+// Tier 6 — whole-graph structure. What the graph looks like, not what is in it.
+//
+// edtech-kg#22. These run against the loaded prerequisite graph rather than an
+// empty label, so unlike most of the other tiers they return real answers
+// today. All eight are answerable and all eight are written.
+
+// Q95. What does the prerequisite graph look like — how many components?
+// COMPONENTS without a component algorithm: a course outside every chain is
+// its own component, and the rest form connected groups. This reports the
+// isolated count and the linked count, which is the shape of the answer the
+// question wants — 431 of 791 stand outside every chain.
+MATCH (c:Course)
+WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->(:Course) }
+  AND NOT EXISTS { MATCH (:Course)-[:REQUIRES]->(c) }
+RETURN count(c) AS isolated;
+
+MATCH (c:Course)-[:REQUIRES]->(:Course)
+RETURN count(DISTINCT c) AS in_a_chain;
+
+// Q96. Which subject areas are most internally connected?
+// INTERNALLY: both ends of the edge in the same subject. A subject whose
+// courses require each other is a sequence; one whose courses require courses
+// elsewhere is a collection of entry points.
+MATCH (a:Course)-[:REQUIRES]->(b:Course)
+MATCH (a)-[:IN_SUBJECT]->(s:Subject)
+MATCH (b)-[:IN_SUBJECT]->(s)
+RETURN s.name, count(*) AS internal_edges ORDER BY internal_edges DESC;
+
+// Q97. Which occupations are hubs in the crosswalk?
+// Degree centrality, which is a count of edges and needs no algorithm.
+MATCH (:Programme)-[:PREPARES_FOR]->(o:Occupation)
+RETURN o.soc_code, count(*) AS degree ORDER BY degree DESC LIMIT 20;
+
+// Q98. Are there communities of programmes that share occupations?
+// COMMUNITY DETECTION has no procedure on this engine, so this reports the
+// relation the algorithm would cluster over: pairs of programmes sharing an
+// occupation, and how many they share. That is the input to clustering rather
+// than the clustering, and saying so is better than implying otherwise.
+MATCH (a:Programme)-[:PREPARES_FOR]->(o:Occupation)<-[:PREPARES_FOR]-(b:Programme)
+WHERE a.cip_code < b.cip_code
+RETURN a.cip_code, b.cip_code, count(o) AS shared
+ORDER BY shared DESC LIMIT 20;
+
+// Q99. Which nodes are most central to the whole graph?
+// Degree over the prerequisite graph, both directions, which is what "central"
+// reduces to without a centrality procedure. Q74 answers the betweenness
+// reading of the same word.
+MATCH (c:Course)
+OPTIONAL MATCH (c)-[out:REQUIRES]->(:Course)
+OPTIONAL MATCH (:Course)-[in_:REQUIRES]->(c)
+RETURN c.url, c.name, count(DISTINCT out) + count(DISTINCT in_) AS degree
+ORDER BY degree DESC LIMIT 20;
+
+// Q100. Where are the structural holes — occupations reachable by only one route?
+// A structural hole is where removing one edge disconnects something. Reported
+// nationally over the crosswalk, which is the population the question names.
+MATCH (p:Programme)-[:PREPARES_FOR]->(o:Occupation)
+WITH o, count(DISTINCT p) AS routes
+WHERE routes = 1
+RETURN o.soc_code, routes;
+
+// Q101. How does the graph's shape differ between CTE and academic subjects?
+// CTE is a PATHWAY kind, not a course property — the catalogue publishes it as
+// a pathway that includes courses, which is why this joins through Pathway
+// rather than filtering a flag that does not exist.
+MATCH (pw:Pathway)-[:INCLUDES]->(c:Course)-[:REQUIRES]->(d:Course)
+RETURN pw.kind, count(*) AS chained_courses ORDER BY chained_courses DESC;
+
+// Q102. If we added one course to this district, which would increase reachability most?
+// COUNTERFACTUAL, and the closest measurable thing is where the graph is
+// thinnest: the courses with the most dependants that are themselves entry
+// points. A new course attached below one of those reaches the most.
+MATCH (d:Course)-[:REQUIRES*]->(entry:Course)
+WHERE NOT EXISTS { MATCH (entry)-[:REQUIRES]->(:Course) }
+RETURN entry.url, entry.name, count(DISTINCT d) AS would_extend
+ORDER BY would_extend DESC LIMIT 10;

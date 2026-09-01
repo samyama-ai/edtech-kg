@@ -130,7 +130,7 @@ one — `/mathematics/algebra-1` is a path two districts can both publish. The
 host is what separates them, so the key keeps it.
 
 **Prerequisite chains are the reason this is a graph.** `REQUIRES` is what makes
-nineteen of the twenty tier-4 questions answerable — blast radius, shortest
+seventeen of the twenty tier-4 questions answerable — blast radius, shortest
 path, reachability, cycle detection. Direction is *course → what it requires*,
 so "what does skipping this close off" is an inbound traversal and "what do I
 need first" is outbound. Before `etl/probe_pwcs.py` measured this catalogue,
