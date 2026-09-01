@@ -1,0 +1,35 @@
+{
+  "retrieved_at": "2026-08-28",
+  "source": "https://raw.githubusercontent.com/CEDStandards/CEDS-Ontology/main/src/CEDS-Ontology.rdf",
+  "bytes": 20242062,
+  "licence": "Apache-2.0",
+  "classes": 1369,
+  "distinct_labels": 1369,
+  "shapes": {
+    "School": {
+      "ceds_label": "K12 School",
+      "ceds_id": "C200199",
+      "uri": "https://w3id.org/CEDStandards/terms/C200199"
+    },
+    "District": {
+      "ceds_label": "Local Education Agency",
+      "ceds_id": "C200188",
+      "uri": "https://w3id.org/CEDStandards/terms/C200188"
+    },
+    "Course": {
+      "ceds_label": "Course",
+      "ceds_id": "C200072",
+      "uri": "https://w3id.org/CEDStandards/terms/C200072"
+    },
+    "Standard / competency": {
+      "ceds_label": "Competency Definition",
+      "ceds_id": "C200065",
+      "uri": "https://w3id.org/CEDStandards/terms/C200065"
+    },
+    "Course ALIGNS_TO Standard": {
+      "ceds_label": "Competency Definition Association",
+      "ceds_id": "C200064",
+      "uri": "https://w3id.org/CEDStandards/terms/C200064"
+    }
+  }
+}

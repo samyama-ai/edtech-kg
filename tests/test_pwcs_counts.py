@@ -1,0 +1,466 @@
+"""What the probe counts, and what it counts it against — edtech-kg#74.
+
+Split out of `tests/test_probe_pwcs.py` when that file passed the 500-line
+review limit. Split by SUBJECT: this file is the denominator — which pages are
+courses, which set prerequisites resolve against, and the digit that says which
+denominator produced a rate. `test_probe_pwcs.py` keeps fetching, caching,
+parsing and the CLI.
+
+The defect these exist for is not a crash. The probe reported 960 courses for a
+catalogue with 791, every rate in two documents was quoted against it, and
+nothing failed — the wrong number was simply published.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from etl import probe_pwcs as probe
+from tests.test_probe_pwcs import COURSE, NO_PREREQ, serve
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+SUBJECT_INDEX = """<html><body><h1 class="page-title">Agriculture</h1>
+<div class="views-row"><a href="/agriculture/landscaping-1">Landscaping 1</a></div>
+</body></html>"""
+
+PATHWAY_PAGE = """<html><body><h1 class="page-title">Finance Pathway</h1>
+<div class="field--name-field-degree-section-courses">
+<article about="/agriculture/landscaping-1" class="degree-row"></article>
+</div></body></html>"""
+
+
+def test_only_pages_the_classifier_calls_courses_reach_the_denominator(monkeypatch):
+    """The defect #74 names, asserted on the number the documents quote.
+
+    A subject index parses perfectly well as a course — it has a title and no
+    prerequisite field — so `parse_course` returning a record was never
+    evidence of anything. Three pages are served here and only one is a
+    course; before the fix all three counted.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset><loc>https://catalog.pwcs.edu/agriculture</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+            '<loc>https://catalog.pwcs.edu/cte/career-pathways/finance</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture": SUBJECT_INDEX,
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+        "https://catalog.pwcs.edu/cte/career-pathways/finance": PATHWAY_PAGE})
+    result = probe.probe(quiet=True)
+    assert result["population"] == 3
+    assert (result["subjects"], result["courses"], result["pathways"]) == (1, 1, 1)
+    assert result["unclassified"] == 0
+
+
+def test_a_course_page_publishing_a_pathway_table_is_not_counted_as_a_course(monkeypatch):
+    """Markup beats depth, in the probe as it already does in the loader.
+
+    Four real pages do this (#87). Counted by depth they inflate the
+    denominator, which is the same error #74 fixes one level up.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: ('<urlset>'
+                        '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+                        '<loc>https://catalog.pwcs.edu/agriculture/ib-programme</loc>'
+                        '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+        # course DEPTH, pathway MARKUP
+        "https://catalog.pwcs.edu/agriculture/ib-programme": PATHWAY_PAGE})
+    result = probe.probe(quiet=True)
+    assert (result["courses"], result["pathways"]) == (1, 1)
+
+
+def test_prerequisites_resolve_against_courses_and_not_against_every_page(monkeypatch):
+    """`published_paths` must BE the set resolution ran against.
+
+    It was every sitemap page, so the printed line said the links had been
+    checked against 960 paths when 791 were eligible — a claim wider than the
+    check behind it.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset><loc>https://catalog.pwcs.edu/agriculture</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-2</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture": SUBJECT_INDEX,
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": NO_PREREQ,
+        "https://catalog.pwcs.edu/agriculture/landscaping-2": COURSE})
+    result = probe.probe(quiet=True)
+    assert result["published_paths"] == result["courses"] == 2
+
+
+PREREQ_ON_A_SUBJECT_INDEX = """<html><body><h1 class="page-title">Landscaping 2</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/agriculture">Agriculture</a></div></body></html>"""
+
+
+def test_a_prerequisite_pointing_at_a_subject_index_is_dangling_not_resolved(monkeypatch):
+    """The narrowing of the RESOLUTION set, not just of the count.
+
+    `published_paths` alone did not pin this: it is derived from the course
+    list, so swapping the set passed to `resolve()` back to all 960 left every
+    assertion green. The behaviour that actually changes needs a link pointing
+    at a page that is published but is not a course — resolved under the old
+    set, and then silently absent from the graph, because the loader only ever
+    writes course-to-course edges.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset><loc>https://catalog.pwcs.edu/agriculture</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-2</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture": SUBJECT_INDEX,
+        "https://catalog.pwcs.edu/agriculture/landscaping-2": PREREQ_ON_A_SUBJECT_INDEX})
+    result = probe.probe(quiet=True)
+    assert result["stating_a_prerequisite"] == 1
+    assert result["resolvable_edges"] == 0
+    assert result["dangling_links"] == 1
+    assert result["no_link_resolves"] == 1
+
+
+def test_the_summary_names_the_denominator_it_used(capsys, monkeypatch):
+    """The print block is where the reader meets the number.
+
+    Asserted on the printed text because a correct `result` dict printed
+    against the old label is exactly the failure this issue is about.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset><loc>https://catalog.pwcs.edu/agriculture</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture": SUBJECT_INDEX,
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": COURSE})
+    probe.probe()
+    printed = capsys.readouterr().out
+    assert "every rate below is quoted against this" in printed
+    assert "subject indexes" in printed
+
+
+def test_the_rate_carries_the_digit_that_distinguishes_the_denominators():
+    """24% and 29% round apart; 28.8% and 29.0% do not.
+
+    The documents quote this figure, so the decimal is what says which
+    denominator produced it.
+    """
+    assert probe.pct(229, 791) == "29.0%"
+    assert probe.pct(229, 960) == "23.9%"
+
+
+# `catalogue_urls` returns `sorted(set(...))`, so a limited run reads the
+# alphabetically FIRST pages, not the first in the sitemap. These fixtures are
+# named so the page that states the prerequisite sorts before its target.
+PREREQ_ON_ANOTHER_COURSE = """<html><body><h1 class="page-title">Landscaping 1</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/agriculture/landscaping-9">Landscaping 9</a></div></body></html>"""
+
+PREREQ_ON_AN_UNOPENED_SUBJECT = """<html><body><h1 class="page-title">Landscaping 1</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/zoology">Zoology</a></div></body></html>"""
+
+PARTIAL_SITEMAP = ('<urlset>'
+                   '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+                   '<loc>https://catalog.pwcs.edu/agriculture/landscaping-9</loc>'
+                   '</urlset>')
+
+PARTIAL_PAGES = {
+    probe.SITEMAP: PARTIAL_SITEMAP,
+    "https://catalog.pwcs.edu/agriculture/landscaping-1": PREREQ_ON_ANOTHER_COURSE,
+    "https://catalog.pwcs.edu/agriculture/landscaping-9": NO_PREREQ}
+
+
+def test_a_partial_run_does_not_call_an_unopened_course_a_broken_link(monkeypatch):
+    """`--limit` resolved against the courses READ, not the courses published.
+
+    Narrowing resolution to courses is #74's fix. Narrowing it to the pages
+    this run happened to open is a different change, and it made a
+    prerequisite pointing at any of the ~740 unopened courses dangle. The docs
+    advertise `--limit 50` as a quick run whose output merely "says it is
+    partial"; it would also have mis-reported the headline resolution figures,
+    and the more partial the run the more broken the catalogue would look.
+
+    One course is read. Its prerequisite points at a course that is published
+    in the sitemap and is never opened.
+    """
+    serve(monkeypatch, PARTIAL_PAGES)
+    result = probe.probe(limit=1, quiet=True)
+    assert (result["population"], result["pages_read"]) == (2, 1)
+    assert result["stating_a_prerequisite"] == 1
+    assert result["dangling_links"] == 0
+    assert result["every_link_resolves"] == 1
+    assert result["no_link_resolves"] == 0
+    # The reported set must BE the set resolution ran against, on a partial
+    # run as much as on a full one: one course read, one unopened.
+    assert result["published_paths"] == 2
+
+
+def test_a_full_run_of_the_same_pages_reports_the_same_resolution(monkeypatch):
+    """The partial-run widening must not change what a full run reports.
+
+    On a full run nothing is unopened, so the set resolution uses is exactly
+    the courses read — unchanged by this fix, and that is the claim.
+    """
+    serve(monkeypatch, PARTIAL_PAGES)
+    full = probe.probe(quiet=True)
+    assert full["published_paths"] == full["courses"] == 2
+    assert full["dangling_links"] == 0
+
+
+def test_a_partial_run_says_its_dangling_count_is_a_ceiling(monkeypatch):
+    """The reader meets the caveat next to the number, or not at all."""
+    serve(monkeypatch, PARTIAL_PAGES)
+    assert "ceiling rather than a finding" in probe.probe(limit=1,
+                                                          quiet=True)["coverage"]
+
+
+def test_a_partial_run_still_dangles_a_link_to_a_page_that_is_not_a_course(monkeypatch):
+    """The generosity is bounded: unopened means unknown, not "counts as a course".
+
+    Without this, widening the set on a partial run could undo #74 itself — a
+    prerequisite pointing at a subject index would resolve again, and the
+    loader would still write no edge for it. The subject index here is
+    unopened too, and must still dangle, because its DEPTH says it is not a
+    course.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-1</loc>'
+            '<loc>https://catalog.pwcs.edu/zoology</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-1": PREREQ_ON_AN_UNOPENED_SUBJECT,
+        "https://catalog.pwcs.edu/zoology": SUBJECT_INDEX})
+    result = probe.probe(limit=1, quiet=True)
+    assert result["pages_read"] == 1
+    assert result["dangling_links"] == 1
+    assert result["no_link_resolves"] == 1
+
+
+UNREADABLE = "https://catalog.pwcs.edu/agriculture/landscaping-3"
+
+PREREQ_ON_AN_UNREADABLE_PAGE = """<html><body><h1 class="page-title">Landscaping 4</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/agriculture/landscaping-3">Landscaping 3</a></div></body></html>"""
+
+
+def test_a_prerequisite_pointing_at_a_page_we_could_not_read_is_not_dangling(monkeypatch):
+    """Our failure to fetch is not the catalogue's failure to publish.
+
+    The eligible set was built from the pages successfully classified, so a
+    course whose fetch failed twice fell out of it entirely — and a
+    prerequisite pointing at that course was reported as a broken link. The
+    district gets accused of publishing a dangling reference because our own
+    read timed out.
+
+    Three ways a page can be missing and all three are the same case: never
+    attempted, attempted and unreadable, or read and unparsed.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            f'<loc>{UNREADABLE}</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-4</loc>'
+            '</urlset>'),
+        # landscaping-3 is deliberately absent from the served pages, so both
+        # fetch attempts fail and it lands in `unread`.
+        "https://catalog.pwcs.edu/agriculture/landscaping-4":
+            PREREQ_ON_AN_UNREADABLE_PAGE})
+    result = probe.probe(quiet=True)
+
+    assert result["unread"] == 1
+    assert result["stating_a_prerequisite"] == 1
+    assert result["dangling_links"] == 0, (
+        "a page we could not open was counted as one the district does not "
+        "publish")
+    assert result["resolvable_edges"] == 1
+
+
+def test_the_coverage_line_says_when_the_eligible_set_was_widened(monkeypatch):
+    """It only fired under `--limit`, and a full run can widen it too.
+
+    A silent widening is the shape of caveat that gets quoted as a finding.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            f'<loc>{UNREADABLE}</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-4</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-4":
+            PREREQ_ON_AN_UNREADABLE_PAGE})
+    coverage = probe.probe(quiet=True)["coverage"]
+    assert "never opened" in coverage
+    assert "ceiling rather than a finding" in coverage
+
+
+PATHWAY_AT_COURSE_DEPTH = """<html><body><h1 class="page-title">IB Programme</h1>
+<div class="field--name-field-degree-section-courses">
+<article about="/agriculture/landscaping-1" class="degree-row"></article>
+</div></body></html>"""
+
+PREREQ_ON_A_PATHWAY = """<html><body><h1 class="page-title">Landscaping 5</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/specialty-programs/ib-programme">IB Programme</a></div></body></html>"""
+
+
+def test_a_pathway_at_course_depth_is_not_re_admitted_by_depth(monkeypatch):
+    """Depth is the FALLBACK, not the rule — the previous fix got this wrong.
+
+    Four real pages carry a pathway's course table at course depth, and #87
+    exists because reading them by depth cost 172 published rows. Widening the
+    eligible set with `level(u) == "course"` for every page absent from the
+    parsed set re-admitted exactly those four, undoing that fix in the one
+    place it is about.
+
+    A page the classifier reached is trusted; depth is used only where markup
+    is missing entirely.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            '<loc>https://catalog.pwcs.edu/specialty-programs/ib-programme</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-5</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/specialty-programs/ib-programme":
+            PATHWAY_AT_COURSE_DEPTH,
+        "https://catalog.pwcs.edu/agriculture/landscaping-5": PREREQ_ON_A_PATHWAY})
+    result = probe.probe(quiet=True)
+
+    # It is at course depth and it is not counted as a course.
+    assert (result["courses"], result["pathways"]) == (1, 1)
+    # And a prerequisite pointing at it does NOT resolve: it is a pathway, the
+    # loader writes no course-to-course edge to it, so calling it resolved
+    # would put the count and the graph back into disagreement.
+    assert result["published_paths"] == 1
+    assert result["dangling_links"] == 1
+    assert result["resolvable_edges"] == 0
+
+
+def test_the_breakdown_is_counted_against_the_pages_attempted(capsys, monkeypatch):
+    """It sat under a heading claiming it accounted for the whole sitemap.
+
+    `population` is every page listed; the lines below it count only pages
+    this run reached for, so under `--limit` they summed to the limit while
+    the heading said 960.
+
+    The heading says ATTEMPTED, not opened: a page that could not be fetched
+    was never opened, and it is one of the lines in the group, so "opened"
+    described neither the total nor its members.
+    """
+    serve(monkeypatch, PARTIAL_PAGES)
+    probe.probe(limit=1)
+    printed = capsys.readouterr().out
+    assert "of the 1 attempted:" in printed, (
+        "the breakdown does not say how many pages it counted")
+
+
+UNPARSEABLE_COURSE = """<html><body>
+<div class="content">A course page whose heading did not render.</div>
+</body></html>"""
+
+PREREQ_ON_AN_UNPARSEABLE_COURSE = """<html><body><h1 class="page-title">Landscaping 6</h1>
+<div class="field--name-field-prerequisite-courses">
+<a href="/agriculture/landscaping-headless">Landscaping Headless</a></div></body></html>"""
+
+
+def test_a_course_that_fails_to_parse_stays_in_the_eligible_set(monkeypatch):
+    """It is a course the district publishes; our parser just could not read it.
+
+    `parse_course` returns `None` when the `<h1>` is missing — a CMS hiccup, a
+    template change, a truncated response. The classifier still called it a
+    course, so it is published, and a prerequisite pointing at it is not a
+    broken link.
+
+    Building the eligible set from the PARSED courses instead of the
+    CLASSIFIED ones drops these, which is the same defect as dropping unread
+    pages: our failure reported as the catalogue's.
+    """
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-headless</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-6</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-headless":
+            UNPARSEABLE_COURSE,
+        "https://catalog.pwcs.edu/agriculture/landscaping-6":
+            PREREQ_ON_AN_UNPARSEABLE_COURSE})
+    result = probe.probe(quiet=True)
+
+    # Classified as a course, so it counts as published — but it produced no
+    # record, so it is not in the denominator of the rate.
+    assert result["courses_that_did_not_parse"] == 1
+    assert result["courses"] == 1
+    assert result["published_paths"] == 2, (
+        "the unparsed course was dropped from the set prerequisites resolve "
+        "against")
+    assert result["dangling_links"] == 0
+    assert result["resolvable_edges"] == 1
+
+
+def test_the_breakdown_sums_to_the_pages_it_says_it_counted(capsys, monkeypatch):
+    """It did not, twice, in the two branches of the same loop.
+
+    First `COURSES` printed the PARSED count while subjects and pathways came
+    from the classifier, so a course that failed to parse vanished. Then a
+    page that could not be FETCHED was counted in the heading and printed
+    outside the group, because it `continue`s before the classifier runs.
+
+    The full catalogue happens to have neither failure, which is why
+    127 + 791 + 42 = 960 looked like proof both times.
+
+    Read as a REGION rather than by naming the lines. The earlier version
+    asserted the members were exactly three known names, so every line added
+    to the group afterwards — unclassified, could not be read — fell out of
+    the sum silently, which is how the second defect survived the fix for the
+    first. Anything indented into the group now has to be accounted for.
+    """
+    import re as _re
+
+    monkeypatch.setattr(probe.time, "sleep", lambda *a: None)
+    serve(monkeypatch, {
+        probe.SITEMAP: (
+            '<urlset>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-headless</loc>'
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-6</loc>'
+            # Served by the sitemap and NOT by `serve`, so `fetch` raises and
+            # the page is recorded unread — the branch that did not sum.
+            '<loc>https://catalog.pwcs.edu/agriculture/landscaping-gone</loc>'
+            '</urlset>'),
+        "https://catalog.pwcs.edu/agriculture/landscaping-headless":
+            UNPARSEABLE_COURSE,
+        "https://catalog.pwcs.edu/agriculture/landscaping-6":
+            PREREQ_ON_AN_UNPARSEABLE_COURSE})
+    probe.probe()
+    printed = capsys.readouterr().out
+
+    heading = _re.search(r"of the ([\d,]+) attempted:", printed)
+    assert heading, f"the breakdown heading is not where the sum is read from:\n{printed}"
+    attempted = int(heading.group(1).replace(",", ""))
+
+    # From the heading to the first line that leaves the group — a member is
+    # indented four, its own sub-lines six, and anything else ends it. A blank
+    # line ends it too: the first version treated one as "keep looking", so a
+    # group followed by a gap and more indented output would have swept the
+    # later lines into the sum.
+    members = {}
+    for line in printed[heading.end():].splitlines()[1:]:
+        if line.startswith("      "):
+            continue                       # a sub-line of the member above
+        if not line.startswith("    "):
+            break                          # blank line, or the next section
+        matched = _re.match(r"\s+(.+?)\s{2,}([\d,]+)", line)
+        # A message rather than an AttributeError. A test that ERRORS has lost
+        # the sentence explaining what it was checking.
+        assert matched, f"a line in the breakdown is not name-and-count: {line!r}"
+        members[matched.group(1)] = int(matched.group(2).replace(",", ""))
+
+    assert sum(members.values()) == attempted, (
+        f"the breakdown sums to {sum(members.values())} under a heading "
+        f"saying {attempted} pages were attempted: {members}")
+    # Both failure modes are present in this run, so neither is sums-by-luck.
+    assert members.get("could not be read") == 1, members
+    assert "unreadable" in printed

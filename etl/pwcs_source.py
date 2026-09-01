@@ -20,9 +20,10 @@ from Course to Pathway because their markup says so.
 
 See `classify`.
 
-**The probe reports all 960 as courses. They are not.** No page at depth 1 or 3
-states a prerequisite and no prerequisite points at one, so the 240 edges are
-unaffected — but the rate is 229 of 791, not 229 of 960. Raised as #74.
+**The probe classifies before it counts** (#74). It quotes its prerequisite
+rate against the 791 courses, which is the denominator this reader uses, so the
+two no longer disagree. The 240 edges were never affected either way: no page
+at depth 1 or 3 states a prerequisite and no prerequisite points at one.
 """
 
 from __future__ import annotations
@@ -34,6 +35,15 @@ import re
 import urllib.parse
 
 from etl import probe_pwcs as source
+# Classification lives one layer down so the PROBE can reach it too — #74.
+# Re-exported here because `load_pwcs` and the tests import these names from
+# this module, and moving a definition should not move every caller.
+# `LEVELS` is not re-exported: nothing outside `pwcs_pages` reads it, and a
+# name kept alive by its own shim is the kind of dead constant that reads as
+# a supported import. `segments` stays — five callers, four of them attribute
+# reads through this module.
+from etl.pwcs_pages import (PATHWAY_FIELD_PRESENT, classify,  # noqa: F401
+                            level, segments)
 
 # A pathway page lists its courses in a typed field, exactly as a course page
 # lists its prerequisites — entity references, each carrying a credit value.
@@ -63,28 +73,14 @@ ROW_CREDITS = re.compile(r'field--name-field-credits[^>]*>([^<]*)<', re.S)
 #
 # Regex over markup, like COURSE_ROW: there is no published API for this
 # catalogue, and a CMS template change makes either pattern match nothing. For
-# the rows that is caught — PATHWAY_FIELD_PRESENT below separates "no rows" from
+# the rows that is caught — `PATHWAY_FIELD_PRESENT`, now in `pwcs_pages` and
+# imported above, separates "no rows" from
 # "the field did not render". A section title has no such tell, so a template
 # change here degrades quietly to every row carrying `section: None` rather than
 # failing. `parse_pathway` counts the rows it attributed to no section for that
 # reason: the number is on the page rather than in nobody's notice.
 SECTION_TITLE = re.compile(
     r'field--name-field-degree-section-title[^>]*>([^<]*)<', re.S)
-
-# A pathway page that renders the field but yields no rows is a parse failure,
-# not a pathway with no courses — the same distinction the probe draws for the
-# prerequisite field. Counting it as empty would understate the graph silently.
-#
-# **Bound to a class ATTRIBUTE, not to the token anywhere in the document.**
-# The unanchored form matched the name inside an HTML comment, in body prose,
-# in a `<script>` string and in a reflected `<input value=…>` — measured, all
-# four. That was tolerable while this only distinguished "no rows" from "no
-# field"; it is not tolerable now that it decides a node's LABEL. It was also
-# looser than `COURSE_ROW` two definitions up, which already requires the token
-# inside a real `class="…"` — the classifier was weaker than the row parser it
-# gates.
-PATHWAY_FIELD_PRESENT = re.compile(
-    r'class="[^"]*\bfield--name-field-degree-section-courses\b')
 
 # The ceiling on the override. `verify()` structurally cannot catch markup
 # drift: it compares the engine against the loader's own tallies, and both move
@@ -113,10 +109,6 @@ class MarkupDrift(Exception):
     Raised rather than returned: a caller that gets a result dict will load it,
     and the whole point is that this graph must not be written.
     """
-
-
-def segments(url: str) -> list[str]:
-    return [s for s in urllib.parse.urlparse(url).path.strip("/").split("/") if s]
 
 
 def absolute(href: str) -> str:
@@ -229,54 +221,6 @@ def parse_pathway(markup: str, url: str, published: set[str]) -> dict:
     }
 
 
-LEVELS = {1: "subject", 2: "course", 3: "pathway"}
-
-
-def level(url: str) -> str | None:
-    """What the catalogue's URL DEPTH says a page is. `None` for anything else
-    — the root, or something nested deeper than a pathway.
-
-    A function so it can be checked directly. It was an `if/elif/else` inside
-    `read()`, and the `else` swept every unexpected depth into "pathway",
-    where it would be parsed for a course table it does not have.
-
-    **Depth alone is not the classifier — see `classify`.** Four pages publish
-    a pathway's course table at course depth, and calling them courses cost
-    172 published edges (#87).
-    """
-    return LEVELS.get(len(segments(url)))
-
-
-def classify(url: str, markup: str) -> str | None:
-    """What a page IS, from what it publishes and then from its depth.
-
-    Depth is the catalogue's own structure and it holds for 956 of 960 pages.
-    It does not hold for four, which publish the pathway course-table field at
-    COURSE depth — two specialty programmes, International Baccalaureate and
-    Virtual Prince William. Classified by depth they loaded as `Course`, their
-    course tables were never read, and 172 published rows never became edges
-    (#87). Nothing failed: the loader and the engine agreed about a set that
-    was already short.
-
-    So the field wins over the depth. A page that renders a course table IS a
-    pathway whatever its URL says — the district's own markup is the better
-    evidence, and it is the evidence the rows come from.
-
-    Depth still decides everything else, because a subject index and a course
-    are not distinguishable by any field either of them carries.
-
-    **The override is unconditional.** A page rendering that field is a
-    pathway at ANY depth — a depth-1 index or a depth-4 page would be one too,
-    and would appear in `reclassified` rather than in `unclassified`. That is
-    the same evidence argument rather than a special case for depth 2, and it
-    is stated because "depth decides everything else" reads narrower than the
-    code behaves.
-    """
-    if PATHWAY_FIELD_PRESENT.search(markup):
-        return "pathway"
-    return level(url)
-
-
 def read(use_cache: bool = True, urls: list[str] | None = None,
          fetch=None) -> dict:
     """Every page in the sitemap, split by what the catalogue says it is.
@@ -308,7 +252,7 @@ def read(use_cache: bool = True, urls: list[str] | None = None,
     reclassified out of the courses would still have been in the set pathway
     rows resolve against.
     """
-    urls = source.course_urls(use_cache) if urls is None else urls
+    urls = source.catalogue_urls(use_cache) if urls is None else urls
     fetch = fetch or (lambda u: source.fetch(u, use_cache))
     published = {source.path_of(u) for u in urls} - {None}
 

@@ -35,7 +35,7 @@ def cache_is_complete() -> bool:
     if not CACHE.exists():
         return False
     try:
-        urls = source.course_urls(True)
+        urls = source.catalogue_urls(True)
     except Exception:                      # noqa: BLE001 — no cached sitemap
         return False
     return bool(urls) and all(source.cached_path(u).exists() for u in urls)
@@ -388,3 +388,86 @@ def test_a_few_reclassified_pages_are_still_loaded_normally():
                       fetch=lambda u: table if u.endswith("course-0") else plain)
     assert got["reclassified"] == ["https://catalog.pwcs.edu/band/course-0"]
     assert len(got["courses"]) == 19
+
+
+# --------------------------------------------------------------------------
+# the invariant #74 rests on, measured rather than assumed
+# --------------------------------------------------------------------------
+
+@needs_cache
+def test_narrowing_the_denominator_drops_no_prerequisite_and_no_edge():
+    """edtech-kg#74 leaves the 240 edges alone ONLY because of this.
+
+    The fix narrows the denominator from 960 pages to 791 courses and narrows
+    resolution with it. That is safe if — and only if — none of the 169 pages
+    removed was contributing a prerequisite, AND no prerequisite pointed at
+    one. The issue asserted both from a one-off measurement.
+
+    BOTH halves in one test, over one pass of the cache: they are two
+    directions of a single claim, and each is meaningless without the other.
+    A page could state no prerequisite and still be the TARGET of one, which
+    is the case that would silently drop a real edge.
+    """
+    from etl import probe_pwcs as probe
+
+    urls = source.catalogue_urls(True)
+    markup = {u: source.cached_path(u).read_text(encoding="utf-8") for u in urls}
+    kind_of = {u: reader.classify(u, markup[u]) for u in urls}
+    by_path = {probe.path_of(u): kind_of[u] for u in urls}
+
+    states_one, targets = [], []
+    for url in urls:
+        parsed = probe.parse_course(markup[url], url)
+        if kind_of[url] != "course":
+            if parsed and (parsed.get("prerequisite_links")
+                           or parsed.get("field_present_no_links")):
+                states_one.append(url)
+            continue
+        for link in (parsed or {}).get("prerequisite_links") or []:
+            targets.append(by_path.get(probe.path_of(link["href"]), "OFF-CATALOGUE"))
+
+    # Both assertions below are about pages the classifier EXCLUDED, and if it
+    # excluded none they are free. `states_one == []` would then be reporting
+    # that nothing was checked, in the same shape as reporting that nothing was
+    # wrong — the exact confusion this PR exists to remove from the counts.
+    excluded = [u for u in urls if kind_of[u] != "course"]
+    assert excluded, (
+        "no page in the cache classifies as anything but a course, so the "
+        "narrowing this test is about did not happen and the assertions "
+        "below check nothing")
+    assert states_one == [], "a page that is not a course now states a prerequisite"
+    assert targets, "no prerequisite links found — the cache is not the catalogue"
+    assert set(targets) == {"course"}
+
+
+@needs_cache
+def test_the_document_quotes_the_figures_the_probe_produces():
+    """`docs/sources/course-prerequisites.md` is where these numbers are read.
+
+    Nothing tied the page to the probe, so putting the old 229-of-960 back
+    into the table left the whole suite green — the fix was in the code and
+    the wrong number was still on the page a reader opens. Every figure below
+    is pulled out of the document by pattern and compared to a run over the
+    cached catalogue.
+    """
+    import re
+
+    from etl import probe_pwcs as probe
+
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "sources"
+           / "course-prerequisites.md").read_text(encoding="utf-8")
+    result = probe.probe(quiet=True)
+
+    def figure(pattern: str) -> str:
+        found = re.search(pattern, doc)
+        assert found, f"the page no longer states {pattern!r}"
+        return found.group(1).replace(",", "")
+
+    assert int(figure(r"\| Course pages \| \*\*([\d,]+)\*\*")) == result["courses"]
+    assert int(figure(r"\| Pages in the sitemap \| \*\*([\d,]+)\*\*")) == result["population"]
+    assert int(figure(r"\| Linking at least one prerequisite \| \*\*([\d,]+)\*\*")) \
+        == result["stating_a_prerequisite"]
+    assert figure(r"\| Linking at least one prerequisite \|[^|]*\|[^|]*?\*\*([\d.]+%)\*\*") \
+        == probe.pct(result["stating_a_prerequisite"], result["courses"])
+    assert int(figure(r"\| \*\*Resolvable prerequisite edges\*\* \| \*\*([\d,]+)\*\*")) \
+        == result["resolvable_edges"]

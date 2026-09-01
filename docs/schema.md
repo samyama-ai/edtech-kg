@@ -46,11 +46,11 @@ Registry's own pathways remain unloaded and will need a distinct label or a
 composite key carrying the publisher; that is **edtech-kg#85**, not a decision
 to take on one publisher's evidence.
 
-**Where the district's figures come from.** `etl/probe_pwcs.py` reports 960 —
-every page in the sitemap — and calls them all courses. The catalogue has three
-kinds: 127 subject indexes, 791 courses, 42 pathway pages, and all three are
-declared above, so the split closes as 127 + 791 + 42 = 960 with nothing left
-over.
+**Where the district's figures come from.** `etl/probe_pwcs.py` reads the
+sitemap's 960 pages and classifies each one before counting it. The catalogue
+has three kinds: 127 subject indexes, 791 courses, 42 pathway pages, and all
+three are declared above, so the split closes as 127 + 791 + 42 = 960 with
+nothing left over. Rates are quoted against the 791, not the 960.
 
 **The kinds are not read off the URL alone.** Depth is the catalogue's own
 structure and it holds for 956 of the 960 pages. Four publish a pathway's
