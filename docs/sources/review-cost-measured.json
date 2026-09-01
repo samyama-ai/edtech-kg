@@ -1,0 +1,37 @@
+{
+  "_": "One measured run of `python -m etl.probe_review_cost --record`, committed so the size table in CONTRIBUTING.md can be checked without a token and without one API call per merged PR.",
+  "pull_requests": 38,
+  "bands": {
+    "under 250": {
+      "prs": 10,
+      "mean_rounds": 0.1,
+      "worst": 1
+    },
+    "250-700": {
+      "prs": 14,
+      "mean_rounds": 1.0,
+      "worst": 3
+    },
+    "700-1500": {
+      "prs": 6,
+      "mean_rounds": 5.8,
+      "worst": 10
+    },
+    "over 1500": {
+      "prs": 8,
+      "mean_rounds": 9.6,
+      "worst": 14
+    }
+  },
+  "merges_skipped": 7,
+  "skipped": [
+    "2d6bbde3d names no PR: Merge main into chore/13/onet-and-urban-licences",
+    "dead568b1 names no PR: Merge remote-tracking branch 'origin/main' into fix/70/s",
+    "07be2bc87 names no PR: Merge remote-tracking branch 'origin/main' into feat/18/",
+    "16e100e54 names no PR: Merge remote-tracking branch 'origin/main' into chore/86",
+    "ff3c1deea names no PR: Merge remote-tracking branch 'origin/main' into chore/24",
+    "772ca46ae names no PR: Merge remote-tracking branch 'origin/main' into feat/18/",
+    "e8b94ea17 names no PR: Merge remote-tracking branch 'origin/main' into docs/93/"
+  ],
+  "read_or_measured": "measured"
+}
