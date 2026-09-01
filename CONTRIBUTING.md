@@ -16,11 +16,14 @@ issue closes on merge.
 
 ## Keep it under ~700 insertions, and under 250 if you can
 
-Measured across 34 merged PRs on 2026-09-01, counting `REQUEST_CHANGES` reviews:
+Measured across **36 merged PRs**, counting `REQUEST_CHANGES` reviews. Every figure here is printed by
+`python -m etl.probe_review_cost` and committed as
+[`docs/sources/review-cost-measured.json`](docs/sources/review-cost-measured.json)
+— this page states that rule below, so it had better follow it.
 
 | insertions | PRs | mean review rounds | worst |
-|---|---|---|---|
-| under 250 | 7 | **0.1** | 1 |
+|---|---:|---:|---:|
+| under 250 | 9 | **0.1** | 1 |
 | 250–700 | 13 | **1.1** | 3 |
 | 700–1500 | 6 | **5.8** | 10 |
 | over 1500 | 8 | **9.6** | 14 |
@@ -29,8 +32,9 @@ The step between 700 and 1500 is not gradual. A large PR is not reviewed more
 slowly, it is reviewed *repeatedly* — each round adds surface and the next
 round finds defects in that surface.
 
-Reproduce it by pairing merge-commit insertion counts with each PR's review
-states; the numbers above are that count, not an impression.
+Refresh with `python -m etl.probe_review_cost --record`. It needs a Gitea
+token and makes one API call per merged PR, which is why the run is
+committed rather than repeated by the suite.
 
 ## The evidence standard
 
