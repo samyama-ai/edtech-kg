@@ -81,7 +81,7 @@ hidden behind a national phrasing.
 prerequisite? ✅ — 138 measured, and they are not edges
 **Q17.** What does this occupation pay? ⚠️ — source named, not yet measured
 **Q18.** Is this occupation growing or shrinking? ⚠️ — same
-**Q19.** What does this programme cost? ⚠️ — College Scorecard, unmeasured
+**Q19.** What does this programme cost? ❌ — **re-marked by #22.** The source is named, but nothing in the schema holds a cost: `grep -ci cost schema/edtech_kg.cypher` returns 0, so there is no node or property to write a traversal against. It was marked answerable-once-measured; it is not answerable until a `Cost` node is declared, which is a schema change and not a loader
 **Q20.** What is this student's record? ❌ — permanently out of scope (`scope.md` §1)
 
 ## Tier 2 — one hop
@@ -269,13 +269,13 @@ than assuming a shape.
 
 | Tier | Questions | ✅ | ⚠️ | ❌ |
 |---|---:|---:|---:|---:|
-| 1 — lookup | 20 | 16 | 3 | 1 |
+| 1 — lookup | 20 | 16 | 2 | 2 |
 | 2 — one hop | 22 | 15 | 3 | 4 |
 | 3 — change impact | 18 | 13 | 1 | 4 |
 | 4 — graph algorithms | 20 | 19 | 0 | 1 |
 | 5 — multi-domain | 14 | 3 | 7 | 4 |
 | 6 — whole-graph | 8 | 8 | 0 | 0 |
-| **Total** | **102** | **74** | **14** | **14** |
+| **Total** | **102** | **74** | **13** | **15** |
 
 This table is checked by `tests/test_questions.py`, which counts the questions
 and their status marks and fails if it disagrees. It exists because the first
@@ -286,7 +286,7 @@ them.** That is the argument for building this as a graph rather than a
 database, and three days ago it was not true — every tier-4 question was blocked
 on prerequisites that #63 has since measured.
 
-**Fourteen blocked**, in five clusters:
+**Fifteen blocked**, in six clusters:
 
 | Cluster | Questions | Why |
 |---|---|---|
@@ -295,6 +295,7 @@ on prerequisites that #63 has since measured.
 | Competency definitions | Q41, Q59, Q94 | the gap above |
 | Needs a second district | Q80, Q88 | #19 |
 | **Rules joining the two tiers** | Q39, Q57, Q58, Q93 | nobody publishes them as data |
+| Not in the schema at all | Q19 | cost has no node or property; #22 |
 
 That last cluster is the interesting one, and it was missed on the first pass.
 Course-to-programme entry rules, state graduation requirements, accreditation

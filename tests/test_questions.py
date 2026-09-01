@@ -142,7 +142,14 @@ def test_every_blocked_question_belongs_to_a_named_cluster():
     body = DOC.read_text().split("## Tier 1")[1].split("## The competency gap")[0]
     blocked = {int(n) for n, text in zip(*[iter(re.split(r"\*\*Q(\d+)", body)[1:])] * 2)
                if "❌" in text.split("**Q")[0]}
-    clusters = DOC.read_text().split("blocked**, in five clusters")[1]
+    # The COUNT is what this test checks, so it must not be in the anchor that
+    # finds the section. Splitting on "in five clusters" made adding a sixth
+    # raise IndexError from the split rather than fail an assertion — a test
+    # that breaks instead of reporting, on the change it exists to notice.
+    text = DOC.read_text()
+    anchor = re.search(r"blocked\*\*, in \w+ clusters", text)
+    assert anchor, "the blocked-clusters sentence changed shape"
+    clusters = text[anchor.end():]
     listed = {int(n) for n in re.findall(r"Q(\d+)", clusters.split("That last cluster")[0])}
     assert listed == blocked, f"unclustered: {blocked - listed}; phantom: {listed - blocked}"
 
