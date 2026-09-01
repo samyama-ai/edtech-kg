@@ -94,9 +94,9 @@ stride** across each result set rather than read off the front:
 
 | type | how it was sampled |
 |---|---|
-| Course | 2 pages of 50 at a stride of 479, reaching pages 1–480 of 958 (47,862 records) |
-| Credential | 2 pages of 50 at a stride of 1,334, reaching pages 1–1,335 of 2,669 (133,428 records) |
-| Learning opportunity profile | 2 pages of 50 at a stride of 222, reaching pages 1–223 of 445 (22,247 records) |
+| Course | 2 pages of 50 at a stride of 479, reaching pages 1–480 of 958 (47,862 records); the last 478 pages are not sampled — deterministic, not random |
+| Credential | 2 pages of 50 at a stride of 1,334, reaching pages 1–1,335 of 2,669 (133,428 records); the last 1,334 pages are not sampled — deterministic, not random |
+| Learning opportunity profile | 2 pages of 50 at a stride of 222, reaching pages 1–223 of 445 (22,247 records); the last 222 pages are not sampled — deterministic, not random |
 | Pathway | every page — 98 records is the whole population, not a sample |
 
 The stride is the point. Reading pages 1, 2 and 3 is not a sample of the

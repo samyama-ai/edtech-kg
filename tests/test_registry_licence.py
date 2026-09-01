@@ -255,23 +255,42 @@ def test_the_record_states_how_each_type_was_sampled(record):
             f"{kind} is a head sample: {how}"
 
 
+def _comparable(text: str) -> str:
+    """Punctuation the two sides may legitimately differ on, removed.
+
+    The page writes an en dash and thousands separators; the record writes a
+    hyphen and bare digits. Both are correct for their medium, so a comparison
+    that fails on those is failing on a formatting choice rather than on a
+    claim — which is why the earlier version of the test below settled for
+    checking one number instead of the sentence.
+    """
+    text = text.replace("\u2013", "-").replace("\u2014", "-").replace(",", "")
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
 def test_the_page_repeats_the_sampling_the_record_holds(record):
     """A reader cannot check a sample whose shape is not on the page.
 
-    The record alone is not enough — the document is what anyone reads, and
-    the review's point was that neither said pages 1-3 had been taken off the
-    head. The stride figures are quoted, so the page cannot drift back to
-    claiming a spread it did not have.
+    THE WHOLE DESCRIPTION, not the stride out of it. This asserted only that
+    the stride number appeared somewhere on the page — so the page could quote
+    one figure out of five and pass a test named for repeating the sampling.
+
+    It did exactly that. The table stated "reaching pages 1-480 of 958 (47,862
+    records)" and dropped "; the last 478 pages are not sampled", which reads
+    as 480 pages of coverage when 2 pages and 100 records were read — under a
+    heading saying this page repeats what the record states.
+
+    That is the defect this page exists to prevent, on the page itself: its
+    argument is that the shape of a sample matters more than its size and that
+    a reader must be able to see it.
     """
-    page = re.sub(r"\s+", " ", PAGE.read_text())
+    page = _comparable(PAGE.read_text(encoding="utf-8"))
     for kind, how in record["records"]["sampling"].items():
-        if "stride" not in how:
-            continue
-        stride = re.search(r"stride of ([\d,]+)", how).group(1)
-        # The page writes thousands with a comma; the description may not.
-        variants = {stride, f"{int(stride.replace(',', '')):,}"}
-        assert any(f"stride of {v}" in page for v in variants), \
-            f"the page does not state {kind}'s stride ({stride})"
+        assert _comparable(how) in page, (
+            f"the page does not repeat {kind}'s sampling in full.\n"
+            f"  record: {how}\n"
+            f"  the page states some of this and not the rest, which is how a "
+            f"sample's REACH ends up on the page without its LIMIT")
 
 
 def test_the_record_carries_the_verdict_not_only_the_evidence(record):
