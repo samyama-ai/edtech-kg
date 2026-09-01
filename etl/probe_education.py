@@ -25,6 +25,7 @@ table is shorter than the source list.
 from __future__ import annotations
 
 import argparse
+import pathlib
 import json
 import sys
 import time
@@ -35,6 +36,16 @@ from datetime import datetime, timezone
 from etl.identity import USER_AGENT
 
 API = "https://educationdata.urban.org/api/v1"
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+RECORD = ROOT / "docs" / "sources" / "education-measured.json"
+
+#: Written INTO the record by `--record`, as the sibling probes do — a record
+#: that cannot say where it came from is a measurement nobody can reproduce.
+RECORD_NOTE = (
+    "One measured run of `python -m etl.probe_education --record`, committed "
+    "so DATASET-CARD.md and docs/sources/education-data.md can be checked "
+    "without four live calls to the Urban wrapper.")
 
 # One request each. The path carries the year, so it is substituted rather than
 # passed as a parameter — an unvalidated year would change which dataset is
@@ -137,16 +148,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--year", type=int, default=2022,
                         help="Data year to count (default 2022, the latest complete IPEDS).")
     parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    parser.add_argument("--record", action="store_true",
+                        help=f"Write {RECORD.name} from this run.")
     args = parser.parse_args(argv)
 
     if not 1980 <= args.year <= datetime.now(timezone.utc).year:
         print(f"\n--year {args.year} is not a plausible data year", file=sys.stderr)
         return 1
 
-    if not args.json:
+    if not (args.json or args.record):
         print(f"\neducation data sources — {args.year}\n")
     try:
-        result = probe(args.year, quiet=args.json)
+        result = probe(args.year, quiet=args.json or args.record)
     except ValueError as exc:
         print(f"\nrefused: {exc}", file=sys.stderr)
         return 1
@@ -154,8 +167,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nsource unreachable: {exc}", file=sys.stderr)
         return 2
 
+    if args.record:
+        RECORD.parent.mkdir(parents=True, exist_ok=True)
+        RECORD.write_text(
+            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
+                       ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"wrote {RECORD.relative_to(ROOT)}")
+    # `if`, not `elif` — a caller asking for both got silence on the siblings.
     if args.json:
-        print(json.dumps(result, indent=2))
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
         print(f"\n  measured {result['retrieved_at']}")
         print(f"  reproduce with: python -m etl.probe_education --year {args.year}\n")
