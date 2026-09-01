@@ -30,8 +30,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from etl.identity import USER_AGENT
+
 REGISTRY = "https://credentialengineregistry.org"
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 # The Registry serves 50 records a page and ignores a larger ask, so this is
 # the source's number, not a tuning choice.

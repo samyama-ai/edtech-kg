@@ -36,6 +36,7 @@ import zipfile
 
 # The licence READING lives next door; this module measures. The split is
 # the one the module docstring already draws.
+from etl.identity import USER_AGENT
 from etl.clusters_licence import MalformedSource, career_clusters
 from collections import Counter
 from datetime import datetime, timezone
@@ -54,7 +55,6 @@ ONET_MEMBER = "OccupationalListings/Crosswalks/2019_to_SOC_Crosswalk.xlsx"
 # fetched — so "0 machine-readable files" was counted on one page while the
 # sentence beside it pointed at another.
 
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 # The crosswalk's own NO MATCH sentinel, excluded here for the reason
 # edtech-kg#70 established: it is not an occupation.

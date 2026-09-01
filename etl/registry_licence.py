@@ -31,6 +31,8 @@ import sys
 import urllib.error
 import urllib.request
 
+from etl.identity import USER_AGENT
+
 # CTDL's own terms, searched for anything that could carry a per-record licence
 # position. `ceterms:License` is NOT one: it is a credential type — a
 # government-issued authorisation to do a job, like a nursing licence — and a
@@ -192,7 +194,6 @@ def carrying_a_rights_field(envelopes: list[dict]) -> dict:
 # fetching, and the committed record the document is checked against
 # --------------------------------------------------------------------------
 
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 VOCABULARY = "https://credreg.net/ctdl/schema/encoding/json"
 RECORD = pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources" / \
     "registry-licence-measured.json"

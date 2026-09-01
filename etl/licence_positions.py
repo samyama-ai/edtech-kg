@@ -24,6 +24,8 @@ import re
 import sys
 import urllib.request
 
+from etl.identity import USER_AGENT
+
 
 class MalformedSource(Exception):
     """A page that answered, but not with what it publishes."""
@@ -40,8 +42,6 @@ class Unreachable(MalformedSource):
     publisher changed their terms.
     """
 
-
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 # A ceiling on what is read, not on how long it takes. See `page_text`.
 MAX_PAGE = 5 * 1024 * 1024

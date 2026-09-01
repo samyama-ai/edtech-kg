@@ -43,10 +43,10 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from etl.identity import USER_AGENT
 from etl.pwcs_pages import classify, level
 
 SITEMAP = "https://catalog.pwcs.edu/sitemap.xml"
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 CACHE = Path("data/pwcs")
 DELAY = 0.3          # seconds between live fetches; this is a school district
 RED_FLAG = "!! "     # prefixes a count that means the parser, not the source, is wrong

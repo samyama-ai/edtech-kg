@@ -30,7 +30,8 @@ from __future__ import annotations
 import urllib.error
 import urllib.request
 
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
+from etl.identity import USER_AGENT
+
 
 # Homepage and robots.txt for each. BOTH, because they answer different
 # questions: the homepage says whether a human-facing page is served, and

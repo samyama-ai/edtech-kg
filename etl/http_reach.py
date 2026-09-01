@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-USER_AGENT = "edtech-kg research probe (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
+from etl.identity import USER_AGENT
 
 
 def is_address(text: str) -> bool:

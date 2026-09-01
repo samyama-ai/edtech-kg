@@ -32,8 +32,9 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+from etl.identity import USER_AGENT
+
 API = "https://educationdata.urban.org/api/v1"
-USER_AGENT = "edtech-kg/0.1 (+https://github.com/samyama-ai/edtech-kg)"
 
 # One request each. The path carries the year, so it is substituted rather than
 # passed as a parameter — an unvalidated year would change which dataset is

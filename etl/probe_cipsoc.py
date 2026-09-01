@@ -48,6 +48,8 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from etl.identity import USER_AGENT
+
 SOURCE_URL = "https://nces.ed.gov/ipeds/cipcode/Files/CIP2020_SOC2018_Crosswalk.xlsx"
 LANDING_PAGE = "https://nces.ed.gov/ipeds/cipcode/post3.aspx?y=56"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -56,7 +58,6 @@ LOCAL = DATA_DIR / "CIP2020_SOC2018_Crosswalk.xlsx"
 # The crosswalk's own "NO MATCH" sentinel, written in the SOC column. Not an
 # occupation, and its rows are not mappings — see the module docstring.
 NO_MATCH_SOC = "99-9999"
-USER_AGENT = "edtech-kg/0.1 (+https://github.com/samyama-ai/edtech-kg)"
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
