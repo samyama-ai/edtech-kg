@@ -42,8 +42,18 @@ import urllib.parse
 # not fail — it fell through to depth, which is the exact classification this
 # change exists to stop relying on. A CMS template change would have moved 172
 # rows back onto depth silently and every count would still have summed.
+#
+# A QUOTE IS REQUIRED. The first version of this widening also allowed the
+# unquoted form, which admitted `<script>var s="class=MARKER"` — and the
+# paragraph above records script-string occurrences of this token as MEASURED
+# on this catalogue, so that is a live surface rather than a hypothesis.
+# Clean Catalog writes quotes; matching a form nobody emits bought nothing and
+# reopened the hole the `class="…"` anchoring was added to close.
+#
+# `(?<![\w:-])` before `class`, because `data-class=`, `ng-class=`, `:class=`
+# and `subclass=` all satisfied a bare `class`.
 PATHWAY_FIELD_PRESENT = re.compile(
-    r"""class\s*=\s*(?:"[^"]*|'[^']*|)"""
+    r"""(?<![\w:-])class\s*=\s*(?:"[^"]*|'[^']*)"""
     r"""(?<![\w-])field--name-field-degree-section-courses(?![\w-])""")
 
 LEVELS = {1: "subject", 2: "course", 3: "pathway"}

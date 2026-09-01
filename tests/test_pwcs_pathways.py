@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import pytest
 
+from etl import probe_pwcs as source
 from etl import pwcs_pages
 from etl import pwcs_source as reader
+from tests.test_pwcs_classify import needs_cache
 from tests.pwcs_markup import PUBLISHED, row, section
 
 
@@ -149,7 +151,6 @@ MATCHES = [
     ("double quotes", f'<div class="{MARKER}">'),
     ("among other classes", f'<div class="a b {MARKER} c">'),
     ("single quotes", f"<div class='{MARKER}'>"),
-    ("no quotes", f'<div class={MARKER}>'),
     ("spaces round the equals", f'<div class = "{MARKER}">'),
 ]
 REFUSES = [
@@ -157,10 +158,28 @@ REFUSES = [
     # character — so a sibling Drupal field extending this name matched, and
     # the page was labelled a pathway.
     ("a longer field name", f'<div class="{MARKER}-teaser">'),
-    ("a longer word", f'<div class="{MARKER}XX">'),
     ("a longer prefix", f'<div class="x-{MARKER}">'),
     ("the token in prose", f'<p>see {MARKER}</p>'),
     ("the token in another attribute", f'<div data-x="{MARKER}">'),
+    # A QUOTE IS REQUIRED, and this is why. The first version of the widening
+    # allowed the unquoted form, which admits a script string — and the module
+    # docstring records script-string occurrences of this token as MEASURED on
+    # this catalogue, not imagined.
+    ("a script string", f'<script>var s="class={MARKER}"</script>'),
+    ("the unquoted form nobody emits", f'<div class={MARKER}>'),
+    # A bare `class` is a suffix of several real attribute names.
+    ("data-class=", f'<div data-class="{MARKER}">'),
+    ("ng-class=", f'<div ng-class="{MARKER}">'),
+    (":class=", f'<div :class="{MARKER}">'),
+    ("subclass=", f'<div subclass="{MARKER}">'),
+]
+
+#: What this expression genuinely cannot see. Written down as tests rather
+#: than left implicit, because a reader of the lists above would reasonably
+#: infer these were handled. Both would need the markup parsed rather than
+#: matched, which is a bigger change than this classifier warrants.
+KNOWN_LIMITS = [
+    ("markup inside an HTML comment", f'<!-- <div class="{MARKER}"> -->'),
 ]
 
 
@@ -177,4 +196,48 @@ def test_the_pathway_marker_is_read_in_every_form_markup_writes_it(what, markup)
 @pytest.mark.parametrize("what, markup", REFUSES, ids=lambda v: v)
 def test_the_pathway_marker_refuses_a_name_that_merely_contains_it(what, markup):
     assert not pwcs_pages.PATHWAY_FIELD_PRESENT.search(markup), what
+
+
+@pytest.mark.parametrize("what, markup", KNOWN_LIMITS, ids=lambda v: v)
+def test_the_known_limits_are_still_the_known_limits(what, markup):
+    """Asserts the marker DOES match — these are documented holes, not bugs.
+
+    If one of them starts refusing, this fails and the list gets shorter,
+    which is the direction worth being told about.
+    """
+    assert pwcs_pages.PATHWAY_FIELD_PRESENT.search(markup), what
+
+
+#: The four pages #87 found: published at COURSE depth, carrying a pathway's
+#: course table. They are the entire reason the classifier exists.
+RECLASSIFIED_BY_MARKUP = [
+    "https://catalog.pwcs.edu/specialty-programs/center-for-biotechnology-and-engineering",
+    "https://catalog.pwcs.edu/specialty-programs/"
+    "information-technology-center-for-applied-sciences-interactive-and-information",
+    "https://catalog.pwcs.edu/specialty-programs/international-baccalaureate",
+    "https://catalog.pwcs.edu/virtual-prince-william/virtual-prince-william-information",
+]
+
+
+@needs_cache
+@pytest.mark.parametrize("url", RECLASSIFIED_BY_MARKUP,
+                         ids=lambda u: u.rsplit("/", 1)[-1][:40])
+def test_the_pages_depth_reads_wrong_are_still_read_by_markup(url):
+    """The safety net only guarded one direction.
+
+    `MarkupDrift` fires above `RECLASSIFIED_FLOOR = 10`, which catches the
+    marker suddenly matching far too much. Nothing catches it matching too
+    little: a drop from four reclassified pages to zero is UNDER the floor, so
+    it passes silently and up to 172 published rows go back to being read as
+    courses — the same quiet way #87 describes.
+
+    Named individually rather than counted, so the failure says which page.
+    """
+    markup = source.cached_path(url).read_text(encoding="utf-8")
+    assert reader.level(url) == "course", (
+        "this page is no longer at course depth, so it is not the case #87 "
+        "found and this test is guarding nothing")
+    assert reader.classify(url, markup) == "pathway", (
+        "depth says course and the markup no longer says pathway, so this "
+        "page's course table is about to be read as a course")
 
