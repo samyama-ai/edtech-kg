@@ -1,0 +1,84 @@
+# Contributing
+
+Short on purpose. The long version — twelve failure classes taken from every
+review this repo has had — is in [`CLAUDE.md`](CLAUDE.md).
+
+## One issue, one branch, one PR
+
+Never bundled. If a fix would push a PR past the size below, raise a second
+issue and a second PR.
+
+    <type>/<issue>/<kebab-description>
+
+`feat` `fix` `chore` `docs` `refactor` `test` `research`, optionally scoped —
+`feat(etl)/7/national-spine`. The PR body must contain `Closes #<N>` so the
+issue closes on merge.
+
+## Keep it under ~700 insertions, and under 250 if you can
+
+Measured across 34 merged PRs on 2026-09-01, counting `REQUEST_CHANGES` reviews:
+
+| insertions | PRs | mean review rounds | worst |
+|---|---|---|---|
+| under 250 | 7 | **0.1** | 1 |
+| 250–700 | 13 | **1.1** | 3 |
+| 700–1500 | 6 | **5.8** | 10 |
+| over 1500 | 8 | **9.6** | 14 |
+
+The step between 700 and 1500 is not gradual. A large PR is not reviewed more
+slowly, it is reviewed *repeatedly* — each round adds surface and the next
+round finds defects in that surface.
+
+Reproduce it by pairing merge-commit insertion counts with each PR's review
+states; the numbers above are that count, not an impression.
+
+## The evidence standard
+
+**Measured is labelled measured. Estimated is labelled estimated.** Anything
+else is a claim wearing a number's clothes.
+
+- **Every figure in a document is printed by a probe, never typed.** If you
+  cannot point at the command, delete the figure.
+- **Commit the run**, so the page can be checked without repeating the fetch,
+  and test the page against it **in both directions** — a figure on the page
+  that is not in the record was typed; a figure in the record that is not on
+  the page is a measurement nobody published.
+- **Write the limits down before a reviewer finds them.** What the change does
+  *not* establish belongs in the document, not in the reviewer's comment.
+- Raw data is never committed. `data/` is gitignored.
+
+## What a PR body carries
+
+- The before and after, with the conditions the measurement was taken under
+- **The rows that did not improve**, beside the ones that did
+- What the change does not move — and a new issue if that is interesting
+- The limits you already know about
+
+## Tests
+
+- **Unit and behaviour**, not one or the other.
+- **Mutation-test every fix**: break it on purpose and confirm the suite goes
+  red. A fix whose mutation passes will ship half-done and look complete.
+  Check the mutation *applied* — a `replace` that matched nothing reports a
+  pass and reads as proof.
+- **Drive the code, not the artifact.** A test that reads a committed record
+  says nothing about the code that wrote it. This repo has been caught by that
+  repeatedly.
+- Constants a guard rests on are **derived and asserted**, never tuned until
+  the suite passes.
+- Run the suite with an engine reachable, or the engine tests skip and a skip
+  reads as a pass:
+
+      SAMYAMA_TEST_URL=http://localhost:8201 SAMYAMA_URL=http://localhost:8201 \
+        python3.11 -m pytest -q
+
+  Use `python3.11`. No file over 500 lines — review skips it and blocks the PR.
+
+## Before you push
+
+Read your own diff as if someone else wrote it, and ask the three questions
+that catch the most:
+
+1. Every figure I put in a document — did a probe print it, or did I?
+2. Every guard I added — is there a sibling call site with the same hole?
+3. Every fix — does it break a promise made two lines up?
