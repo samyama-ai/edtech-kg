@@ -136,7 +136,10 @@ def modules_run_as_subprocesses(tree: ast.AST) -> set[str]:
                  and isinstance(part.value, ast.Name)
                  and part.value.id == "sys")
                 or (isinstance(part, str)
-                    and re.fullmatch(r"python(?:3(?:\.\d+)?)?", part)))
+                    # `/usr/bin/python3` as readily as `python3` — a script
+                    # that spells the path out is running the same thing.
+                    and re.fullmatch(r"(?:/[\w./-]*/)?python(?:3(?:\.\d+)?)?",
+                                     part)))
             if executable and parts[index + 1] == "-m" \
                     and isinstance(parts[index + 2], str):
                 found.add(parts[index + 2].split(".")[0])
@@ -147,6 +150,8 @@ def modules_run_as_subprocesses(tree: ast.AST) -> set[str]:
 #: you add to a `pip install` line — the message was wrong twice over.
 #: `test_packaging.py` discusses the `pip install --dry-run` route it chose not
 #: to take, so this is the next shape someone reaches for.
+
+
 BOOTSTRAP = {"pip", "setuptools", "wheel", "venv", "ensurepip"}
 
 
@@ -177,8 +182,11 @@ def dependencies_of(paths, root):
     # import.
     first_party = {d.name for d in root.iterdir() if (d / "__init__.py").exists()}
     first_party |= {p.stem for p in root.glob("*.py")} | {"__future__"}
-    ours = set(sys.stdlib_module_names) | first_party | BOOTSTRAP
-    return imported - ours, run - ours
+    ours = set(sys.stdlib_module_names) | first_party
+    # BOOTSTRAP applies to what is RUN, not to what is imported. Subtracted
+    # from both, `import setuptools` in a test was hidden — and that IS a
+    # dependency, however usually present. `python -m pip` is not.
+    return imported - ours, run - ours - BOOTSTRAP
 
 
 def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
@@ -379,3 +387,84 @@ def test_a_dotted_module_is_reported_by_its_package(tmp_path):
     package rather than the module path."""
     tree = ast.parse('import sys\nrun([sys.executable, "-m", "flake8.main"])\n')
     assert modules_run_as_subprocesses(tree) == {"flake8"}
+
+
+# --------------------------------------------------------------------------
+# THE SEAM, driven end to end.
+#
+# Three rounds running, the fix moved this shape rather than removed it: the
+# parser got covered, then `dependencies_of` got covered, and each time the
+# join to the thing that ASSERTS stayed untested. Covering another unit would
+# move it a fourth time.
+#
+# So this drives the guard itself — the real function, a fabricated tree, a
+# fabricated workflow — and asserts on the message a reader would get. There
+# is no seam left between input and assertion because the whole path runs.
+# --------------------------------------------------------------------------
+
+def _tree(tmp_path, body: str):
+    """A repo-shaped tree the guard can walk."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_thing.py").write_text(body, encoding="utf-8")
+    (tmp_path / "conftest.py").write_text("", encoding="utf-8")
+    return tmp_path
+
+
+INSTALLS_PYTEST_ONLY = (
+    "jobs:\n  test:\n    steps:\n"
+    '      - run: python -m pip install --quiet pytest "setuptools>=61.0"\n')
+
+
+def test_the_guard_reports_a_module_the_suite_only_RUNS(tmp_path, monkeypatch):
+    """The blocker, driven at the seam. Deleting the `missing_runs` line — or
+    dropping `run` from `dependencies_of` — fails here."""
+    monkeypatch.setattr(sys.modules[__name__], "ROOT",
+                        _tree(tmp_path, 'import subprocess, sys\n'
+                                        'subprocess.run([sys.executable, "-m", "flake8"])\n'))
+    with pytest.raises(AssertionError) as raised:
+        test_the_workflow_installs_what_the_suite_actually_imports(INSTALLS_PYTEST_ONLY)
+    message = str(raised.value)
+    assert "flake8" in message, message
+    assert "RUNS" in message, (
+        f"a run-only dependency was reported as an import, which sends a "
+        f"reader looking for an import that is not there: {message}")
+
+
+def test_the_guard_says_IMPORTS_for_an_import(tmp_path, monkeypatch):
+    """The other half of the same message. Reported as a run, it would send a
+    reader looking for a subprocess that is not there."""
+    monkeypatch.setattr(sys.modules[__name__], "ROOT",
+                        _tree(tmp_path, "import requests\n"))
+    with pytest.raises(AssertionError) as raised:
+        test_the_workflow_installs_what_the_suite_actually_imports(INSTALLS_PYTEST_ONLY)
+    message = str(raised.value)
+    assert "requests" in message and "imports" in message, message
+    assert "RUNS" not in message, message
+
+
+def test_the_guard_passes_when_the_workflow_covers_both(tmp_path, monkeypatch):
+    """Or the two above pass by refusing everything."""
+    monkeypatch.setattr(sys.modules[__name__], "ROOT",
+                        _tree(tmp_path, 'import subprocess, sys\nimport pytest\n'
+                                        'subprocess.run([sys.executable, "-m", "flake8"])\n'))
+    test_the_workflow_installs_what_the_suite_actually_imports(
+        "jobs:\n  test:\n    steps:\n"
+        "      - run: python -m pip install --quiet pytest flake8\n")
+
+
+def test_an_imported_bootstrap_package_is_not_hidden(tmp_path, monkeypatch):
+    """BOOTSTRAP applies to what is RUN. Subtracted from imports too, a test
+    doing `import setuptools` was hidden — and that is a dependency, however
+    usually present."""
+    imported, run = dependencies_of(
+        [_tree(tmp_path, "import setuptools\n") / "tests" / "test_thing.py"],
+        root=tmp_path)
+    assert imported == {"setuptools"}
+    assert run == set()
+
+
+def test_an_absolute_interpreter_path_is_still_an_interpreter():
+    """A script spelling the path out runs the same thing."""
+    for spelling in ("/usr/bin/python3", "/usr/local/bin/python3.11", "python3"):
+        tree = ast.parse(f'run(["{spelling}", "-m", "flake8"])\n')
+        assert modules_run_as_subprocesses(tree) == {"flake8"}, spelling

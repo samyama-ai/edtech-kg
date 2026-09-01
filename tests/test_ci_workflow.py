@@ -175,21 +175,3 @@ def test_a_real_skip_is_recorded_with_its_reason(guard):
 def test_a_passing_test_is_not_recorded(guard):
     guard.pytest_runtest_logreport(_Report("tests/t.py::p", None, skipped=False))
     assert guard._skipped == []
-
-
-# --------------------------------------------------------------------------
-# The subprocess half, driven. Nothing in the suite shells out to a
-# third-party module today, so a test that only asserts the tree is clean
-# would pass without exercising anything — which is the shape of the defect
-# this closes.
-# --------------------------------------------------------------------------
-
-
-# --------------------------------------------------------------------------
-# The WIRE, not the parser. Four tests drove `modules_run_as_subprocesses`
-# directly and none asserted the guard consumed it — deleting the one line
-# that joined them left the whole suite green. That is the same defect one
-# layer out from the one the parser was written to fix.
-# --------------------------------------------------------------------------
-
-
