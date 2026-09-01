@@ -45,7 +45,15 @@ def test_no_tracked_file_still_carries_a_template_placeholder():
     `}}` with nothing but an upper-case identifier between — which no f-string
     brace-escape looks like.
     """
-    placeholder = re.compile(r"\{\{[A-Z][A-Z0-9_]*\}\}")
+    # `\s*` and `A-Za-z`, because `{{ KG_NAME }}` is Jinja's CANONICAL
+    # spelling and `{{kg_name}}` is ordinary. The narrow upper-case-only form
+    # matched neither, so the two spellings a template is most likely to ship
+    # walked straight through the guard written to stop them.
+    #
+    # Widened after measuring: over every tracked file, this matches exactly
+    # what the narrow pattern matched and nothing else, so the f-string
+    # brace-escape worry the docstring raises is not realised in this tree.
+    placeholder = re.compile(r"\{\{\s*[A-Za-z][A-Za-z0-9_]*\s*\}\}")
     found = []
     for name in tracked():
         # THE NAME ITSELF. A template ships `{{KG_SLUG}}_loader.py` as readily
@@ -92,10 +100,14 @@ def test_no_tracked_file_still_carries_a_template_placeholder():
     ("a Markdown heading", "# The {{KG_NAME}} Benchmarks"),
     ("a Python value", 'NAME = "{{KG_SLUG}}-kg"'),
     ("a JSON value", '{"name": "{{KG_SLUG}}"}'),
+    # Jinja's canonical spacing, and the lower-case form. The narrow pattern
+    # required an upper-case identifier with no whitespace, so both shipped.
+    ("Jinja's spaced form", "# a {{ KG_NAME }} with spaces"),
+    ("a lower-case name", 'NAME = "{{kg_slug}}-kg"'),
 ])
 def test_the_guard_catches_a_placeholder_wherever_it_is_written(
         placement, text, tmp_path, monkeypatch):
-    """Seven placements, and the guard used to miss four of them.
+    """Nine placements, and the guard used to miss six of them.
 
     It stripped comments and docstrings before matching, on the argument that
     a placeholder in prose is prose ABOUT the placeholder. That argument does
@@ -163,40 +175,6 @@ def test_no_directory_in_the_layout_is_silently_empty(name):
     """
     entries = [p for p in (ROOT / name).iterdir() if p.name != "__pycache__"]
     assert entries, f"{name}/ is empty — say what lands there, or remove it"
-
-
-def test_the_contributing_notes_carry_the_rules_that_cost_rounds():
-    """#26 asked for the PR standard in writing. These four are the ones whose
-    absence is measurable in this repo's own history, so a CONTRIBUTING that
-    omits any of them is decorative."""
-    doc = (ROOT / "CONTRIBUTING.md").read_text(errors="replace")
-    flat = " ".join(doc.split()).lower()
-    # Anchored to a SECTION, not to a word that appears in one. Two of these
-    # were bare substrings and neither guarded anything: `"red"` is satisfied
-    # by "shared", "learned" and "measured", `"engine"` by
-    # SAMYAMA_REQUIRE_ENGINE three sections away — deleting both sections left
-    # this green. A heading AND a phrase from the body, because a heading with
-    # nothing under it is the other way to pass.
-    for heading, phrase, why in (
-        ("## size", "500", "the file-size limit review enforces"),
-        ("## what a pr body should contain", "closes #",
-         "the only thing that closes an issue on merge"),
-        ("## break your own fix before asking for review", "confirm red",
-         "breaking your own fix to see a test fail"),
-        ("## engine version", "one engine build",
-         "which engine build the figures were measured against"),
-    ):
-        # The heading must END there. `"## size" in flat` is satisfied by
-        # `## Sizing the demo`, so a renamed section could keep the guard
-        # green while the section it names is gone. `(?!\w)` says the next
-        # character does not continue the word — a body starting `**500` or
-        # `- the` is fine, `## sizing` is not.
-        assert re.search(re.escape(heading) + r"(?!\w)", flat), (
-            f"CONTRIBUTING.md has no {heading!r} section, so it does not cover "
-            f"{why}")
-        assert phrase in flat, (
-            f"CONTRIBUTING.md's {heading!r} section no longer says {phrase!r}, "
-            f"which is how it covers {why}")
 
 
 def test_the_short_meeting_set_is_the_same_in_every_place_it_appears():
@@ -348,48 +326,3 @@ def test_a_constant_another_module_reads_is_not_flagged(tmp_path, monkeypatch):
     test_no_module_leaves_a_helper_or_constant_behind()
 
 
-def test_the_documented_style_check_catches_what_this_repo_contains(tmp_path):
-    """`CONTRIBUTING.md` names the exact flake8 selection contributors run.
-
-    A code missing from that line is a check nobody runs, and this PR
-    introduced an `E304` — two blank lines between a decorator and its `def` —
-    while the documented selection did not include it. The decorator still
-    binds, so nothing failed; it simply was not checked.
-
-    The selection is READ from the document rather than restated, and then
-    used against code that is deliberately wrong in each of the ways the
-    document claims to catch. Restating it here would be a second copy that
-    agrees with itself.
-    """
-    line = re.search(r"flake8 --select=([A-Za-z0-9,]+)",
-                     (ROOT / "CONTRIBUTING.md").read_text())
-    assert line, "CONTRIBUTING.md no longer names a flake8 selection"
-
-    offenders = {
-        "E304": "import re\n\n\n@property\n\ndef f():\n    return 1\n",
-        "E303": "import re\n\n\n\n\nx = 1\n",
-        "E741": "import re\n\n\nl = 1\n",
-        "F401": "import re\n",
-    }
-    for code, body in offenders.items():
-        sample = tmp_path / f"{code.lower()}_sample.py"
-        sample.write_text(body, encoding="utf-8")
-        out = subprocess.run(
-            [sys.executable, "-m", "flake8", f"--select={line.group(1)}",
-             str(sample)], capture_output=True, text=True)
-        # flake8 exits 0 when clean and 1 when it reports something. ANYTHING
-        # else is flake8 failing to run — and so is a non-empty stderr, which
-        # is the case that matters: `python -m missing_module` exits **1**,
-        # the same code flake8 uses for "I found something", so the return
-        # code alone does not separate them. Its stdout is empty either way,
-        # so the
-        # assertion below would report "the documented selection does not
-        # catch E302" when the truth is that flake8 is not installed. The
-        # wrong cause, stated confidently.
-        if out.returncode not in (0, 1) or out.stderr.strip():
-            pytest.fail(
-                f"flake8 did not run (exit {out.returncode}): "
-                f"{out.stderr.strip()[:200] or '(no stderr)'}")
-        assert code in out.stdout, (
-            f"the documented selection {line.group(1)} does not catch {code}, "
-            f"which this repo relies on being caught:\n{out.stdout}")

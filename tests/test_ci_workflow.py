@@ -187,6 +187,36 @@ def packages_installed(workflow: str) -> set[str]:
     return found
 
 
+def modules_run_as_subprocesses(tree: ast.AST) -> set[str]:
+    """Modules invoked as `[sys.executable, "-m", "<name>", ...]`.
+
+    A dependency reached this way is INVISIBLE to an import walk, so the guard
+    below could not see it by construction. That is not hypothetical: a test in
+    this repo shelled out to `python -m flake8` while CI installed only pytest,
+    and it passed locally because the developer's environment happened to have
+    flake8. The guard written to prevent exactly that could not report it.
+
+    Matched on the pair rather than on `-m` alone: `sys.executable` followed by
+    `-m` followed by a literal name. A computed module name is not matched, and
+    is not something to guess at.
+    """
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.List, ast.Tuple)):
+            continue
+        parts = [e.value if isinstance(e, ast.Constant) else e
+                 for e in node.elts]
+        for index, part in enumerate(parts[:-2]):
+            executable = (isinstance(part, ast.Attribute)
+                          and part.attr == "executable"
+                          and isinstance(part.value, ast.Name)
+                          and part.value.id == "sys")
+            if executable and parts[index + 1] == "-m" \
+                    and isinstance(parts[index + 2], str):
+                found.add(parts[index + 2].split(".")[0])
+    return found
+
+
 def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
     """The suite needs pytest and the standard library, measured — so that is
     what CI installs.
@@ -237,6 +267,12 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 names = [node.module]
             third_party.update(n.split(".")[0] for n in names)
+        # AND what the suite RUNS. An import walk cannot see
+        # `subprocess.run([sys.executable, "-m", "flake8", ...])`, so a
+        # dependency reached that way was invisible to this guard while being
+        # exactly what it exists to catch.
+        third_party |= modules_run_as_subprocesses(
+            ast.parse(path.read_text(encoding="utf-8")))
 
     # First-party names are read from the tree rather than listed here. A
     # hand-kept list means a test that imports `mcp_server` or `schema` is
@@ -359,3 +395,46 @@ def test_a_pinned_dependency_is_read_through_its_quotes():
         '"setuptools>=61.0" ' + "'wheel<1'\n"
     )
     assert packages_installed(workflow) == {"pytest", "setuptools", "wheel"}
+
+
+# --------------------------------------------------------------------------
+# The subprocess half, driven. Nothing in the suite shells out to a
+# third-party module today, so a test that only asserts the tree is clean
+# would pass without exercising anything — which is the shape of the defect
+# this closes.
+# --------------------------------------------------------------------------
+
+def test_a_module_run_as_a_subprocess_is_seen_as_a_dependency():
+    """The case the import walk could not see. `python -m flake8` in a test,
+    against a CI that installs only pytest, is an install-succeeds-then-fails
+    shape — and it passed locally because the developer had flake8."""
+    tree = ast.parse(
+        'import subprocess, sys\n'
+        'subprocess.run([sys.executable, "-m", "flake8", "--select=E302", "x.py"])\n')
+    assert modules_run_as_subprocesses(tree) == {"flake8"}
+
+
+def test_the_module_name_is_taken_from_the_position_after_dash_m():
+    """Not from "any string near a -m". The invocation's shape is what makes
+    the name a module name."""
+    tree = ast.parse(
+        'import sys\n'
+        'run([sys.executable, "-m", "pytest", "-q", "-m", "slow"])\n')
+    # `slow` is a MARKER argument to `-m`, not a module: only the name
+    # directly after `sys.executable, "-m"` is one.
+    assert modules_run_as_subprocesses(tree) == {"pytest"}
+
+
+def test_another_executable_is_not_read_as_a_python_module():
+    """`git`, `docker` and the rest are not pip-installable, and reporting one
+    as a missing dependency would send a reader to the wrong step."""
+    tree = ast.parse('run(["git", "-m", "something"])\n'
+                     'run(["docker", "run", "-m", "512m", "image"])\n')
+    assert modules_run_as_subprocesses(tree) == set()
+
+
+def test_a_computed_module_name_is_not_guessed_at():
+    """A name built at runtime is not something to report as uninstalled."""
+    tree = ast.parse('import sys\nrun([sys.executable, "-m", name])\n')
+    assert modules_run_as_subprocesses(tree) == set()
+
