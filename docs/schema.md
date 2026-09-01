@@ -32,7 +32,7 @@ source holds, not what any graph contains.
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
 | `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key. All 138 sit on course pages; `HAS_REQUIREMENT` accepts a pathway too, and none states one |
 | `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | **42** — 36 under `/career-and-technical-education-cte/` and 6 elsewhere: three specialty programs, the Governor's School, JROTC, and Virtual Prince William. Counted from the loaded urls, not from the section names |
-| `Completion` | `id` (sha1) | Graduates: institution × programme × award level × demographic × year | 9,026,310 |
+| `Completion` | `id` (sha1) | One institution × programme × award level × **demographic** × year. Not a graduate — a demographic cell | **9,026,310** rows, which is 300,877 IPEDS rows × 30 demographic columns. The awards they describe are **10,620,172** (#43) |
 
 **`Pathway` moved here from tier 2**, and its key changed from `ctid` to `url`.
 It was modelled on the Credential Registry, which publishes 98 pathways against
@@ -66,9 +66,19 @@ None of the district rows above is a number the probe prints as such today, and
 table carries the corrected figures because a reader skimming it should not
 take away a number this page goes on to refute.
 
-`Completion` is 9,026,310 because that is what IPEDS publishes. Whether a
-bounded slice or all of it is loaded is **edtech-kg#23** — a question about the
-loader, not about the source.
+`Completion` is 9,026,310 because that is what **the Urban wrapper**
+publishes. IPEDS publishes 300,877 rows for the same collection and year and
+carries the demographics as **columns**; the wrapper unpivots them, and
+300,877 × 30 = 9,026,310 exactly. Measured in
+[`sources/federal-direct.md`](sources/federal-direct.md).
+
+**Neither figure is a number of graduates.** The same file reports
+**10,620,172** awards for first majors — more than the row count it is easy to
+mistake for awards. Quote the award count when describing this graph to
+anyone; quote the row count only when describing the node.
+
+Whether a bounded slice or all of it is loaded is **edtech-kg#23** — a
+question about the loader, not about the source.
 
 ## Node labels — tier 2, modelled and empty
 

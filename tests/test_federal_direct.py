@@ -219,3 +219,86 @@ def test_a_route_that_does_not_answer_is_refused_not_recorded(monkeypatch):
     with pytest.raises(probe.Unreachable):
         probe.reach("https://example.test/x", False)
 
+
+# --------------------------------------------------------------------------
+# The figure where a READER meets it — #119. `federal-direct.md` gets this
+# right because it is the page that measured it; the documents that quote the
+# number are where it misleads, and they are not covered above.
+# --------------------------------------------------------------------------
+
+QUOTING = ("docs/schema.md", "README.md", "docs/sources/education-data.md")
+
+
+def quoting_pages():
+    return [(name, (ROOT / name).read_text(encoding="utf-8")) for name in QUOTING]
+
+
+def test_the_documents_that_quote_the_figure_exist():
+    """A tuple of paths that stops matching files makes every check below
+    vacuous, and a rename is exactly how that happens."""
+    for name, text in quoting_pages():
+        assert text.strip(), f"{name} is empty or missing"
+
+
+def test_no_document_attributes_the_row_count_to_ipeds(record):
+    """`schema.md` said "Completion is 9,026,310 because that is what IPEDS
+    publishes". IPEDS publishes 300,877 rows and carries the demographics as
+    columns; the WRAPPER publishes the unpivoted figure."""
+    wrapper = f"{record['ipeds']['wrapper_rows']:,}"
+    for name, text in quoting_pages():
+        flat = re.sub(r"\s+", " ", text)
+        for claim in (f"{wrapper} because that is what IPEDS",
+                      f"IPEDS publishes {wrapper}",
+                      f"IPEDS completions | **{wrapper}** |"):
+            assert claim not in flat, f"{name} attributes {wrapper} to IPEDS: {claim!r}"
+
+
+def test_wherever_the_row_count_is_quoted_the_award_count_is_too(record):
+    """The fix that matters. A reader meeting 9,026,310 alone takes it for
+    nine million people; the awards are 10,620,172, which is both a different
+    quantity and a larger one."""
+    wrapper = f"{record['ipeds']['wrapper_rows']:,}"
+    awards = f"{record['ipeds']['awards_first_major']:,}"
+    for name, text in quoting_pages():
+        if wrapper not in text:
+            continue
+        assert awards in text, (
+            f"{name} quotes {wrapper} without {awards}, so the row count reads "
+            f"as a number of graduates")
+
+
+def test_the_completion_node_is_not_described_as_a_graduate(record):
+    """The node is a demographic CELL. One graduate appears in one cell of one
+    row; calling the row count "Graduates" is what made the figure read as
+    people."""
+    schema = (ROOT / "docs" / "schema.md").read_text(encoding="utf-8")
+    row = [line for line in schema.splitlines()
+           if line.startswith("| `Completion` |")]
+    assert row, "the Completion row is gone from the node table"
+    assert "Graduates:" not in row[0], (
+        "the Completion row still calls the row count Graduates")
+    assert "demographic" in row[0].lower()
+
+
+def test_the_figures_quoted_are_the_measured_ones(record):
+    """Typed corrections drift as fast as typed figures. Every one of the
+    three numbers on these pages has to be the number in the run."""
+    ipeds = record["ipeds"]
+    schema = (ROOT / "docs" / "schema.md").read_text(encoding="utf-8")
+    for key in ("rows", "wrapper_rows", "awards_first_major"):
+        assert f"{ipeds[key]:,}" in schema, (
+            f"docs/schema.md does not state the measured {key} "
+            f"({ipeds[key]:,})")
+
+    # PRESENCE is not enough: the page states 300,877 twice, so mistyping one
+    # of them left the other satisfying the check. The reconciliation SENTENCE
+    # is asserted, which pins the figures in the relationship that makes them
+    # mean anything.
+    flat = re.sub(r"\s+", " ", schema)
+    sentence = (f"{ipeds['rows']:,} \u00d7 {len(ipeds['count_columns'])} = "
+                f"{ipeds['wrapper_rows']:,}")
+    assert sentence in flat, (
+        f"docs/schema.md no longer states the reconciliation as arithmetic "
+        f"({sentence}), so its figures are three separate numbers a reader "
+        f"has to trust")
+

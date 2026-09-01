@@ -33,6 +33,8 @@ import urllib.error
 import urllib.request
 import zipfile
 
+from etl.identity import USER_AGENT
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "federal-direct-measured.json"
 
@@ -42,8 +44,6 @@ RECORD_NOTE = (
     "One measured run of `python -m etl.probe_federal_direct --deep --record`, "
     "committed so docs/sources/federal-direct.md can be checked without "
     "downloading a year of IPEDS.")
-
-USER_AGENT = "edtech-kg research (+https://git.samyama.ai/Samyama.ai/edtech-kg)"
 
 #: One year of IPEDS completions at CIP-6. The file this repo would read if it
 #: went direct, so it is the file measured rather than a smaller stand-in.
