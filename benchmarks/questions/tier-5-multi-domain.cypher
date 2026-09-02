@@ -1,10 +1,10 @@
 // Tier 5 — multi-domain. A question crossing from one source into another.
 //
 // edtech-kg#22, and the tier where the exercise found the most. TEN of the
-// fourteen cannot be answered. FOUR of those ten trace to one cause — this
-// said nine, which is neither the tier count nor the document-wide one:
+// fourteen cannot be answered. FOUR of those ten trace to one cause:
 // **there is no academic edge from a district Course to a Programme or an
-// Occupation.** The only route in the schema runs through
+// Occupation.** SIX across the document, counted in `docs/questions.md`.
+// The only route in the schema runs through
 // Place, which says "a college in the same state offers this" and not "this
 // course prepares you for it".
 //
@@ -101,10 +101,10 @@ RETURN DISTINCT i.unitid, i.name, cm.award_level;
 //
 // Q81, Q83, Q89 and Q90 ask a district question about occupations — the four.
 // Q75 and Q62 ask the same thing from the other side in tier 4, which makes
-// SIX across the document and is the figure `docs/questions.md` carries;
-// counted here rather than asserted, because "nine" appeared in both places
-// and matched neither. All of them need a Course to reach a Programme or an
-// Occupation academically, and it cannot: the walk
+// SIX across the document. Five of the six are blocked; Q62 is ⚠️ rather than
+// ❌ because its narrowed reading, course to course, is fully answered. They
+// all need a Course to reach a Programme or an Occupation academically, and
+// it cannot: the walk
 // goes Course <-TEACHES- School -IN_DISTRICT-> District -LOCATED_IN-> Place
 // <-LOCATED_IN- Institution -OFFERS-> Programme, which is geography wearing an
 // academic answer's clothes. Re-marked ❌, and #66 is the issue.
