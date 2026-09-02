@@ -1,15 +1,21 @@
 """What the schema actually commits a node to carrying.
 
-`schema/edtech_kg.cypher` declares **keys**. It declares almost nothing else —
-measured, not asserted: no non-key property appears in it at all. The other
-properties a graph has are the ones a loader writes, and only four labels have
-a loader.
+`schema/edtech_kg.cypher` declares **keys** in its constraints and
+**attributes** in its PROPERTIES block, each naming the field a source
+publishes it as (#123). Before that block the schema declared keys and nothing
+else, so a label with no loader could commit to nothing and `Occupation.name`
+was undeclared while every source publishes it.
 
-That gap is the point rather than a nuisance. A traversal naming
-`o.name` on an `Occupation` parses, looks like an answer, and reaches for
-something nothing in this repo has promised to write. `tests/
-test_question_traversals.py` uses this to make that visible instead of leaving
-it for a reader to notice.
+DECLARED MEANS A LOADER WRITES IT, and the distinction is load-bearing. The
+schema also carries a PUBLISHED_NOT_LOADED block — `Course.description` and
+`Course.grade_levels`, which the catalogue publishes and `etl/load_pwcs.py`
+does not extract (#137). `declared()` does not read it. If it did, Q9 and Q14
+would lose their `NEEDS:` annotations and look served while returning null,
+which is the failure this whole apparatus exists to make visible.
+
+A traversal naming `o.name` on an `Occupation` parses, looks like an answer,
+and reaches for something nothing has promised to write.
+`tests/test_question_traversals.py` uses this to say so.
 """
 
 from __future__ import annotations
@@ -55,17 +61,27 @@ def declared() -> dict[str, set[str]]:
     return found
 
 
-def declared_block() -> str:
-    """The schema's PROPERTIES block, between its own markers.
+def block(name: str = "PROPERTIES") -> str:
+    """One of the schema's marked blocks, between its own markers.
 
     Sliced rather than pattern-matched across the whole file: a bare
     `Label.property <-` regex would also read the NOT-declared paragraph below
-    it, which exists precisely to say what the schema does not commit to.
+    it, and the PUBLISHED_NOT_LOADED block beside it, both of which exist
+    precisely to say what the schema does NOT commit to.
+
+    `PROPERTIES` ends before `PUBLISHED_NOT_LOADED` begins, and the search for
+    the end marker starts at the opening one, so the two do not read each
+    other however they are ordered in the file.
     """
     schema = SCHEMA.read_text(encoding="utf-8")
-    start = schema.index("// PROPERTIES")
-    end = schema.index("// END PROPERTIES", start)
+    start = schema.index(f"// {name}\n")
+    end = schema.index(f"// END {name}", start)
     return schema[start:end]
+
+
+def declared_block() -> str:
+    """Kept as a name because tests and the schema comment both use it."""
+    return block("PROPERTIES")
 
 
 def accesses(cypher: str) -> dict[str, set[str]]:

@@ -49,6 +49,12 @@ RETURN count(c) AS courses;
 //   duration field at all. Credits are not length: a one-credit course can run
 //   a semester or a year. So this answers the half that exists and does not
 //   dress the other half in a property nothing writes (#123).
+//   NEEDS: Course.grade_levels
+//   — AND THE HALF THAT EXISTS IS NOT LOADED EITHER. The catalogue publishes
+//     `field--name-field-grades`; `etl/load_pwcs.py` does not extract it, and
+//     a loaded district holds 0 of 791 courses carrying it. The schema records
+//     the source under PUBLISHED_NOT_LOADED rather than PROPERTIES for that
+//     reason, so this still says so. edtech-kg#137.
 MATCH (c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
 RETURN c.name, c.grade_levels;
 
@@ -75,6 +81,11 @@ MATCH (cm)-[:IN]->(p:Programme {cip_code: "11.0101"})
 RETURN sum(cm.awards) AS completions;
 
 // Q14. What is this course's description, as the district publishes it?
+//   NEEDS: Course.description
+//   — the catalogue publishes `field--name-field-description` and
+//     `etl/load_pwcs.py` does not extract it, so this parses, returns null,
+//     and looks like an answer. Declared under PUBLISHED_NOT_LOADED, which
+//     names the source without promising the property. edtech-kg#137.
 MATCH (c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
 RETURN c.name, c.description, c.source;
 

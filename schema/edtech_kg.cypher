@@ -440,7 +440,7 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 // The source field is the point: a property with no field behind it is a wish,
 // and the whole reason for this section is that a reader can check the
 // commitment rather than trust it. `tests/schema_properties.py` reads these,
-// and `tests/test_schema_attributes.py` holds every one to a named source.
+// and `tests/test_question_traversals.py` holds every one to a named source.
 //
 // PROPERTIES
 //   Occupation.name        <- CIP2020_SOC2018_Crosswalk.xlsx, SOC2018Title
@@ -451,9 +451,27 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 //   District.name          <- CCD district directory, lea_name
 //   Completion.awards      <- IPEDS C, CTOTALT
 //   Completion.award_level <- IPEDS C, AWLEVEL
+// END PROPERTIES
+//
+// PUBLISHED BUT NOT EXTRACTED — declared as SOURCES, not as commitments.
+//
+// The catalogue publishes both fields and `etl/load_pwcs.py` writes neither:
+// `grade_levels` appears in no file under `etl/`, `description` only as an
+// argparse keyword, and a loaded district holds 0 of 791 courses carrying
+// either. They are recorded here because the source field is known and the
+// gap is a loader's, not a source's — edtech-kg#137.
+//
+// They are kept OUT of the block above deliberately. `declared()` reads that
+// block, and `declared()` is what tells a query it may reach for a property.
+// Listing these there would drop the `NEEDS:` annotations from Q9 and Q14 and
+// make both look served while they return null — which is the exact failure
+// the top of this section describes. One meaning, kept: declared means a
+// loader writes it.
+//
+// PUBLISHED_NOT_LOADED
 //   Course.description     <- catalog.pwcs.edu, field--name-field-description
 //   Course.grade_levels    <- catalog.pwcs.edu, field--name-field-grades
-// END PROPERTIES
+// END PUBLISHED_NOT_LOADED
 //
 // NOT declared, and each for its own reason:
 //

@@ -44,7 +44,7 @@ import re
 import pytest
 
 from tests.questions_document import QUESTION, marks
-from tests.schema_properties import undeclared
+from tests.schema_properties import declared, undeclared
 from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -64,7 +64,7 @@ def uncommented(text: str) -> str:
                      if not line.strip().startswith("//"))
 
 
-def SCHEMA_TEXT() -> str:
+def schema_text() -> str:
     return (ROOT / "schema" / "edtech_kg.cypher").read_text(encoding="utf-8")
 
 
@@ -272,20 +272,84 @@ def test_the_schema_declares_the_attributes_the_questions_need():
     assert {"awards", "award_level"} <= known.get("Completion", set())
 
 
-def test_nothing_is_declared_without_a_source_field_behind_it():
+#: Every attribute the schema commits to, and the source field behind each.
+#: An EXACT SET, not a count and not a shape. The check this replaced asserted
+#: `len(source) > 8 and "," in source`, which `xxxxxxxxx,y` satisfies — so an
+#: entry could be added with a source field nobody could look up and the guard
+#: would pass it. Enumerating them means an addition has to be argued for here
+#: as well as there.
+DECLARED_ATTRIBUTES = {
+    "Occupation.name": ("CIP2020_SOC2018_Crosswalk.xlsx", "SOC2018Title"),
+    "Programme.name": ("CIP2020_SOC2018_Crosswalk.xlsx", "CIP2020Title"),
+    "Institution.name": ("IPEDS HD", "INSTNM"),
+    "Institution.control": ("IPEDS HD", "CONTROL"),
+    "School.name": ("CCD school directory", "school_name"),
+    "District.name": ("CCD district directory", "lea_name"),
+    "Completion.awards": ("IPEDS C", "CTOTALT"),
+    "Completion.award_level": ("IPEDS C", "AWLEVEL"),
+}
+
+#: Published by a source, NOT written by any loader — so not declared, and not
+#: reachable without a `NEEDS:` line. Kept apart from the set above because
+#: `declared()` reads only that one, and merging them would drop the
+#: annotations from Q9 and Q14 and make both look served while returning null.
+PUBLISHED_NOT_LOADED = {
+    "Course.description": ("catalog.pwcs.edu", "field--name-field-description"),
+    "Course.grade_levels": ("catalog.pwcs.edu", "field--name-field-grades"),
+}
+
+
+def entries_of(marker: str) -> dict[str, tuple[str, ...]]:
+    from tests.schema_properties import block
+
+    found = {}
+    for line in block(marker).splitlines():
+        matched = re.match(r"^//\s+(\w+\.\w+)\s+<-\s+(.+?)\s*$", line)
+        if matched:
+            found[matched.group(1)] = tuple(
+                part.strip() for part in matched.group(2).split(","))
+    return found
+
+
+def test_the_schema_declares_exactly_these_attributes_and_these_sources():
     """The point of the PROPERTIES block. A property with no field behind it is
     a wish, and a schema that grants wishes stops describing what anyone
     publishes."""
-    from tests.schema_properties import declared_block
+    assert entries_of("PROPERTIES") == DECLARED_ATTRIBUTES
 
-    lines = [line for line in declared_block().splitlines()
-             if re.match(r"^//\s+\w+\.\w+", line)]
-    assert len(lines) >= 10, f"the PROPERTIES block reads {len(lines)} entries"
-    for line in lines:
-        assert "<-" in line, f"no source named: {line.strip()}"
-        source = line.split("<-", 1)[1].strip()
-        assert len(source) > 8 and "," in source, (
-            f"the source is not a named file and field: {line.strip()}")
+
+def test_the_unloaded_ones_are_recorded_apart_and_stay_apart():
+    """The distinction this PR turns on.
+
+    Both fields ARE published — the catalogue carries them — and no loader
+    extracts either: `grade_levels` appears in no file under `etl/`,
+    `description` only as an argparse keyword, and a loaded district holds 0 of
+    791 courses carrying them. Recording the source is right; declaring the
+    property is not, because `declared()` is what tells a query it may reach
+    for one.
+    """
+    assert entries_of("PUBLISHED_NOT_LOADED") == PUBLISHED_NOT_LOADED
+    reachable = declared()
+    for name in PUBLISHED_NOT_LOADED:
+        label, prop = name.split(".")
+        assert prop not in reachable.get(label, set()), (
+            f"{name} is in PUBLISHED_NOT_LOADED and reachable anyway, so the "
+            f"queries that use it lost their NEEDS annotation and now look "
+            f"served while returning null — edtech-kg#137")
+
+
+def test_no_loader_writes_the_unloaded_ones():
+    """The ratchet. When a loader starts writing one of these, this fails and
+    the entry moves to PROPERTIES — which is the whole removal condition for
+    #137, rather than a note somebody has to remember."""
+    corpus = "\n".join(p.read_text(encoding="utf-8")
+                        for p in sorted((ROOT / "etl").glob("*.py")))
+    written = [name for name in PUBLISHED_NOT_LOADED
+               if f'"{name.split(".")[1]}"' in corpus]
+    assert not written, (
+        f"a loader now writes {written}, so they are no longer merely "
+        f"published — move them into the schema's PROPERTIES block and drop "
+        f"the NEEDS lines that name them")
 
 
 def test_the_undeclared_ones_are_undeclared_deliberately():
@@ -302,7 +366,7 @@ def test_the_undeclared_ones_are_undeclared_deliberately():
         assert prop not in known.get("EarningsRecord", set()), (
             f"EarningsRecord.{prop} is declared before any earnings source is "
             f"loaded, which fixes a shape before anything has been read")
-    schema = SCHEMA_TEXT()
+    schema = schema_text()
     assert "NOT declared, and each for its own reason" in schema
 
 
