@@ -15,26 +15,58 @@
 
 // Q82. Are high-earning occupations reachable from programmes offered in low-income districts?
 //   [caveat: the equity framing needs an income measure this graph does not hold]
-//   NEEDS: EarningsRecord.median, Occupation.name
+//   NEEDS: EarningsRecord.median, EarningsRecord.year, Occupation.name
 //   The POST-SECONDARY half only. "Low-income district" is a school-side fact
 //   and joins to a Place, not to a programme, so this answers what a Place's
 //   institutions reach and at what earnings — leaving the income measure to a
 //   caller who has one.
-MATCH (:Place {id: "state|VA"})<-[:LOCATED_IN]-(i:Institution)-[:OFFERS]->(p:Programme)
+//   TWO THINGS THE JOIN HAS TO SAY. `99-9999` is the crosswalk's NO MATCH
+//   sentinel and not an occupation; it would sit in this ranking as one. And
+//   EarningsRecord is one row per subject x cohort x year x source, so a bare
+//   join fans out and `ORDER BY er.median` ranks a mixture of cohorts against
+//   each other — pinned here to the latest year each occupation has. Source
+//   and cohort stay unpinned because the schema does not carry them yet
+//   (#21, #37).
+MATCH (place:Place)<-[:LOCATED_IN]-(:Institution)-[:OFFERS]->(p:Programme)
+WHERE place.id = "state|VA"
+WITH p
 MATCH (p)-[:PREPARES_FOR]->(o:Occupation)
+WHERE o.soc_code <> "99-9999"
+WITH o
 MATCH (er:EarningsRecord)-[:FOR_OCCUPATION]->(o)
-RETURN DISTINCT o.soc_code, o.name, er.median ORDER BY er.median DESC;
+WITH o, max(er.year) AS latest
+//   A bound variable does NOT go in an inline property map here — measured:
+//   `{year: latest}` is a parse error, not a match on the bound value.
+MATCH (r:EarningsRecord)-[:FOR_OCCUPATION]->(o)
+WHERE r.year = latest
+RETURN DISTINCT o.soc_code, o.name, latest, r.median
+ORDER BY r.median DESC LIMIT 25;
 
 // Q85. Which occupations pay above median but need only a certificate?
 //   [caveat: award level is what a programme confers, not what an occupation requires]
 //   NEEDS: Completion.award_level, EarningsRecord.median, Occupation.name
+//   ABOVE MEDIAN, computed. It said "above median" and returned every
+//   reachable occupation at any wage — the question's own condition dropped.
+//   There is no percentile function and no GDS here, so the midpoint is the
+//   middle of the sorted list of every occupation's median; measured, `size()`
+//   over a list and indexing it by an expression both work.
 //   The distinction Q32 also turns on, and it is the whole caveat: this finds
 //   occupations reachable from programmes AWARDED at certificate level. What
 //   an occupation REQUIRES is not published anywhere this graph reads.
-MATCH (cm:Completion {award_level: "Certificate"})-[:IN]->(p:Programme)
+MATCH (any:EarningsRecord)-[:FOR_OCCUPATION]->(:Occupation)
+WITH any.median AS m ORDER BY m
+WITH collect(m) AS medians
+WITH medians[size(medians) / 2] AS midpoint
+MATCH (cm:Completion)-[:IN]->(p:Programme)
+WHERE cm.award_level = "Certificate"
+WITH midpoint, p
 MATCH (p)-[:PREPARES_FOR]->(o:Occupation)
+WHERE o.soc_code <> "99-9999"
+WITH midpoint, o
 MATCH (er:EarningsRecord)-[:FOR_OCCUPATION]->(o)
-RETURN DISTINCT o.soc_code, o.name, er.median ORDER BY er.median DESC;
+WHERE er.median > midpoint
+RETURN DISTINCT o.soc_code, o.name, er.median, midpoint
+ORDER BY er.median DESC LIMIT 25;
 
 // Q86. Is this programme oversupplied — more graduates than the occupation absorbs?
 //   [caveat: completions are measured, absorption is not]
@@ -42,9 +74,13 @@ RETURN DISTINCT o.soc_code, o.name, er.median ORDER BY er.median DESC;
 //   Half a question, and the half that exists is the supply. Nothing published
 //   here says how many an occupation absorbs, so the ratio the question wants
 //   cannot be computed — only its numerator.
-MATCH (cm:Completion)-[:IN]->(p:Programme {cip_code: "11.0101"})
+MATCH (cm:Completion)-[:IN]->(p:Programme)
+WHERE p.cip_code = "11.0101"
+WITH cm, p
 MATCH (p)-[:PREPARES_FOR]->(o:Occupation)
-RETURN o.soc_code, o.name, sum(cm.awards) AS graduates_supplied;
+WHERE o.soc_code <> "99-9999"
+RETURN o.soc_code, o.name, sum(cm.awards) AS graduates_supplied
+ORDER BY graduates_supplied DESC;
 
 // Q91. Which institution offers the most efficient route to this occupation?
 //   [caveat: efficiency here is award level, not time or cost — neither is held]
@@ -53,7 +89,9 @@ RETURN o.soc_code, o.name, sum(cm.awards) AS graduates_supplied;
 //   the award level a programme reaching the occupation is conferred at; a
 //   certificate is a shorter route than a bachelor's, and that ordering is the
 //   answer this graph can give.
-MATCH (i:Institution)-[:OFFERS]->(p:Programme)-[:PREPARES_FOR]->(:Occupation {soc_code: "29-1141"})
+MATCH (i:Institution)-[:OFFERS]->(p:Programme)-[:PREPARES_FOR]->(o:Occupation)
+WHERE o.soc_code = "29-1141"
+WITH i, p
 MATCH (cm:Completion)-[:AT]->(i)
 MATCH (cm)-[:IN]->(p)
 RETURN DISTINCT i.unitid, i.name, cm.award_level;

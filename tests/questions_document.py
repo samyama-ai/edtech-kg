@@ -59,8 +59,12 @@ def marks() -> dict[str, str]:
         # reads a status character mentioned in an explanation as the
         # question's own mark — which is what happened when Q19's re-marking
         # said what it used to be.
+        # `\u26a0` WITHOUT the variation selector. `"⚠️"` is two code points,
+        # U+26A0 followed by U+FE0F, and an editor that writes the bare
+        # U+26A0 — several do — produced a question this parser called
+        # unmarked, which is the state that exempts it from the ratchet.
         positions = [(block.index(c), state) for c, state in
-                     (("✅", "ok"), ("⚠️", "caveat"), ("❌", "no"))
+                     (("\u2705", "ok"), ("\u26a0", "caveat"), ("\u274c", "no"))
                      if c in block]
         found[name] = min(positions)[1] if positions else "unmarked"
     return found

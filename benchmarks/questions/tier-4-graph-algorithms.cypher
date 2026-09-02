@@ -7,32 +7,37 @@
 //
 // What the engine has, measured rather than assumed: variable-length paths
 // bounded and unbounded, `shortestPath` (with a VARIABLE at each end),
-// `allShortestPaths`, `length()`, `nodes()`, `relationships()`, `UNWIND` after
-// a `MATCH`, and `WITH DISTINCT`.
+// `length()`, `nodes()`, `relationships()`, `UNWIND` after a `MATCH`, and
+// `WITH DISTINCT`.
 //
 // What it does not have: GDS (`Unknown procedure`), `count{}`,
 // `size(pattern)`, `UNWIND` as a leading clause, two `MATCH` clauses inside
-// `NOT EXISTS`, and — the one that cost this file a round — **`IN` over a list
-// of nodes**, which parses, runs, and matches nothing either way rather than
+// `NOT EXISTS`, and **`IN` over a list of nodes**, which parses, runs, and matches nothing either way rather than
 // refusing; and **a repeated variable across a variable-length pattern**,
 // which is not bound — `(c)-[:R*]->(c)` matches any path rather than a cycle,
-// and cost this file Q71. `NOT x IN nodes(p)` was listed HERE as a capability until the Q68
-// note below proved it is not one; a reader who took that at face value would
-// have written another silently-zero query.
+// which is why Q71 has no query; **`NOT x IN [...]` without parentheses**,
+// which does not negate the membership test — measured, `NOT c.url IN [a, b]`
+// returns 0 of 791 courses where `NOT (c.url IN [a, b])` returns 791, and it
+// errors rather than returning 0 only in some clause positions; and **an
+// inline property map as an equality filter**, `(c:Course {url: "…"})`, which
+// does NOT filter — `count(c)` behind one returns all 791 courses for a URL no
+// course has, while `RETURN c.url` behind the same map returns nothing. Every
+// url-anchored query in this file was written that way and answered about the
+// wrong thing or about nothing; they use `WHERE` now. `NOT x IN nodes(p)` belongs in THIS list
+// and not the one above: it parses, runs, and matches nothing either way, so
+// a reader who took it for a capability would write another silently-zero
+// query.
 //
 // FIVE questions in this tier are re-marked: Q68, Q71, Q75 and Q78 to ❌ and
 // Q62 to ⚠️. Q68 and Q71 are BOTH gaps in the engine — together they are the
 // cluster `docs/questions.md` calls "The engine cannot", one answering none
 // where there are some and the other 359 where there are none.
-//
-// This paragraph said FOUR and called Q68 the sole member, because it was
-// written a round before Q71 was found and not revisited. A summary written
-// in an earlier round is exactly what this PR keeps having to correct. The other three are gaps in
-// the schema or in what a traversal can express.
+// The other three are gaps in the schema or in what a traversal can express.
 
 // Q61. If I skip chemistry this year, what does that close off later?
 // The blast radius, and the same closure as Q49 asked from the student's side.
-MATCH (closed:Course)-[:REQUIRES*]->(:Course {url: "https://catalog.pwcs.edu/science/chemistry-1"})
+MATCH (closed:Course)-[:REQUIRES*]->(target:Course)
+WHERE target.url = "https://catalog.pwcs.edu/science-standard/chemistry-1"
 RETURN DISTINCT closed.url, closed.name;
 
 // Q62. What is the shortest route from where I am now to this programme?
@@ -44,36 +49,56 @@ RETURN DISTINCT closed.url, closed.name;
 // Both endpoints need a VARIABLE — `shortestPath` on this engine refuses an
 // anonymous target ("shortestPath target must have a variable"), which is not
 // a Cypher rule and is worth knowing before writing fifteen of these.
-MATCH p = shortestPath(
-  (a:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-4"})
-  -[:REQUIRES*]->(b:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-1"}))
+MATCH (a:Course), (b:Course)
+WHERE a.url = "https://catalog.pwcs.edu/science-dual-enrollment/ib-biology-2-hl-de"
+  AND b.url = "https://catalog.pwcs.edu/math-standard/algebra-1"
+MATCH p = shortestPath((a)-[:REQUIRES*]->(b))
 RETURN length(p) AS steps, [n IN nodes(p) | n.url] AS route;
 
 // Q63. I'm in year 11 and I've taken these five courses. What am I still missing?
 // A set difference: everything the target needs, less what is done. The taken
 // list is a parameter in practice; it is inline here because this engine takes
 // no query parameters — `/api/query` accepts a query and a graph, nothing else.
-MATCH (:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-4"})-[:REQUIRES*]->(needed:Course)
-WHERE NOT needed.url IN [
-  "https://catalog.pwcs.edu/agriculture/landscaping-1",
-  "https://catalog.pwcs.edu/agriculture/landscaping-2"]
+MATCH (target:Course)-[:REQUIRES*]->(needed:Course)
+WHERE target.url = "https://catalog.pwcs.edu/science-dual-enrollment/ib-biology-2-hl-de"
+  AND NOT (needed.url IN [
+  "https://catalog.pwcs.edu/math-standard/algebra-1",
+  "https://catalog.pwcs.edu/math-standard/geometry",
+  "https://catalog.pwcs.edu/math-standard/algebra-2",
+  "https://catalog.pwcs.edu/science-standard/biology-1",
+  "https://catalog.pwcs.edu/science-ib-programme/ib-chemistry-1-sl"])
 RETURN DISTINCT needed.url, needed.name;
 
 // Q64. I was heading for accounting, now I want data analysis. What carries over?
 // The INTERSECTION of two ancestor sets — what both routes already required.
-MATCH (:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-4"})-[:REQUIRES*]->(shared:Course)
-MATCH (:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-6"})-[:REQUIRES*]->(shared)
+// ANCHORED ON THE SUBJECTS THE QUESTION NAMES, and the honest answer on this
+// district is empty: measured, Advanced Accounting has one prerequisite
+// (Accounting) and Algebra, Functions and Data Analysis has one (Algebra 1),
+// and they share none. That is a fact about a catalogue where business and
+// mathematics do not cross-list, not a broken traversal — the same query over
+// Data Structures and AICE Computing returns four shared courses. Anchoring on
+// that pair instead would have made this file look better and say less.
+MATCH (from:Course)-[:REQUIRES*]->(shared:Course)
+WHERE from.url = "https://catalog.pwcs.edu/business-and-information-technology/advanced-accounting"
+WITH shared
+MATCH (to:Course)-[:REQUIRES*]->(shared)
+WHERE to.url = "https://catalog.pwcs.edu/math-standard/algebra-functions-and-data-analysis"
 RETURN DISTINCT shared.url, shared.name;
 
 // Q65. I want to be a nurse. What do I take next semester?
 // The FRONTIER: needed, and every prerequisite of it already done. Written as
 // "no unmet prerequisite outside the completed list", which is what makes it
 // takeable now rather than merely needed eventually.
-MATCH (:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-4"})-[:REQUIRES*]->(needed:Course)
-WHERE NOT needed.url IN ["https://catalog.pwcs.edu/agriculture/landscaping-1"]
+MATCH (target:Course)-[:REQUIRES*]->(needed:Course)
+WHERE target.url = "https://catalog.pwcs.edu/science-dual-enrollment/ib-biology-2-hl-de"
+  AND NOT (needed.url IN [
+    "https://catalog.pwcs.edu/math-standard/algebra-1",
+    "https://catalog.pwcs.edu/science-ib-programme/advanced-middle-years-programme-biology-1"])
   AND NOT EXISTS {
     MATCH (needed)-[:REQUIRES]->(unmet:Course)
-    WHERE NOT unmet.url IN ["https://catalog.pwcs.edu/agriculture/landscaping-1"]
+    WHERE NOT (unmet.url IN [
+      "https://catalog.pwcs.edu/math-standard/algebra-1",
+      "https://catalog.pwcs.edu/science-ib-programme/advanced-middle-years-programme-biology-1"])
   }
 RETURN DISTINCT needed.url, needed.name;
 
@@ -84,7 +109,8 @@ RETURN max(length(p)) AS deepest_chain;
 // Q67. Which courses are unreachable from any entry point?
 // ISOLATED, which is the data-quality reading: a course with no prerequisite
 // and nothing requiring it is outside every chain rather than at the start of
-// one. 431 of 791 stand outside every chain — say that before being asked.
+// one. Most of this catalogue is: the count below is the answer, and it is
+// left to the query rather than typed here, where it goes stale unnoticed.
 MATCH (c:Course)
 WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->(:Course) }
   AND NOT EXISTS { MATCH (:Course)-[:REQUIRES]->(c) }
@@ -119,11 +145,15 @@ RETURN count(c) AS outside_every_chain;
 // articulation points.
 
 // Q69. What is the full ancestor set of this course?
-MATCH (:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-4"})-[:REQUIRES*]->(a:Course)
+MATCH (c:Course)-[:REQUIRES*]->(a:Course)
+WHERE c.url = "https://catalog.pwcs.edu/science-ib-programme/ib-biology-1-hl"
 RETURN DISTINCT a.url, a.name;
 
 // Q70. What is its full descendant set — everything it unlocks?
-MATCH (d:Course)-[:REQUIRES*]->(:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-1"})
+// "ITS" — the SAME course as Q69. The two were anchored on different courses,
+// so the sentence pointed at one and the query answered about another.
+MATCH (d:Course)-[:REQUIRES*]->(c:Course)
+WHERE c.url = "https://catalog.pwcs.edu/science-ib-programme/ib-biology-1-hl"
 RETURN DISTINCT d.url, d.name;
 
 // Q71 is re-marked ❌ and has no query. It asked whether there are cycles in
@@ -163,7 +193,8 @@ RETURN a.url, b.url, distance ORDER BY distance DESC LIMIT 5;
 // Q73. How many distinct prerequisite chains lead to this course?
 // Every path, not every ancestor. A course reachable by two routes is one
 // ancestor and two chains, and the difference is the question.
-MATCH p = (:Course)-[:REQUIRES*]->(:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-1"})
+MATCH p = (:Course)-[:REQUIRES*]->(t:Course)
+WHERE t.url = "https://catalog.pwcs.edu/math-standard/algebra-1"
 RETURN count(p) AS chains;
 
 // Q74. Which courses sit on the most paths between others?
@@ -191,7 +222,8 @@ ORDER BY opens DESC LIMIT 10;
 // Answered as the COURSE side only, for the reason in Q75: the only route from
 // a course to a programme runs through Place, which is geography. What is
 // answerable is whether the school teaches the chain a course sits on.
-MATCH (:School {ncessch: "510126000341"})-[:TEACHES]->(taught:Course)
+MATCH (s:School)-[:TEACHES]->(taught:Course)
+WHERE s.ncessch = "510126000341"
 MATCH p = (taught)-[:REQUIRES*]->(root:Course)
 WHERE NOT EXISTS { MATCH (root)-[:REQUIRES]->(:Course) }
 RETURN DISTINCT taught.url, root.url, length(p) AS depth;

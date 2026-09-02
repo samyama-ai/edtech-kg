@@ -10,7 +10,8 @@
 // COMPONENTS without a component algorithm: a course outside every chain is
 // its own component, and the rest form connected groups. This reports the
 // isolated count and the linked count, which is the shape of the answer the
-// question wants — 431 of 791 stand outside every chain.
+// question wants. The two counts below ARE the figures; typing them into
+// this comment as well is how the last stale number in this repo got there.
 MATCH (c:Course)
 WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->(:Course) }
   AND NOT EXISTS { MATCH (:Course)-[:REQUIRES]->(c) }
@@ -54,19 +55,31 @@ RETURN c.url, c.name, count(DISTINCT out) + count(DISTINCT in_) AS degree
 ORDER BY degree DESC LIMIT 20;
 
 // Q100. Where are the structural holes — occupations reachable by only one route?
+//   NEEDS: Occupation.name
 // A structural hole is where removing one edge disconnects something. Reported
 // nationally over the crosswalk, which is the population the question names.
+// `99-9999` is the crosswalk's NO MATCH sentinel — every programme that failed
+// to map points at it, so it is the most single-routed thing in the graph and
+// the least meaningful. `routes` was returned as a column and is 1 on every
+// row by construction, which is a filter reported as a finding.
 MATCH (p:Programme)-[:PREPARES_FOR]->(o:Occupation)
+WHERE o.soc_code <> "99-9999"
 WITH o, count(DISTINCT p) AS routes
 WHERE routes = 1
-RETURN o.soc_code, routes;
+RETURN o.soc_code, o.name
+ORDER BY o.soc_code LIMIT 25;
 
 // Q101. How does the graph's shape differ between CTE and academic subjects?
 // CTE is a PATHWAY kind, not a course property — the catalogue publishes it as
 // a pathway that includes courses, which is why this joins through Pathway
 // rather than filtering a flag that does not exist.
-MATCH (pw:Pathway)-[:INCLUDES]->(c:Course)-[:REQUIRES]->(d:Course)
-RETURN pw.kind, count(*) AS chained_courses ORDER BY chained_courses DESC;
+// COUNTS COURSES, not rows. `count(*)` over this pattern counts
+// (pathway, course, prerequisite) triples: a course with three prerequisites
+// counted three times, and one included in two pathways of the same kind
+// counted twice again. The column said `chained_courses` and reported neither.
+MATCH (pw:Pathway)-[:INCLUDES]->(c:Course)-[:REQUIRES]->(:Course)
+RETURN pw.kind, count(DISTINCT c) AS chained_courses
+ORDER BY chained_courses DESC;
 
 // Q102. If we added one course to this district, which would increase reachability most?
 // THIS IS Q76'S QUERY, and saying so is the point. A counterfactual is not

@@ -9,8 +9,9 @@ left a fragment behind. That file checks the `.cypher` traversals.
 from __future__ import annotations
 
 import re
+from collections import Counter
 
-from tests.questions_document import QUESTION, QUESTIONS, blocks, marks, prose_only
+from tests.questions_document import QUESTIONS, blocks, marks, prose_only
 
 
 def test_the_parser_reads_every_question_in_the_document():
@@ -25,17 +26,27 @@ def test_the_parser_reads_every_question_in_the_document():
     nothing may be left unmarked — "unmarked" is the state that quietly
     excuses a question.
     """
-    text = QUESTIONS.read_text(encoding="utf-8")
-    in_document = {m.group(1) for m in QUESTION.finditer(text)}
     found = marks()
-    assert set(found) == in_document, (
-        f"the parser missed {sorted(in_document - set(found))} and invented "
-        f"{sorted(set(found) - in_document)}")
+    # CONTIGUITY, not `set(marks()) == {m.group(1) for m in QUESTION.finditer(…)}`.
+    # That compared `QUESTION` with itself — `marks()` reads its blocks from
+    # the same regex — so it held however many questions the regex was blind
+    # to. The document numbers its questions from 1 without gaps, and a
+    # question the parser cannot see leaves a hole that nothing else fills.
+    numbers = sorted(int(q[1:]) for q in found)
+    assert numbers, "the parser read no questions at all from questions.md"
+    assert numbers == list(range(1, len(numbers) + 1)), (
+        f"the parser read {len(numbers)} questions and they are not a run from "
+        f"Q1 — it is blind to "
+        f"{sorted(set(range(1, max(numbers) + 1)) - set(numbers))}")
     unmarked = [q for q, state in found.items() if state == "unmarked"]
     assert not unmarked, (
         f"{unmarked} carry no status, so the ratchet cannot tell whether they "
         f"need a traversal")
-    assert {"ok", "caveat", "no"} <= set(found.values())
+    # NOT `{"ok", "caveat", "no"} <= set(...)`, which demanded the document
+    # always hold at least one ❌ and would have failed the day the last gap
+    # was closed — a test that fails on the outcome the work is for.
+    assert set(found.values()) <= {"ok", "caveat", "no"}, (
+        f"unexpected marks: {sorted(set(found.values()) - {'ok', 'caveat', 'no'})}")
 
 
 def test_the_tally_the_document_prints_is_the_one_the_parser_reads():
@@ -43,8 +54,6 @@ def test_the_tally_the_document_prints_is_the_one_the_parser_reads():
     against a different parser. If the two disagree, one of them is wrong
     about the same file — and this one drives which questions need a
     traversal."""
-    from collections import Counter
-
     counted = Counter(marks().values())
     text = QUESTIONS.read_text(encoding="utf-8")
     row = re.search(r"\| \*\*Total\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \| "

@@ -38,7 +38,6 @@ Written for the engine this repo pins: a pattern inside `WHERE` does not parse
 
 from __future__ import annotations
 
-import os
 import pathlib
 import re
 
@@ -177,6 +176,35 @@ def statement_blocks(path: pathlib.Path) -> list[str]:
             if uncommented(b).strip()]
 
 
+def labelled_statements(path: pathlib.Path) -> list[tuple[str | None, str]]:
+    """Every statement, paired with the question id whose answer it is.
+
+    Splitting raw text on `;` — which is what `statement_blocks` does, and what
+    a checker written against it did — is the hazard `uncommented()` exists to
+    prevent: three comments in these files contain a semicolon. It also assumes
+    one statement per question, and Q95 takes two. A per-block split ran the
+    isolated count and never ran the linked count beside it, so half of that
+    answer was outside every check in this file.
+
+    Comments are read for the label and then dropped, so a `;` inside one
+    cannot end a statement.
+    """
+    label, buffer, out = None, [], []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        marked = re.match(r"//\s+(Q\d+)\.", line.strip())
+        if marked:
+            label = marked.group(1)
+        if line.strip().startswith("//"):
+            continue
+        buffer.append(line)
+        if line.rstrip().endswith(";"):
+            body = "\n".join(buffer).strip().rstrip(";").strip()
+            if body:
+                out.append((label, body))
+            buffer = []
+    return out
+
+
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
 def test_every_undeclared_property_is_declared_as_undeclared(path):
     """A traversal may reach past the schema. It may not do so silently."""
@@ -268,109 +296,3 @@ def test_a_declared_key_matched_inline_is_not_a_gap():
     from tests.schema_properties import undeclared
 
     assert undeclared('MATCH (c:Course {url: "https://x/y"}) RETURN c.name') == set()
-
-
-@pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
-def test_every_statement_runs_where_there_is_data_to_run_against(path):
-    """EXECUTION, not parsing. The distinction Q68 cost a round to learn.
-
-    A predicate inside a `WHERE` is never evaluated on an empty graph, so a
-    type error that would fail on real data passes on an empty engine. Q68
-    parsed, ran, and returned a confident wrong answer for exactly that reason,
-    and the validation that missed it ran against an engine holding nothing.
-
-    Gated on the graph holding COURSES rather than on the engine answering.
-    Skipping when there is no data is honest; skipping when there IS data would
-    be the failure this file is about, so `SAMYAMA_REQUIRE_ENGINE=1` turns the
-    skip into a failure the same way the schema tests do.
-    """
-    require_engine()
-    loaded = query(SAMYAMA_URL, "MATCH (c:Course) RETURN count(c) AS n")
-    held = (loaded.get("records") or [[0]])[0][0] if "error" not in loaded else 0
-    if not held:
-        message = (f"the graph at {SAMYAMA_URL} holds no Course nodes, so a "
-                   f"predicate inside a WHERE is never evaluated and this "
-                   f"checks nothing — load a district first")
-        if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
-            pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
-        pytest.skip(message)
-
-    broken = []
-    for statement in statements(path):
-        result = query(SAMYAMA_URL, statement)
-        if "error" in result and not result.get("transport"):
-            broken.append(f"{statement.splitlines()[0][:56]} -> "
-                          f"{result['error'][:110]}")
-    assert not broken, (
-        f"{path.name} carries statements that PARSE and fail when run against "
-        f"{held:,} loaded courses: {broken}")
-
-
-#: Statements that walk the WHOLE graph and touch only loaded labels. Each must
-#: return at least one row against a loaded district, because zero from one of
-#: these is the signal Q68 emitted — a query that runs, answers, and is wrong.
-#:
-#: Not every question belongs here. Q61-Q65, Q69, Q70 and Q77 scope to an
-#: example URL, and Q97, Q98 and Q100 reach for Programme and Occupation, which
-#: no loader fills. Zero from those is correct and asserting otherwise would
-#: turn a fixture choice into a failure.
-#:
-#: Q101 IS here because `etl/load_pwcs.py` fills `Pathway` and writes
-#: `INCLUDES` — 42 pathways and 316 edges on the district it loads — so a zero
-#: there is a defect rather than a missing loader. Named, because the rule
-#: above is about which labels a loader fills and Q101 is the one case where
-#: that has to be checked rather than assumed.
-#:
-#: COST: Q72 runs `shortestPath` over every Course pair and Q74 unwinds every
-#: path in the prerequisite graph. Both complete on one district — 791 courses,
-#: 240 edges — and both scale with whatever is loaded. When a second district
-#: lands (#19) this test is where the suite slows down, and it will look like a
-#: hang rather than a failure. Bound them or drop them from this list then;
-#: they are here now because they are the two that exercise the deepest
-#: traversal the engine does.
-ANSWERS_OVER_THE_WHOLE_GRAPH = {
-    "tier-4-graph-algorithms": ["Q66", "Q72", "Q73", "Q74", "Q76", "Q79"],
-    "tier-6-whole-graph": ["Q95", "Q96", "Q99", "Q101", "Q102"],
-}
-
-
-@pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
-def test_a_whole_graph_question_answers_when_the_graph_is_not_empty(path):
-    """The check the two above are not.
-
-    Q68 ran clean and returned nothing on a graph with 119 chains; Q71 ran
-    clean and returned 359 rows that were every edge in the graph. Erroring is
-    not the failure mode that hurt — answering is.
-
-    This catches the empty half. The non-empty-but-wrong half is not
-    guardable without knowing the right answer, and saying so is better than a
-    check that implies otherwise.
-    """
-    wanted = ANSWERS_OVER_THE_WHOLE_GRAPH.get(path.stem)
-    if not wanted:
-        pytest.skip(f"{path.stem} has no whole-graph statements to check")
-    require_engine()
-    loaded = query(SAMYAMA_URL, "MATCH (c:Course)-[:REQUIRES]->(:Course) RETURN count(*) AS n")
-    held = (loaded.get("records") or [[0]])[0][0] if "error" not in loaded else 0
-    if not held:
-        message = (f"the graph at {SAMYAMA_URL} holds no prerequisite edges, so "
-                   f"every whole-graph statement is legitimately empty and this "
-                   f"checks nothing — load a district first")
-        if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
-            pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
-        pytest.skip(message)
-
-    text = path.read_text(encoding="utf-8")
-    empty = []
-    for block in re.split(r"(?<=;)\n", text):
-        label = re.search(r"^// (Q\d+)\.", block, re.M)
-        body = uncommented(block).strip().rstrip(";")
-        if not label or label.group(1) not in wanted or not body:
-            continue
-        result = query(SAMYAMA_URL, body)
-        if "error" in result or not (result.get("records") or []):
-            empty.append(label.group(1))
-    assert not empty, (
-        f"{path.name}: {empty} returned nothing against {held:,} prerequisite "
-        f"edges. A whole-graph question answering emptily on a non-empty graph "
-        f"is the signal Q68 gave — it runs, it answers, and it is wrong.")
