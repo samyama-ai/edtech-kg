@@ -185,7 +185,7 @@ def test_a_whole_graph_question_answers_when_the_graph_is_not_empty(path):
 
 
 #: The tiers this change re-anchored. Tiers 1 to 3 carry both defects below in
-#: about thirty statements and are NOT fixed here — that is a PR of its own,
+#: 39 of their 51 statements and are NOT fixed here — that is edtech-kg#133,
 #: and a guard that quietly skipped them would read as coverage.
 ANCHORS_CHECKED = ("tier-4-graph-algorithms", "tier-5-multi-domain",
                    "tier-6-whole-graph")
@@ -215,7 +215,7 @@ def test_no_statement_filters_with_an_inline_property_map(path):
     `WHERE` filters correctly. Use it.
     """
     if path.stem not in ANCHORS_CHECKED:
-        pytest.skip(f"{path.stem} is not re-anchored yet — edtech-kg#22 follow-up")
+        pytest.skip(f"{path.stem} is not re-anchored yet — edtech-kg#133")
     offenders = [body.splitlines()[0][:60] for _, body in labelled_statements(path)
                  if INLINE_MAP.search(body)]
     assert not offenders, (
@@ -237,7 +237,7 @@ def test_every_course_url_a_statement_anchors_on_exists(path):
     never applied in the first place and there was nothing to notice.
     """
     if path.stem not in ANCHORS_CHECKED:
-        pytest.skip(f"{path.stem} is not re-anchored yet — edtech-kg#22 follow-up")
+        pytest.skip(f"{path.stem} is not re-anchored yet — edtech-kg#133")
     require_engine()
     loaded = query(SAMYAMA_URL, "MATCH (c:Course) RETURN count(c) AS n")
     held = (loaded.get("records") or [[0]])[0][0] if "error" not in loaded else 0

@@ -39,7 +39,7 @@ ALLOWED_SKIPS = (
     "anchors on no course url",
     # Tiers 1 to 3 carry the inline-property-map and wrong-anchor defects that
     # tiers 4 to 6 were just fixed for. Named rather than silent: the guards
-    # skip them deliberately and the follow-up is edtech-kg#22.
+    # skip them deliberately and the follow-up is edtech-kg#133.
     "is not re-anchored yet",
     # No district is loaded in CI, so the three data gates in
     # tests/test_question_execution.py cannot run. That is honest and it is
