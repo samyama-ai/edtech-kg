@@ -64,21 +64,27 @@ SKIP_BUDGET = {
     # comment this replaced said so, and a budget of exactly 11 would turn the
     # next such test red for no reason anybody would recognise.
     "cached catalogue is incomplete": 14,
-    # Tiers 1 to 3 filter with an inline property map, which this engine does
-    # not apply, at urls no course carries. 39 of their 51 statements — the
-    # measurement is in edtech-kg#133, whose acceptance criteria include
-    # deleting both skip branches and this entry. Two guards over three files.
-    "is not re-anchored yet": 6,
+    # `is not re-anchored yet` USED TO LIVE HERE at 6. Tiers 1 to 3 are now a
+    # strict xfail rather than a skip — they are not inapplicable, they are
+    # known broken, and the two read identically in every summary line. xfail
+    # is outside skip accounting entirely, so the entry is gone rather than
+    # zeroed: a budget of 0 is a line nothing can ever exceed.
     # Properties of the TIER, not of the run: a tier with no whole-graph
-    # statement has none on any machine, loaded district or not.
-    "has no whole-graph statements to check": 4,
+    # statement has none on any machine, loaded district or not. Four tiers,
+    # and TWO tests now share the reason — the ratchet half was hoisted out
+    # from behind the data gate so it runs with no engine, and it skips the
+    # same tiers for the same reason.
+    "has no whole-graph statements to check": 8,
     # The three data gates. CI starts a deliberately empty engine, so these
     # cannot run there; `SAMYAMA_REQUIRE_DATA=1` is what turns them into
     # failures in a job that loads a district. Split by reason rather than
     # summed, because they are three different claims about the graph and one
     # of them going quiet should not be absorbed by the other two.
     "holds no Course nodes, so a predicate inside a WHERE": 6,
-    "holds no Course nodes, so no anchor can resolve": 3,
+    # Six, not three: tiers 1 to 3 used to leave this guard before reaching
+    # the data gate, because their skip fired first. As xfails they run the
+    # body, so on an empty engine they reach this gate like every other tier.
+    "holds no Course nodes, so no anchor can resolve": 6,
     "holds no prerequisite edges": 2,
 }
 

@@ -57,11 +57,14 @@ def test_one_family_growing_is_caught_while_the_total_stays_under():
     Below, the cache family doubles and another family empties, so the TOTAL is
     unchanged and a global cap of any value would see nothing.
     """
-    cache = "cached catalogue is incomplete"
-    other = "is not re-anchored yet"
-    swapped = (skips(f"the {cache} — run the probe", SKIP_BUDGET[cache] + SKIP_BUDGET[other])
-               + skips(f"tier-1-lookup {other} — edtech-kg#133", 0))
-    assert len(swapped) == SKIP_BUDGET[cache] + SKIP_BUDGET[other]   # total unchanged
+    # Families picked BY POSITION, not by name. This named
+    # `is not re-anchored yet`, which stopped existing when tiers 1 to 3 became
+    # xfails, and the test died with a KeyError rather than a finding — a test
+    # coupled to the data it is meant to be independent of.
+    cache, other = sorted(SKIP_BUDGET, key=lambda k: -SKIP_BUDGET[k])[:2]
+    total = SKIP_BUDGET[cache] + SKIP_BUDGET[other]
+    swapped = skips(f"the {cache} — a reason", total)   # other family empties
+    assert len(swapped) == total, "the total must be unchanged for this to prove anything"
     problems = budget_problems(swapped)
     assert problems and "grew past their budget" in problems[0]
 
