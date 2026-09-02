@@ -23,15 +23,22 @@ perfectly to ones it cannot answer at all, in five tiers:
 Opening at tier 4 invites "couldn't you have done that in Excel?". The early
 questions are what make the later answers credible.
 
-Running it short — the eight that carry a meeting:
+Running it short — the nine that carry a meeting:
 
-    python -m demo.demo --only 0,5,8,11,13,15,17,19
+    python -m demo.demo --only 0,5,8,11,13,15,16,17,19
 
-Q8 and Q11 are in that set for the same reason: an audience that hears only
-what is broken stops listening. Q8 is what to reach for when someone asks how
-messy data is handled — 138 conditions that are not course references, counted,
-kept, and not pretended into edges. Q11 is the positive counterpart to Q15's
-twenty-eight: one course that opens six different careers.
+Q16 finishes Q15 rather than standing on its own: Q15 counts what closes off
+when a student does not pass Algebra 1, and Q16 breaks that number down by
+subject, which is the form a head of department can act on. Shown together or
+not at all — the count without the subjects invites "which ones?" from the
+room, and the answer is one query away.
+
+Q8 and Q11 are in the set for the same reason as each other: an audience that
+hears only what is broken stops listening. Q8 is what to reach for when
+someone asks how messy data is handled — 138 conditions that are not course
+references, counted, kept, and not pretended into edges. Q11 is the positive
+counterpart to Q15's twenty-eight: one course that opens six different
+careers.
 
 Every traversal is bounded at `*1..8`, tier 4 and tier 5 alike. The tier-5
 questions were bounded at 4, which returns the same rows today — the deepest
@@ -434,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Run without waiting for a keypress.")
     parser.add_argument("--only", metavar="N,N,N",
                         help="Run just these questions, in this order. "
-                             "For a short meeting: --only 0,5,8,11,13,15,17,19")
+                             "For a short meeting: --only 0,5,8,11,13,15,16,17,19")
     parser.add_argument("--tier", type=int, choices=sorted(TIERS),
                         help="Run only the questions at this tier.")
     parser.add_argument("--rows", type=int, default=12,

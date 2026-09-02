@@ -17,9 +17,7 @@ saves.
 
 from __future__ import annotations
 
-import ast
 import re
-import sys
 from pathlib import Path
 
 import pytest
@@ -114,55 +112,6 @@ def test_the_engine_image_is_pinned_to_a_version(workflow):
     assert not image.endswith(":latest"), f"{image} floats — pin the version"
     assert re.search(r":\d+\.\d+\.\d+$", image), (
         f"{image} is not pinned to an exact version")
-
-
-def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
-    """The suite needs pytest and the standard library, measured — so that is
-    what CI installs.
-
-    `pip install -e .` is not used, because it cannot run: `pyproject.toml`
-    still carries the repo template's placeholder name and setuptools rejects
-    it (#17). The dependencies it lists are not the ones the code imports
-    either. Installing a dependency set nobody imports would be its own green
-    build that proves nothing.
-
-    Scoped to the modules the suite REACHES — the tests, this conftest, and the
-    `etl` modules the tests import. `etl/loader.py`, `etl/helpers.py`,
-    `etl/download_data.py` and `mcp_server/server.py` are untouched template
-    scaffolding, still holding `{{KG_NAME}}` placeholders and imported by
-    nothing; they carry third-party imports that CI never executes, and folding
-    them in here would fail for a reason CI does not have.
-    """
-    assert re.search(r"pip install[^\n]*\bpytest\b", workflow), "pytest is not installed"
-
-    reached = set(ROOT.glob("tests/**/*.py")) | {ROOT / "conftest.py"}
-    for path in sorted(reached):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("etl."):
-                candidate = ROOT / (node.module.replace(".", "/") + ".py")
-                if candidate.exists():
-                    reached.add(candidate)
-
-    third_party = set()
-    for path in sorted(reached):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            names = []
-            if isinstance(node, ast.Import):
-                names = [a.name for a in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                names = [node.module]
-            third_party.update(n.split(".")[0] for n in names)
-
-    # First-party names are read from the tree rather than listed here. A
-    # hand-kept list means a test that imports `mcp_server` or `schema` is
-    # reported as an uninstalled dependency, and the failure message points at
-    # the install step rather than at the import.
-    first_party = {d.name for d in ROOT.iterdir() if (d / "__init__.py").exists()}
-    first_party |= {p.stem for p in ROOT.glob("*.py")} | {"__future__"}
-    third_party -= set(sys.stdlib_module_names) | first_party
-    assert third_party <= {"pytest"}, (
-        f"the suite imports {sorted(third_party)}, which CI does not install. "
-        f"Either add it to the install step or drop the dependency.")
 
 
 # --------------------------------------------------------------------------

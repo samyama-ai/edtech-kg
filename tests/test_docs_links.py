@@ -16,7 +16,14 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = sorted(ROOT.glob("docs/**/*.md")) + sorted(ROOT.glob("*.md"))
+# Every README too, not only `docs/` and the root. `mcp_server/README.md`,
+# `demo/README.md` and `benchmarks/README.md` sat outside both the link check
+# and the figure cross-checks — a second copy of numbers with nothing holding
+# them to the first. `__pycache__` and `data/` are excluded: neither is
+# tracked prose.
+DOCS = sorted(set(
+    list(ROOT.glob("docs/**/*.md")) + list(ROOT.glob("*.md"))
+    + [p for p in ROOT.glob("*/README.md") if p.parent.name != "docs"]))
 
 # `[text](path)` and bare `path` in backticks, skipping URLs and anchors.
 LINK = re.compile(r"\[[^\]]*\]\((?!https?:|#)([^)#]+)")
@@ -162,3 +169,17 @@ def test_the_readme_does_not_quote_a_test_count():
         f"figure goes stale on every commit that adds one, and every branch "
         f"edits the same line — four-way merge conflicts for a number a reader "
         f"does not need. Say what the command does, not how many tests it runs.")
+
+
+def test_the_readmes_outside_docs_are_inside_the_check():
+    """`mcp_server/README.md` sat outside both the link check and the figure
+    cross-checks — a second copy of numbers with nothing holding them to the
+    first. Named rather than counted: a count passes when the glob silently
+    stops matching, which is how this hole opened.
+    """
+    covered = {p.relative_to(ROOT).as_posix() for p in DOCS}
+    for name in ("README.md", "mcp_server/README.md", "demo/README.md",
+                 "benchmarks/README.md"):
+        if (ROOT / name).exists():
+            assert name in covered, f"{name} is not inside the link check"
+
