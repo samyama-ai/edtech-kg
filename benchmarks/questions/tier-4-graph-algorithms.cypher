@@ -19,11 +19,15 @@
 // which does not negate the membership test — measured, `NOT c.url IN [a, b]`
 // returns 0 of 791 courses where `NOT (c.url IN [a, b])` returns 791, and it
 // errors rather than returning 0 only in some clause positions; and **an
-// inline property map as an equality filter**, `(c:Course {url: "…"})`, which
-// does NOT filter — `count(c)` behind one returns all 791 courses for a URL no
-// course has, while `RETURN c.url` behind the same map returns nothing. Every
-// url-anchored query in this file was written that way and answered about the
-// wrong thing or about nothing; they use `WHERE` now. `NOT x IN nodes(p)` belongs in THIS list
+// inline property map on a SINGLE-NODE match**, `MATCH (c:Course {url: "…"})`
+// with no relationship, which does not apply the map — `count(c)` behind one
+// returns all 791 courses for a URL no course has, while `RETURN c.url` behind
+// the same map returns nothing. Inside a relationship pattern it DOES filter,
+// measured both ways, so the earlier flat claim here that "an inline property
+// map does not filter" was too broad and is corrected by edtech-kg#133. The
+// url-anchored queries in this file answered about nothing because their URLs
+// were wrong, not because their maps were ignored; they use `WHERE` now
+// anyway, because the two cases are not distinguishable at a glance. `NOT x IN nodes(p)` belongs in THIS list
 // and not the one above: it parses, runs, and matches nothing either way, so
 // a reader who took it for a capability would write another silently-zero
 // query.
