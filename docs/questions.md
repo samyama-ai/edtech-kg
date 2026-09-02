@@ -238,18 +238,29 @@ reachability most? ✅ *Counterfactual over the graph.*
 
 ## The missing academic join
 
-Six questions above turn on one thing, and it is the largest single finding of
-the #22 exercise. **Five are blocked outright by it** — Q75, Q81, Q83, Q89 and
-Q90. **Caveated rather than blocked:** Q62. The narrowed reading, course to course,
-is the one a student actually asks and it is fully answered. The distinction
-matters — a reader who takes all six as unanswerable undercounts what the graph
-does.
+Six questions turn on one thing. **Five are blocked outright by it** — Q75,
+Q81, Q83, Q89 and Q90. **Caveated rather than blocked:** Q62, because the
+narrowed reading — course to course — is the one a student actually asks and
+is fully answered. A reader who takes all six as unanswerable undercounts what
+the graph does.
+
+**This is a subset of the "Rules joining the two tiers" cluster below, not the
+same set.** That row names nine and its reason is compound. Four of the nine —
+Q39, Q57, Q58, Q93 — have no published source to load: entry rules, graduation
+requirements, accreditation and dual enrolment, tagged #41 and #42 in their own
+blocks. The other five are the ones here, where a source exists and the SCHEMA
+has no edge to hold it. Q62 is not in that row at all, because the row lists
+blocked questions and Q62 is answered with a caveat.
+
+Nine and six are both right, about different populations. This section is about
+the smaller one, and an earlier draft of it called nine a figure that "matched
+neither count" — it matches that row exactly.
 
 (This paragraph deliberately avoids two things the document's parsers read as
 structure: the status glyphs, which are counted per question to catch one
 carrying two, and a bold run opening with `**Q` followed by a number, which
 declares a question. Prose using either made the tally read 103 questions and
-twenty-six blocked ones.)
+twenty-six blocked ones. edtech-kg#146 is the fix; this note goes with it.)
 
 It had no section of its own until now: it lived inside Q75's prose and half a
 table cell, which is not where a reader meets a finding this size.
@@ -327,7 +338,7 @@ on prerequisites that #63 has since measured.
 | Employer demand | Q40, Q87 | no public source |
 | Competency definitions | Q41, Q59, Q94 | the gap above |
 | Needs a second district | Q80, Q88 | #19 |
-| **Rules joining the two tiers** | Q39, Q57, Q58, Q93, Q75, Q81, Q83, Q89, Q90 | nobody publishes them as data, and the schema has no edge for them — #66 |
+| **Rules joining the two tiers** | Q39, Q57, Q58, Q93 · Q75, Q81, Q83, Q89, Q90 | TWO reasons, split by the dot: the first four have no published source (#41, #42), the last five have a source and no schema edge — *the missing academic join* above, #66 |
 | Not in the schema at all | Q19, Q84, Q92 | cost, and enrolment, have no node or property — #22 |
 | Not a traversal | Q78 | set cover is an optimisation over the graph, not a walk of it; #22 |
 | The engine cannot | Q68, Q71 | `IN` over a node list is unusable and a repeated variable is not bound across a variable-length pattern, so articulation points return a confident zero and cycle detection a confident 359; #22 |

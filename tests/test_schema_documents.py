@@ -18,6 +18,7 @@ import re
 
 from tests.schema_source import (QUESTIONS, SCHEMA, SCHEMA_DOC, edges,
                                  first_column, labels, section)
+from tests.questions_document import marks
 from tests.spelling import spelled
 
 
@@ -307,8 +308,6 @@ NOT_AN_EXEMPLAR = {"cycle detection": "Q71"}
 def test_the_schema_doc_only_offers_examples_the_questions_agree_with():
     """A figure restated in a second document with nothing tying it to the
     first is this repo's most common finding. This is the words half of one."""
-    from tests.questions_document import marks
-
     status = marks()
     prose = SCHEMA_DOC.read_text(encoding="utf-8")
     sentence = [line for line in prose.splitlines() if "tier-4 questions answerable" in line]
@@ -336,4 +335,10 @@ def test_the_schema_doc_only_offers_examples_the_questions_agree_with():
         assert f"NOT {phrase}" in paragraph, (
             f"docs/schema.md no longer says {phrase!r} is excluded, and "
             f"{question} is still ❌ for it")
+        # And that it still blames the RIGHT question. Without this the
+        # sentence could be reworded to name a different one and the guard
+        # would pass on the phrase alone.
+        assert question in paragraph, (
+            f"docs/schema.md excludes {phrase!r} without naming {question}, "
+            f"which is the question it is excluded for")
 

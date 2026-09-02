@@ -166,7 +166,66 @@ def test_the_missing_join_blocks_exactly_the_questions_the_documents_name():
         f"says something else — the figure was 'nine' in two files at once")
     across = len(TURNING_ON_THE_MISSING_JOIN)
     assert across in spelled, f"cannot spell {across}"
-    assert f"{spelled[across]} across the document" in tier
+    assert f"{spelled[across]} across the document" in tier, (
+        f"tier 5's header should say {spelled[across]} questions turn on the "
+        f"join across the document, and says something else")
+
+
+#: The cluster row's OTHER half: questions in "Rules joining the two tiers"
+#: that are there because no source publishes the rule, not because the schema
+#: lacks an edge. Tagged #41 and #42 in their own blocks.
+NO_PUBLISHED_SOURCE = ("Q39", "Q57", "Q58", "Q93")
+
+
+def test_the_cluster_row_and_the_join_section_describe_the_same_split():
+    """Nine and six, reconciled — and the guard can SEE the row now.
+
+    `blocks()` reads question blocks, and the Counts tables live outside every
+    one of them, so the cluster row was structurally invisible to the test
+    above. The document said "nine" in that row and "six" in the new section
+    with nothing tying them together, which is the failure this file exists to
+    catch, one table further down.
+
+    They are different populations and both are right: the row's reason is
+    compound. Four of its nine have no published source; the other five are
+    the ones with a source and no schema edge. Q62 is in neither the row nor
+    the ❌ count, because it is answered with a caveat.
+    """
+    document = QUESTIONS.read_text(encoding="utf-8")
+    row = [line for line in document.splitlines()
+           if line.startswith("| **Rules joining the two tiers**")]
+    assert len(row) == 1, f"the cluster row is {row}"
+    # BOTH HALVES, split on the `·` the row uses to separate them. Asserting
+    # the union passes when a question moves from one side to the other, which
+    # is the only edit likely to happen here — measured: moving Q93 across the
+    # separator left this green.
+    questions_cell = row[0].split("|")[2]
+    assert "·" in questions_cell, (
+        "the cluster row no longer separates its two reasons, so nothing "
+        "distinguishes 'no published source' from 'no schema edge' in it")
+    unsourced, unjoined = (re.findall(r"\bQ\d+\b", half)
+                           for half in questions_cell.split("·", 1))
+
+    blocked = [q for q, mark in TURNING_ON_THE_MISSING_JOIN.items() if mark == "no"]
+    assert set(unjoined) == set(blocked), (
+        f"the cluster row's schema-edge half is "
+        f"{sorted(unjoined, key=lambda q: int(q[1:]))} and this section "
+        f"describes {sorted(blocked)}")
+    assert set(unsourced) == set(NO_PUBLISHED_SOURCE), (
+        f"the cluster row's no-source half is "
+        f"{sorted(unsourced, key=lambda q: int(q[1:]))}, not "
+        f"{list(NO_PUBLISHED_SOURCE)}")
+    named = unsourced + unjoined
+
+    caveated = [q for q, mark in TURNING_ON_THE_MISSING_JOIN.items() if mark != "no"]
+    assert not set(caveated) & set(named), (
+        f"{caveated} is answered with a caveat and the cluster row lists "
+        f"blocked questions — it should not appear there")
+
+    section = document.split("## The missing academic join", 1)[1].split("\n## ", 1)[0]
+    assert "subset" in section and "compound" in section, (
+        "the section no longer explains how its six relate to the row's nine, "
+        "and a reader comparing the two gets no answer")
 
 
 def test_the_mark_key_does_not_claim_every_gap_is_a_data_gap():
