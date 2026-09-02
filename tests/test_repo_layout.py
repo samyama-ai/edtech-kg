@@ -253,18 +253,76 @@ def test_no_module_leaves_a_helper_or_constant_behind():
                for name in tracked()
                if name.endswith(".py") and not name.endswith("__init__.py")}
 
+    # IMPORT-AWARE. Matching bare names was still too loose: a dead `URL` in
+    # `etl/engine.py` is indistinguishable from the live `URL` in another
+    # module, and `URL`, `parse` and `population` all walked through because
+    # the name exists somewhere. A module-level name is used elsewhere only if
+    # another file IMPORTS that module and then names it — as
+    # `from etl.engine import URL`, or `import etl.engine as e` then `e.URL`.
+    def module_of(path_name: str) -> str:
+        return path_name[:-3].replace("/", ".")
+
+    referenced_elsewhere: dict[str, set[str]] = {n: set() for n in sources}
+    for other, text in sources.items():
+        try:
+            other_tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        direct: set[str] = set()          # names pulled in by `from X import n`
+        aliases: dict[str, str] = {}      # local alias -> module it refers to
+        for node in ast.walk(other_tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                for alias in node.names:
+                    direct.add(alias.asname or alias.name)
+                    aliases.setdefault(alias.asname or alias.name, node.module)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    aliases[alias.asname or alias.name.split(".")[0]] = alias.name
+        attributes = {n.attr for n in ast.walk(other_tree)
+                      if isinstance(n, ast.Attribute)}
+        plain = {n.id for n in ast.walk(other_tree) if isinstance(n, ast.Name)}
+        # A name reached by string — `monkeypatch.setattr(m, "THING")`, a
+        # getattr. Rare, real, and cheap to keep.
+        by_string = {n.value for n in ast.walk(other_tree)
+                     if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+
+        for target in sources:
+            if target == other:
+                continue
+            module = module_of(target)
+            imported = any(m == module or m.startswith(module + ".")
+                           or module.startswith(m + ".")
+                           for m in aliases.values())
+            if not imported:
+                continue
+            referenced_elsewhere[target] |= (direct & plain) | attributes | by_string
+
     offenders = []
     for name, body in sources.items():
         try:
             tree = ast.parse(body)
         except SyntaxError:
             continue
-        # `pytest_*` are HOOKS, called by name and referenced nowhere.
+        # DECORATED functions are registered by name and called by the
+        # framework, never referenced: a `@pytest.fixture` is consumed as a
+        # test parameter, and this guard would report every one in the repo as
+        # dead. `pytest_*` are hooks, called by name and referenced nowhere.
+        decorated = {n.name for n in tree.body
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and n.decorator_list}
+        # `AsyncFunctionDef` too — it was collected by neither branch, so an
+        # orphaned `async def` was invisible to a guard about orphans.
         defined = {n.name for n in tree.body
-                   if isinstance(n, (ast.FunctionDef, ast.ClassDef))
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                     ast.ClassDef))
                    and not n.name.startswith(("_", "test_", "pytest_"))}
+        # Tuple targets as well: `A, B = 1, 2` binds two names and neither was
+        # collected, so the multiple-assignment form of the thing this test
+        # exists to catch was invisible to it.
         defined |= {t.id for n in tree.body if isinstance(n, ast.Assign)
-                    for t in n.targets
+                    for target in n.targets
+                    for t in (target.elts if isinstance(target, (ast.Tuple, ast.List))
+                              else [target])
                     if isinstance(t, ast.Name) and not t.id.startswith("_")}
         # `ORPHAN: int = 7` is an AnnAssign, not an Assign, and was collected
         # by neither branch — so the annotated form of the thing this test
@@ -283,9 +341,17 @@ def test_no_module_leaves_a_helper_or_constant_behind():
                 if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
         used |= {node.attr for node in ast.walk(tree)
                  if isinstance(node, ast.Attribute)}
-        # Read once per file, not once per name: that was twelve seconds.
-        others = "\n".join(text for other, text in sources.items() if other != name)
-        dead = sorted(n for n in defined - used if n not in others)
+        # REFERENCED, not "appears in the text". A raw substring let a dead
+        # constant named `URL`, `parse` or `population` walk through, because
+        # those appear in 65, 68 and several other files as parts of other
+        # names — measured. Sharpest case: `ORPHAN_LIMIT` survived because that
+        # name is in this file's own `parametrize`.
+        #
+        # Read from parsed ASTs so a mention in a comment, a docstring or a
+        # longer identifier is not a use. Built once for the whole tree rather
+        # than per file: per name was twelve seconds.
+        dead = sorted(n for n in defined - used - decorated
+                      if n not in referenced_elsewhere[name])
         if dead:
             offenders.append(f"{name}: {dead}")
 
@@ -330,4 +396,86 @@ def test_a_constant_another_module_reads_is_not_flagged(tmp_path, monkeypatch):
                         lambda: ["etl/thing.py", "etl/user.py"])
     test_no_module_leaves_a_helper_or_constant_behind()
 
+
+def guard_over(tmp_path, monkeypatch, files: dict[str, str]):
+    """Run the dead-code guard over a synthetic tree instead of this repo.
+
+    The guard's own strictness is otherwise untestable: against the real tree
+    it passes, and it passes just as green with each of its checks disabled.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    (tmp_path / "etl").mkdir()
+    for name, body in files.items():
+        (tmp_path / name).write_text(body, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "tracked", lambda: sorted(files))
+    return test_no_module_leaves_a_helper_or_constant_behind
+
+
+def test_a_name_IMPORTED_FROM_ELSEWHERE_does_not_spare_a_namesake(
+        tmp_path, monkeypatch):
+    """The guard used to spare a name any other file merely mentioned.
+
+    Two modules can define the same name — `URL`, `parse` and `population`
+    each sit in several files here — and a third that imports one of them was
+    enough to mark BOTH live. Four dead names walked through the repo that
+    way. Below, `reader` imports `other`'s `URL` and never touches `thing`, so
+    `thing`'s `URL` is dead and must be reported.
+    """
+    guard = guard_over(tmp_path, monkeypatch, {
+        "etl/thing.py": "URL = \"https://example.invalid/dead\"\n",
+        "etl/other.py": "URL = \"https://example.invalid/live\"\n",
+        "etl/reader.py": "from etl.other import URL\n\n\ndef _read():\n    return URL\n",
+    })
+    with pytest.raises(AssertionError, match=r"etl/thing\.py: \['URL'\]"):
+        guard()
+
+
+def test_the_importing_module_still_spares_the_name_it_imports(
+        tmp_path, monkeypatch):
+    """The other side of the same edge — the false positive to avoid.
+
+    `other`'s `URL` IS read, from a module that imports it, and a guard that
+    calls it dead gets switched off within a day.
+    """
+    guard_over(tmp_path, monkeypatch, {
+        "etl/other.py": "URL = \"https://example.invalid/live\"\n",
+        "etl/reader.py": "from etl.other import URL\n\n\ndef _read():\n    return URL\n",
+    })()
+
+
+def test_an_async_function_nothing_calls_is_caught(tmp_path, monkeypatch):
+    """`ast.AsyncFunctionDef` is not an `ast.FunctionDef`.
+
+    Collecting only the latter left every `async def` out of `defined`, so no
+    coroutine could ever be reported dead however unreferenced it was.
+    """
+    guard = guard_over(tmp_path, monkeypatch,
+                       {"etl/thing.py": "async def fetch_nothing():\n    return 1\n"})
+    with pytest.raises(AssertionError, match="fetch_nothing"):
+        guard()
+
+
+def test_a_tuple_assignment_is_read_as_two_definitions(tmp_path, monkeypatch):
+    """`A, B = 1, 2` has an `ast.Tuple` target, not an `ast.Name`.
+
+    Reading only `Name` targets meant a constant defined this way was
+    invisible to the guard — dead or not.
+    """
+    guard = guard_over(tmp_path, monkeypatch,
+                       {"etl/thing.py": "FIRST, SECOND = 1, 2\nprint(FIRST)\n"})
+    with pytest.raises(AssertionError, match="SECOND"):
+        guard()
+
+
+def test_a_pytest_fixture_is_not_reported_as_dead(tmp_path, monkeypatch):
+    """The false positive that would have switched the guard off.
+
+    A fixture is named only in the parameter lists of the tests taking it, so
+    it looks unreferenced to a name walk — `record` has 23 uses in this repo
+    and every one is invisible. Decorated functions are exempt for that
+    reason, which costs the guard nothing it was catching.
+    """
+    guard_over(tmp_path, monkeypatch, {
+        "etl/thing.py": "import pytest\n\n\n@pytest.fixture\ndef record():\n    return 1\n",
+    })()
 
