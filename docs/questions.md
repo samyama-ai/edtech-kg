@@ -156,8 +156,7 @@ from this institution? ✅
 *Blast radius — transitive closure over prerequisites, unknown depth.* District-
 scoped. Structurally identical to the regulatory KG's *"this rule changed, which
 devices are affected?"*
-**Q62. What is the shortest route from where I am now to this programme?** ✅
-*Shortest path.* District-scoped.
+**Q62. What is the shortest route from where I am now to this programme?** ⚠️ — **re-marked by #22.** Answerable as course to course, which is what "route" means inside a catalogue, and that is the query written. Not answerable as far as a *programme*: the same missing join that blocked Q75 (#66). Held at a caveat rather than blocked outright, because the narrowed reading is the one a student asks and it is fully answered — the caveat is which "there" the route reaches. *Shortest path.* District-scoped.
 **Q63. I'm in year 11 and I've taken these five courses. What am I still
 missing?** ✅ *Set difference over a reachability set.*
 **Q64. I was heading for accounting, now I want data analysis. What carries
@@ -169,12 +168,10 @@ The edges are measured and the depth is computed from them; the probe reports
 edge counts, not path length, so the number itself is not in a document yet.
 **Q67.** Which courses are unreachable from any entry point? ✅ *Reachability
 from sources.* Orphans are a data-quality finding as much as a student one.
-**Q68.** Which single course, if removed, disconnects the most others? ✅
-*Articulation points.*
+**Q68.** Which single course, if removed, disconnects the most others? ❌ — **re-marked by #22.** *Articulation points*, and the operation is not available. `NOT x IN nodes(p)` parses and runs, and returns nothing either way: measured on the loaded district, both `x IN nodes(p)` and its negation count 0 rows over 119 chains of length two or more. `IN` over a list of nodes is unusable here, so the query answers "there are none" on a graph that has them. An earlier round marked this answerable on the strength of parsing alone, against an engine holding no data.
 **Q69.** What is the full ancestor set of this course? ✅ *Transitive closure.*
 **Q70.** What is its full descendant set — everything it unlocks? ✅
-**Q71.** Are there cycles in the prerequisite graph? ✅ *Cycle detection.* A cycle
-is a publishing error and finding one is worth reporting to the district.
+**Q71.** Are there cycles in the prerequisite graph? ❌ — **re-marked by #22.** *Cycle detection*, and the construct is not available. This engine does not bind a repeated variable across a variable-length pattern: `(c)-[:REQUIRES*1..1]->(c)` matches **all 240** REQUIRES edges on the loaded district, not the ones returning to `c`, and no course requires itself. The query answered 359 where the answer is none — Q68's failure in the other direction.
 **Q72.** Which two courses are furthest apart in the prerequisite graph? ✅
 *Graph diameter.* Computable from the measured edges; like Q66, the value
 itself has not been computed and put in a document yet.
@@ -182,15 +179,12 @@ itself has not been computed and put in a document yet.
 enumeration.*
 **Q74.** Which courses sit on the most paths between others? ✅ *Betweenness
 centrality* — the real bottleneck courses.
-**Q75.** Given a target occupation, what is the shortest course sequence in this
-district that reaches a programme leading to it? ✅ *Shortest path across two
-domains.*
+**Q75. Given a target occupation, what is the shortest course sequence in this district that reaches a programme leading to it?** ❌ — **re-marked by #22.** There is no academic edge from a district `Course` to a `Programme`. The only route in the schema is `Course <-TEACHES- School -IN_DISTRICT-> District -LOCATED_IN-> Place <-LOCATED_IN- Institution -OFFERS-> Programme`, which says a college in the same state offers it, not that the course prepares you for it. A traversal would return a geographic path and read as an academic answer. *Shortest path across two domains* is still the operation it needs; the domains are not joined. That join is #66.
 **Q76.** Which entry-level courses open the most downstream options? ✅
 *Descendant count.*
 **Q77.** Is this programme reachable from this school's course offering at all? ✅
 *Reachability.*
-**Q78.** What is the minimum set of courses covering the most pathways? ✅ *Set
-cover over paths.*
+**Q78.** What is the minimum set of courses covering the most pathways? ❌ — **re-marked by #22.** Set cover is an optimisation over the graph rather than a traversal of it: the data is all here and the operation is not Cypher. The greedy first step — rank courses by pathways included — is expressible and answers a different question. *Set cover over paths* is still the operation it names; it is not a traversal.
 **Q79.** Which prerequisite chains cross subject boundaries? ✅ *Path
 enumeration with a property filter on the nodes.*
 **Q80.** Nationally, what is the shortest path from any course to any
@@ -201,24 +195,24 @@ occupation? ❌ — needs prerequisites beyond one district (#19)
 *Prerequisites × programmes × occupations × geography, in one query.*
 
 **Q81.** Which districts have no school offering a pathway into the
-fastest-growing occupations? ⚠️ — geography and programmes measured, growth not
+fastest-growing occupations? ❌ — **re-marked by #22.** A pathway is a district publication and an occupation is post-secondary; no academic edge joins them (#66)
 **Q82.** Are high-earning occupations reachable from programmes offered in
 low-income districts? ⚠️ — the equity question; earnings unmeasured
 **Q83.** For this student's district, which occupations are reachable and which
-are structurally out of reach? ✅ — district-scoped
+are structurally out of reach? ❌ — **re-marked by #22.** Needs a Course to reach an Occupation. The only route runs through `Place`, which is geography (#66)
 **Q84.** Which programmes have the widest gap between who enrols and who
-completes? ✅ — IPEDS reports completions by demographic
+completes? ❌ — **re-marked by #22.** Nothing in the schema or any loader holds an enrolment count; `Completion` is awards conferred, so the gap has one side
 **Q85.** Which occupations pay above median but need only a certificate? ⚠️
 **Q86.** Is this programme oversupplied — more graduates than the occupation
 absorbs? ⚠️ — completions measured, employment not
 **Q87.** Which regions have programmes with no local employer demand? ❌
 **Q88.** Compare two districts: which offers more reachable occupations? ❌ —
 one district measured (#19)
-**Q89.** Which courses in this district lead to occupations that are shrinking? ⚠️
+**Q89.** Which courses in this district lead to occupations that are shrinking? ❌ — **re-marked by #22.** Same missing join as Q83 (#66)
 **Q90.** Where is the largest gap between courses offered and occupations
-reachable? ✅
+reachable? ❌ — **re-marked by #22.** Same missing join as Q83 (#66)
 **Q91.** Which institution offers the most efficient route to this occupation? ⚠️
-**Q92.** For every occupation, what is the cheapest programme that reaches it? ⚠️
+**Q92.** For every occupation, what is the cheapest programme that reaches it? ❌ — **re-marked by #22.** Cost is not in the schema — Q19's finding, one tier up
 **Q93.** Which pathways cross from secondary into post-secondary? ❌ — #42, the
 dual-enrolment join, not researched
 **Q94.** Which competencies are common to the most occupations? ❌ — competency
@@ -272,21 +266,21 @@ than assuming a shape.
 | 1 — lookup | 20 | 16 | 2 | 2 |
 | 2 — one hop | 22 | 15 | 3 | 4 |
 | 3 — change impact | 18 | 13 | 1 | 4 |
-| 4 — graph algorithms | 20 | 19 | 0 | 1 |
-| 5 — multi-domain | 14 | 3 | 7 | 4 |
+| 4 — graph algorithms | 20 | 14 | 1 | 5 |
+| 5 — multi-domain | 14 | 0 | 4 | 10 |
 | 6 — whole-graph | 8 | 8 | 0 | 0 |
-| **Total** | **102** | **74** | **13** | **15** |
+| **Total** | **102** | **66** | **11** | **25** |
 
 This table is checked by `tests/test_questions.py`, which counts the questions
 and their status marks and fails if it disagrees. It exists because the first
 version of the table was written by hand and got three rows wrong.
 
-**Seventy-four answerable, and nineteen of the twenty tier-4 questions among
+**Sixty-six answerable, and fourteen of the twenty tier-4 questions among
 them.** That is the argument for building this as a graph rather than a
 database, and three days ago it was not true — every tier-4 question was blocked
 on prerequisites that #63 has since measured.
 
-**Fifteen blocked**, in six clusters:
+**Twenty-five blocked**, in eight clusters:
 
 | Cluster | Questions | Why |
 |---|---|---|
@@ -294,10 +288,12 @@ on prerequisites that #63 has since measured.
 | Employer demand | Q40, Q87 | no public source |
 | Competency definitions | Q41, Q59, Q94 | the gap above |
 | Needs a second district | Q80, Q88 | #19 |
-| **Rules joining the two tiers** | Q39, Q57, Q58, Q93 | nobody publishes them as data |
-| Not in the schema at all | Q19 | cost has no node or property; #22 |
+| **Rules joining the two tiers** | Q39, Q57, Q58, Q93, Q75, Q81, Q83, Q89, Q90 | nobody publishes them as data, and the schema has no edge for them — #66 |
+| Not in the schema at all | Q19, Q84, Q92 | cost, and enrolment, have no node or property — #22 |
+| Not a traversal | Q78 | set cover is an optimisation over the graph, not a walk of it; #22 |
+| The engine cannot | Q68, Q71 | `IN` over a node list is unusable and a repeated variable is not bound across a variable-length pattern, so articulation points return a confident zero and cycle detection a confident 359; #22 |
 
-That last cluster is the interesting one, and it was missed on the first pass.
+**Rules joining the two tiers** is the interesting cluster, and it was missed on the first pass — named rather than pointed at, because two clusters have since been appended below it and "that last one" now means something else.
 Course-to-programme entry rules, state graduation requirements, accreditation
 and dual enrolment are four different questions with one shape: **the rule that
 connects secondary to post-secondary exists, and is published as prose for
@@ -308,7 +304,7 @@ predicate device. It is worth its own research issue.
 
 ## What this tells us before designing anything
 
-The schema has to serve the 74. In particular it has to make tier 4 cheap, which
+The schema has to serve the 66. In particular it has to make tier 4 cheap, which
 means the prerequisite edge is the load-bearing structure and everything else
 hangs off the CIP-SOC join.
 

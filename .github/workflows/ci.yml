@@ -11,7 +11,12 @@ name: CI
 # `tests/test_ci_workflow.py` so this file cannot quietly stop doing them:
 #
 #   1. A real engine runs, and `SAMYAMA_REQUIRE_ENGINE=1` turns an unreachable
-#      one into a FAILURE rather than a skip.
+#      one into a FAILURE rather than a skip. It asserts REACHABILITY and
+#      nothing else. The engine started here is deliberately EMPTY, so tests
+#      that need a district loaded take `SAMYAMA_REQUIRE_DATA=1` instead — a
+#      separate flag because they are separate claims, and reading one as the
+#      other turned eleven honest skips into hard failures. Nothing sets
+#      REQUIRE_DATA today; a job that loads a district should.
 #   2. `-rs` prints every skip with its reason, so they are visible in the log
 #      rather than folded into a count.
 #   3. `SAMYAMA_CI=1` makes `conftest.py` fail the run if anything skipped for a
