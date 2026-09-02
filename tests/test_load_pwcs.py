@@ -364,3 +364,49 @@ def test_a_node_left_without_its_properties_is_reported():
     problems = loader.verify(Counts(), loaded)
     assert any("carry the key and no `name`" in p for p in problems), problems
     assert any("3 node(s)" in p for p in problems), problems
+
+
+def loaded_course(**record) -> str:
+    """The Cypher `load()` writes for one course, through the real upsert.
+
+    Defaults for the keys the rest of `load()` reads, so a test about two
+    properties does not have to restate the whole record shape.
+    """
+    record = {"url": "https://catalog.pwcs.edu/x/course", "title": "Course",
+              "prerequisite_links": [], "requirements_text": None,
+              "description": None, "grade_levels": [], **record}
+    engine = Recorder()
+    loader.load(engine, {"published": set(), "subjects": [], "pathways": [],
+                         "courses": [record]}, quiet=True)
+    return "\n".join(engine.sent)
+
+
+def test_a_course_is_written_with_its_description_and_grade_levels():
+    """DRIVEN THROUGH `load()`, not read off the source.
+
+    `tests/schema_properties.declared` reads the loader's AST to decide what a
+    label carries, which is what tells a query it may reach for a property
+    without a `NEEDS:` line. That is a statement about the source, so a loader
+    that stops WRITING while the assignment stays in the file — behind a
+    disabled branch, say — leaves the annotation off and the query answering
+    null again. Measured: that mutation passed everything else.
+    """
+    written = loaded_course(url="https://catalog.pwcs.edu/x/course-1",
+                            title="Course 1", description="A description.",
+                            grade_levels=["10", "11"])
+    assert "n.description = 'A description.'" in written, written
+    # JOINED as the catalogue prints them. The engine's property values are
+    # scalars, so a list cannot be written and the join is the representation.
+    assert "n.grade_levels = '10, 11'" in written, written
+
+
+def test_a_course_without_them_is_written_without_the_properties():
+    """Absence is real — 8 of 791 courses publish no description and 10 no
+    grades. Writing `""` would make `c.description IS NOT NULL` true for every
+    course and turn a measured absence into a measured presence."""
+    written = loaded_course(url="https://catalog.pwcs.edu/x/course-2",
+                            title="Course 2")
+    assert "n.description" not in written
+    assert "n.grade_levels" not in written
+    assert "n.name = 'Course 2'" in written, written
+

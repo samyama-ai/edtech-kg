@@ -59,12 +59,9 @@ RETURN count(c) AS courses;
 //   The catalogue carries `field-grades` and `field-credits` and no length or
 //   duration field at all. Credits are not length: a one-credit course can run
 //   a semester or a year. So this answers the half that exists and does not
-//   dress the other half in a property nothing publishes (#123).
-//   NEEDS: Course.grade_levels
-//   — the half that exists is not LOADED either. The catalogue publishes
-//     `field--name-field-grades` and `etl/load_pwcs.py` does not extract it,
-//     so a loaded district holds 0 of 791 courses carrying it. The schema
-//     names the source field; nothing writes it. edtech-kg#137.
+//   dress the other half in a property nothing publishes (#123). The grade
+//   levels ARE loaded now — 781 of 791 courses carry them (#137); the ⚠️ is
+//   for length alone.
 MATCH (c:Course)
 WHERE c.url = "https://catalog.pwcs.edu/agriculture-food-and-natural-resources/landscaping-2"
 RETURN c.name, c.grade_levels;
@@ -108,9 +105,6 @@ WHERE i.unitid = "100654" AND p.cip_code = "11.0101"
 RETURN sum(cm.awards) AS completions;
 
 // Q14. What is this course's description, as the district publishes it?
-//   NEEDS: Course.description
-//   — the schema declares keys and these are not among them, so this
-//     parses and reaches for something no loader writes. See #123.
 MATCH (c:Course)
 WHERE c.url = "https://catalog.pwcs.edu/agriculture-food-and-natural-resources/landscaping-2"
 RETURN c.name, c.description, c.source;

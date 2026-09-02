@@ -27,6 +27,7 @@ that hold the block to its sources.
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
 
@@ -59,14 +60,70 @@ def declared() -> dict[str, set[str]]:
     # no loader whatsoever. Adding it made every query naming one of those look
     # served while returning null. See the module docstring.
     for source in sorted((ROOT / "etl").glob("*.py")):
-        text = source.read_text(encoding="utf-8")
-        for match in re.finditer(
-                r'upsert\(\s*engine,\s*"(\w+)",\s*"(\w+)",[^,]+,\s*\{(.*?)\}',
-                text, re.S):
-            label, key, body = match.groups()
+        try:
+            tree = ast.parse(source.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for label, key, props in upserts(tree):
             found.setdefault(label, set()).add(key)
-            found[label] |= set(re.findall(r'"(\w+)":', body))
+            found[label] |= props
     return found
+
+
+def upserts(tree: ast.AST) -> list[tuple[str, str, set[str]]]:
+    """Every `upsert(engine, "Label", "key", …, {…})` and the properties it writes.
+
+    AST, not a regex over source text. The regex required a DICT LITERAL as the
+    fifth argument — `upsert(…, {"name": …})` — and a loader that builds its
+    properties first, which is ordinary when some of them are conditional,
+    matched nothing. `Course.name` then read as undeclared and every query
+    naming it was reported as reaching past the schema. A parser that breaks on
+    a refactor while its subject is unchanged is the brittle-source-coupling
+    this repo keeps finding, in the module that decides what "declared" means.
+
+    A dict passed by NAME is followed: keys from the literal it was assigned,
+    plus any `properties["x"] = …` written afterwards. That is the shape a
+    conditional property takes, and the point of reading it is that an
+    optional property is still a written one.
+    """
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and len(node.args) >= 5):
+            continue
+        called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if called != "upsert":
+            continue
+        label, key = node.args[1], node.args[2]
+        if not all(isinstance(a, ast.Constant) and isinstance(a.value, str)
+                   for a in (label, key)):
+            continue
+        found.append((label.value, key.value, property_names(tree, node.args[4])))
+    return found
+
+
+def property_names(tree: ast.AST, argument: ast.AST) -> set[str]:
+    """The string keys of a dict argument, literal or built under a name."""
+    if isinstance(argument, ast.Dict):
+        return {k.value for k in argument.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+    if not isinstance(argument, ast.Name):
+        return set()
+
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                # `properties = {...}`
+                if isinstance(target, ast.Name) and target.id == argument.id:
+                    names |= property_names(tree, node.value)
+                # `properties["description"] = ...`
+                if (isinstance(target, ast.Subscript)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == argument.id
+                        and isinstance(target.slice, ast.Constant)
+                        and isinstance(target.slice.value, str)):
+                    names.add(target.slice.value)
+    return names
 
 
 def named_in_schema() -> dict[str, set[str]]:

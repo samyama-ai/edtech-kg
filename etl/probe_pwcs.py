@@ -85,6 +85,46 @@ REQUIREMENTS = re.compile(
 # rate with no trace, which is the class of error this probe exists to correct.
 PREREQ_FIELD_PRESENT = re.compile(r'field--name-field-prerequisite-courses')
 
+# A named field's contents — edtech-kg#137.
+#
+# Anchored PAST the opening tag, or the capture starts inside the class
+# attribute and the extracted text begins
+# `field--type-text-long field--label-hidden field__item">`.
+#
+# Stopped at the next SIBLING FIELD WRAPPER, not at the next
+# `field--name-field-`. The looser stop ran past the end of the description
+# into the markup of whatever came next, and `text_of` does not strip a tag it
+# was handed mid-attribute — so 87 of 791 descriptions arrived carrying
+# `<div class="field...` as text. The engine caught it rather than the parser:
+# `lit()` refuses a string holding both quote characters, and those were the
+# only descriptions that held a double quote at all.
+FIELD = (r'field--name-field-{}\b[^>]*>'
+         r'(.*?)(?=<div class="field\b|<span class="field\b|</article>|$)')
+FIELD_ITEM = re.compile(r'field__item[^>]*>(.*?)</div>', re.S)
+
+
+def field_text(markup: str, name: str) -> str | None:
+    """One field's text, unescaped and whitespace-collapsed."""
+    found = re.search(FIELD.format(name), markup, re.S)
+    if not found:
+        return None
+    return " ".join(text_of(found.group(1)).split()) or None
+
+
+def field_items(markup: str, name: str) -> list[str]:
+    """A field published as a LIST of items — `Grades` renders one div each.
+
+    Trailing commas stripped: the catalogue writes them as `9,` `10,` `12`, so
+    the separator is inside the value on every item but the last.
+    """
+    found = re.search(FIELD.format(name), markup, re.S)
+    if not found:
+        return []
+    return [item for item in
+            (" ".join(text_of(raw).split()).strip(", ")
+             for raw in FIELD_ITEM.findall(found.group(1)))
+            if item]
+
 
 class MalformedSource(Exception):
     """Reachable, but not the page we asked for."""
@@ -178,6 +218,13 @@ def parse_course(markup: str, url: str) -> dict | None:
         "field_present_no_links": bool(PREREQ_FIELD_PRESENT.search(markup)) and not links,
         "requirements_text": (" ".join(text_of(requirement.group(1)).split())
                               if requirement else None),
+        # edtech-kg#137. The catalogue publishes both and no loader read them,
+        # so `Q9` and `Q14` reached for properties that were never written and
+        # returned null on a loaded district. `None` and `[]` for absent, which
+        # is a real state here: measured, every course page carries a
+        # description and only 478 of them carry grades.
+        "description": field_text(markup, "description"),
+        "grade_levels": field_items(markup, "grades"),
     }
 
 

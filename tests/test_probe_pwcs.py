@@ -389,3 +389,63 @@ def test_a_cache_write_is_atomic(monkeypatch, tmp_path):
     probe.fetch("https://catalog.pwcs.edu/a/b")
     assert renamed == [".partial"], "wrote straight to the cache key"
     assert not list(tmp_path.glob("*.partial")), "left a partial behind"
+
+
+# --------------------------------------------------------------------------
+# The two fields the catalogue publishes and no loader read — edtech-kg#137.
+# --------------------------------------------------------------------------
+
+COURSE_PAGE = """<html><h1>Landscaping 1</h1>
+<div class="field field--name-field-grades field--type-list-string">
+  <div class="field__label">Grades</div>
+  <div class="field__items">
+    <div class="field__item">10,</div>
+    <div class="field__item">11,</div>
+    <div class="field__item">12</div>
+  </div>
+</div>
+<div class="field field--name-field-description field--type-text-long field__item">
+  <p>Landscaping offers skilled workers &amp; satisfying careers.</p>
+</div>
+<span class="field field--name-field-credits"><span class="field__item">1</span></span>
+</html>"""
+
+
+def test_a_course_page_yields_its_description_and_grade_levels():
+    """Both are on the page and neither was read, so Q9 and Q14 returned null
+    against a loaded district — the failure the schema's own block describes."""
+    found = probe.parse_course(COURSE_PAGE, "https://catalog.pwcs.edu/x/y")
+    assert found["grade_levels"] == ["10", "11", "12"], (
+        "the catalogue writes the separator INSIDE the value — `10,` `11,` "
+        "`12` — so a trailing comma survives unless it is stripped")
+    assert found["description"] == (
+        "Landscaping offers skilled workers & satisfying careers."), found["description"]
+
+
+def test_a_field_stops_at_the_next_one_and_does_not_swallow_its_markup():
+    """The stop condition, and the reason it is a SIBLING WRAPPER rather than
+    the next `field--name-field-`.
+
+    The looser stop ran past the description into whatever followed, and
+    `text_of` does not strip a tag it is handed mid-attribute — so 87 of 791
+    descriptions arrived carrying `<div class="field...` as text. The ENGINE
+    caught it, not the parser: `lit()` refuses a string holding both quote
+    characters, and those were the only descriptions holding a double quote.
+    """
+    found = probe.parse_course(COURSE_PAGE, "https://catalog.pwcs.edu/x/y")
+    for leak in ("<div", "<span", "class=", "field__item", "Credits", "1"):
+        if leak in ("1",):
+            assert not found["description"].endswith("1"), "the credits field leaked in"
+            continue
+        assert leak not in found["description"], f"{leak!r} leaked into the description"
+    assert "Grades" not in found["description"]
+
+
+def test_a_page_with_neither_field_reports_absence_not_emptiness():
+    """Absence is real here and common — 8 of 791 courses publish no
+    description and 10 publish no grades. `None` and `[]` say so; `""` would
+    make `c.description IS NOT NULL` true for every course."""
+    found = probe.parse_course("<html><h1>Bare Course</h1></html>", "u")
+    assert found["description"] is None
+    assert found["grade_levels"] == []
+
