@@ -55,7 +55,6 @@ RETURN c.url, c.name, count(DISTINCT out) + count(DISTINCT in_) AS degree
 ORDER BY degree DESC LIMIT 20;
 
 // Q100. Where are the structural holes — occupations reachable by only one route?
-//   NEEDS: Occupation.name
 // A structural hole is where removing one edge disconnects something. Reported
 // nationally over the crosswalk, which is the population the question names.
 // `99-9999` is the crosswalk's NO MATCH sentinel — every programme that failed
