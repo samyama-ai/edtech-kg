@@ -30,36 +30,49 @@ import os
 # Deliberately matched on the REASON rather than on test names. A test renamed
 # or moved keeps its reason; an allowlist of names would rot into a list that
 # exempts tests nobody can find any more.
-ALLOWED_SKIPS = (
-    "cached catalogue is incomplete",
-    # A benchmark tier with no whole-graph statement, and one with no example
-    # url — both are properties of the tier, not of the run, so they skip on
-    # every machine including one with a district loaded.
-    "has no whole-graph statements to check",
-    "anchors on no course url",
-    # Tiers 1 to 3 carry the inline-property-map and wrong-anchor defects that
-    # tiers 4 to 6 were just fixed for. Named rather than silent: the guards
-    # skip them deliberately and the follow-up is edtech-kg#133.
-    "is not re-anchored yet",
-    # No district is loaded in CI, so the three data gates in
-    # tests/test_question_execution.py cannot run. That is honest and it is
-    # what `SAMYAMA_REQUIRE_DATA=1` exists to turn into a failure in a job that
-    # DOES load one — see `require_data` there. Allowlisting the reason keeps
-    # the skip visible in the summary rather than merely tolerated.
-    "load a district first",
-    "holds no prerequisite edges",
-    "holds no Course nodes",
-)
-
-# What the allowlist covers today, measured with no cache present and no
-# district loaded. A cap rather than an exact figure: adding a cache-backed
-# test is ordinary work and should not need a CI edit, but a jump means
-# something skipped wholesale and that is the case worth failing on.
-#
-# Raised from 8 when the tier-4-to-6 benchmark guards landed: six of them are
-# parametrised over the six tier files, so one guard that does not apply to a
-# tier is six skips, not one.
-MAX_ALLOWED_SKIPS = 24
+#: A budget PER REASON, not one cap over all of them.
+#:
+#: A single global cap conflates families that have nothing to do with each
+#: other, and it was not doing work at either value it has held. At 8 it was
+#: already saturated by the cache family alone — `main` skips 11 and exits 1
+#: today, with no changes to it. Raising it to 24 moved the same failure
+#: rather than fixing it, and a cap large enough to admit every family is
+#: large enough to hide one of them doubling.
+#:
+#: So each family carries its own number and its own argument. A family that
+#: grows fails even when the total does not.
+#:
+#: MEASURED under CI's conditions and not this machine's: a fresh worktree
+#: with no `data/` cache, against an empty engine, with SAMYAMA_REQUIRE_ENGINE
+#: and SAMYAMA_CI both set. That distinction is the reason this comment is
+#: being rewritten — the previous one claimed the count was taken "with no
+#: cache present" and it was not, so the eleven cache skips were invisible to
+#: it and the number it recorded could not have been reached in CI.
+#:
+#: Reproduce with:
+#:   git worktree add --detach /tmp/ci origin/main && cd /tmp/ci
+#:   SAMYAMA_URL=<empty engine> SAMYAMA_REQUIRE_ENGINE=1 SAMYAMA_CI=1 pytest -q -rs
+SKIP_BUDGET = {
+    # No `data/` in CI and none wanted: the corpus is a school district's
+    # catalogue and the alternative is fetching it on every push.
+    "cached catalogue is incomplete": 11,
+    # Tiers 1 to 3 filter with an inline property map, which this engine does
+    # not apply, at urls no course carries. 39 of their 51 statements — the
+    # measurement is in edtech-kg#133, whose acceptance criteria include
+    # deleting both skip branches and this entry. Two guards over three files.
+    "is not re-anchored yet": 6,
+    # Properties of the TIER, not of the run: a tier with no whole-graph
+    # statement has none on any machine, loaded district or not.
+    "has no whole-graph statements to check": 4,
+    # The three data gates. CI starts a deliberately empty engine, so these
+    # cannot run there; `SAMYAMA_REQUIRE_DATA=1` is what turns them into
+    # failures in a job that loads a district. Split by reason rather than
+    # summed, because they are three different claims about the graph and one
+    # of them going quiet should not be absorbed by the other two.
+    "holds no Course nodes, so a predicate inside a WHERE": 6,
+    "holds no Course nodes, so no anchor can resolve": 3,
+    "holds no prerequisite edges": 2,
+}
 
 _skipped: list[tuple[str, str]] = []
 
@@ -94,31 +107,59 @@ def pytest_runtest_logreport(report):
     _skipped.append((report.nodeid, reason))
 
 
+def budget_problems(skipped) -> list[str]:
+    """Every way the skip budget can be violated, as messages.
+
+    Separated from the hook so it can be driven directly. The hook itself sets
+    the session exit status, which a test cannot assert on without ending its
+    own run.
+    """
+    problems, counted = [], {key: 0 for key in SKIP_BUDGET}
+    unbudgeted, ambiguous = [], []
+    for nodeid, reason in skipped:
+        matched = [key for key in SKIP_BUDGET if key in reason]
+        if not matched:
+            unbudgeted.append((nodeid, reason))
+        elif len(matched) > 1:
+            # AMBIGUOUS IS A FAILURE, not a first-match-wins. Two of these keys
+            # are prefixes of the same sentence, and a reason counted against
+            # whichever happened to be declared first makes both numbers mean
+            # nothing while still adding up.
+            ambiguous.append((nodeid, matched))
+        else:
+            counted[matched[0]] += 1
+
+    if unbudgeted:
+        problems.append(
+            "these tests SKIPPED in CI for a reason with no entry in "
+            "SKIP_BUDGET:\n" +
+            "\n".join(f"    {n}\n        {r}" for n, r in unbudgeted))
+    if ambiguous:
+        problems.append(
+            "these skip reasons match more than one SKIP_BUDGET key, so the "
+            "counts they feed are arbitrary:\n" +
+            "\n".join(f"    {n}\n        matches {m}" for n, m in ambiguous))
+    over = [(key, counted[key], SKIP_BUDGET[key])
+            for key in SKIP_BUDGET if counted[key] > SKIP_BUDGET[key]]
+    if over:
+        problems.append(
+            "these skip families grew past their budget:\n" +
+            "\n".join(f"    {n} skipped, budget {b}    {key!r}"
+                       for key, n, b in over))
+    return problems
+
+
 def pytest_sessionfinish(session, exitstatus):
     if os.environ.get("SAMYAMA_CI") != "1":
         return
 
-    unexpected = [(nodeid, reason) for nodeid, reason in _skipped
-                  if not any(allowed in reason for allowed in ALLOWED_SKIPS)]
-
-    problems = []
-    if unexpected:
-        problems.append(
-            "these tests SKIPPED in CI for a reason that is not on the "
-            "allowlist in conftest.py:\n" +
-            "\n".join(f"    {nodeid}\n        {reason}" for nodeid, reason in unexpected))
-    if len(_skipped) > MAX_ALLOWED_SKIPS:
-        problems.append(
-            f"{len(_skipped)} tests skipped, which is over the {MAX_ALLOWED_SKIPS} "
-            f"this repo expects. Even allowlisted reasons are capped: a jump in "
-            f"the count means something stopped running wholesale.")
-
+    problems = budget_problems(_skipped)
     if problems:
         # Printed rather than raised: an exception here is reported against the
         # session and reads as a plugin error, which sends the next person to
         # the wrong file.
         print("\n\nCI SKIP GUARD FAILED\n" + "\n\n".join(problems) +
               "\n\nA skip is indistinguishable from a pass in every summary "
-              "line. Either make the test run in CI, or add its reason to "
-              "ALLOWED_SKIPS with the argument for why it cannot.\n")
+              "line. Either make the test run in CI, or give its reason an "
+              "entry in SKIP_BUDGET with the argument for why it cannot.\n")
         session.exitstatus = 1
