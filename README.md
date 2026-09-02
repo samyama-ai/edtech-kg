@@ -60,7 +60,7 @@ curl -X POST http://localhost:8200/api/tenants -H 'Content-Type: application/jso
      -d '{"id":"edtech","name":"EdTech KG"}'
 
 python -m etl.load_pwcs --url http://localhost:8200 --graph edtech
-python -m demo.demo     --only 0,5,8,11,13,15,17,19    # the eight for a short meeting
+python -m demo.demo     --only 0,5,8,11,13,15,16,17,19  # the nine for a short meeting
 python -m demo.demo --list                             # all 21, no engine needed
 ```
 
@@ -182,8 +182,16 @@ etl/          probes (one per source) + load_pwcs.py
 schema/       edtech_kg.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
 docs/         scope, questions, schema, ontology-reuse, sources/
+benchmarks/   the traversals behind docs/questions.md — empty, see #22
+mcp_server/   not implemented; mcp_server/README.md says what it should expose
 tests/        pytest, one file per subject
 ```
+
+The same seven directories as every sibling `*-kg` repo, so anyone who has seen one can
+navigate this one. Two hold only a README today, and each says so — an empty directory
+reads as "nothing to do here", which is the opposite of what it means.
+
+`CONTRIBUTING.md` carries the standard a PR here works to.
 
 ## Quick start
 

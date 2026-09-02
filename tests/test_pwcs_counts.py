@@ -13,13 +13,9 @@ nothing failed — the wrong number was simply published.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from etl import probe_pwcs as probe
 from tests.test_probe_pwcs import COURSE, NO_PREREQ, serve
 
-
-ROOT = Path(__file__).resolve().parents[1]
 
 SUBJECT_INDEX = """<html><body><h1 class="page-title">Agriculture</h1>
 <div class="views-row"><a href="/agriculture/landscaping-1">Landscaping 1</a></div>

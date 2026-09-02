@@ -5,11 +5,32 @@ or ❌ not. Those marks were a judgement. This turns them into a check: a
 question marked answerable whose query the engine will not parse is a question
 the schema does not serve, and the mark is wrong.
 
-**Parsing is the honest bound.** Nothing is loaded, so a query returning rows
-is not available as evidence; what these establish is that the traversal is
-expressible against the declared schema. A query that parses and names a
-property no loader writes would still pass — stated here rather than left for a
-reader to assume otherwise.
+**Parsing is a weak bound, and Q68 is the proof.** That query parsed, ran
+without error, and returned "there are no articulation points" on a graph that
+has them — because `IN` over a list of nodes matches nothing either way rather
+than refusing. A parses-only gate passed a query that answers wrongly.
+
+So two things are checked, and they are not the same:
+
+* **Parsing**, ratcheted below against whatever engine is reachable. Cheap, and
+  it runs on an empty one.
+* **Execution against LOADED data** — which catches a statement that ERRORS
+  when real rows reach it, and an empty engine cannot, because a predicate
+  inside a `WHERE` is never evaluated when nothing matches.
+* **A non-empty answer** where one is expected. This is the check that bites,
+  and neither of the two above is it: Q68 returned zero rows without erroring,
+  and Q71 returned 359 rows that were every edge in the graph. Both parsed,
+  both ran, both answered confidently and wrongly.
+
+Q68 and Q71 were found BY HAND, not by any of these. What is guarded now is
+the shape they share — a whole-graph statement whose answer is empty when the
+graph is not — and the shape they do not: a wrong non-empty answer is still
+only caught by reading it. Said plainly rather than implied, because the last
+version of this docstring claimed execution "caught Q68" and it did not.
+
+A query that parses, runs, and names a property nothing writes would still
+pass. That is what the `NEEDS:` annotations are for, and #123 is closing the
+gap they document.
 
 Written for the engine this repo pins: a pattern inside `WHERE` does not parse
 (see `docs/schema.md`), so absence is `NOT EXISTS { MATCH ... }` throughout.
@@ -22,6 +43,7 @@ import re
 
 import pytest
 
+from tests.questions_document import QUESTION, marks
 from tests.schema_properties import undeclared
 from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
 
@@ -60,100 +82,9 @@ def answered(path: pathlib.Path) -> list[str]:
     return re.findall(r"^// (Q\d+)\.", path.read_text(encoding="utf-8"), re.M)
 
 
-#: A question STARTS a block. Two spellings ship — `**Q1.** text` and
-#: `**Q61. text**` — and the second was invisible to a parser that required
-#: the closing `**` right after the number, so five questions were not read at
-#: all. Marks are read from the block, not the line, because a question that
-#: wraps carries its mark on the continuation.
-QUESTION = re.compile(r"^\*\*(Q\d+)\.", re.M)
-
-
-def blocks() -> dict[str, str]:
-    """Each question with everything up to the next one.
-
-    Line-by-line was wrong in two ways at once. It required `**Qn.**`, so
-    `**Q61. What is…**` was not a question; and it read the mark from the
-    FIRST physical line, so a question wrapping onto a second was reported
-    unmarked while its mark sat one line down. Eighteen were, and an unmarked
-    question is exempt from the ratchet — so eighteen answerable questions
-    could have had no traversal and nothing would have said so.
-    """
-    text = QUESTIONS.read_text(encoding="utf-8")
-    starts = [(m.group(1), m.start()) for m in QUESTION.finditer(text)]
-    found = {}
-    for index, (name, at) in enumerate(starts):
-        end = starts[index + 1][1] if index + 1 < len(starts) else len(text)
-        # A block also stops at the next HEADING, or the prose between tiers
-        # is read as part of the last question in the tier above.
-        heading = text.find("\n## ", at)
-        if heading != -1 and heading < end:
-            end = heading
-        found[name] = text[at:end]
-    return found
-
-
-def marks() -> dict[str, str]:
-    """Every question in the document, with its mark."""
-    found = {}
-    for name, block in blocks().items():
-        # The FIRST mark in the block, by position. A fixed priority order
-        # reads a status character mentioned in an explanation as the
-        # question's own mark — which is what happened when Q19's re-marking
-        # said what it used to be.
-        positions = [(block.index(c), state) for c, state in
-                     (("✅", "ok"), ("⚠️", "caveat"), ("❌", "no"))
-                     if c in block]
-        found[name] = min(positions)[1] if positions else "unmarked"
-    return found
-
-
 def test_there_are_benchmark_files_to_check():
     """A glob that matches nothing makes every test below vacuous."""
     assert files(), f"no tier-*.cypher under {BENCHMARKS}"
-
-
-def test_the_parser_reads_every_question_in_the_document():
-    """`> 50` was the old bound and it was far too loose.
-
-    The parser saw 97 of 102 and reported 18 of those as unmarked, so 79 were
-    classified correctly and the bound passed anyway. An unmarked question is
-    exempt from the ratchet below, so twenty-three answerable questions could
-    have had no traversal and nothing would have said so.
-
-    Counted against the document rather than a number written here, and
-    nothing may be left unmarked — "unmarked" is the state that quietly
-    excuses a question.
-    """
-    text = QUESTIONS.read_text(encoding="utf-8")
-    in_document = {m.group(1) for m in QUESTION.finditer(text)}
-    found = marks()
-    assert set(found) == in_document, (
-        f"the parser missed {sorted(in_document - set(found))} and invented "
-        f"{sorted(set(found) - in_document)}")
-    unmarked = [q for q, state in found.items() if state == "unmarked"]
-    assert not unmarked, (
-        f"{unmarked} carry no status, so the ratchet cannot tell whether they "
-        f"need a traversal")
-    assert {"ok", "caveat", "no"} <= set(found.values())
-
-
-def test_the_tally_the_document_prints_is_the_one_the_parser_reads():
-    """The document's own table is machine-checked by `test_questions.py`
-    against a different parser. If the two disagree, one of them is wrong
-    about the same file — and this one drives which questions need a
-    traversal."""
-    from collections import Counter
-
-    counted = Counter(marks().values())
-    text = QUESTIONS.read_text(encoding="utf-8")
-    row = re.search(r"\| \*\*Total\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \| "
-                    r"\*\*(\d+)\*\* \| \*\*(\d+)\*\* \|", text)
-    assert row, "the totals row is no longer in questions.md"
-    total, ok, caveat, no = (int(g) for g in row.groups())
-    assert (counted["ok"], counted["caveat"], counted["no"]) == (ok, caveat, no), (
-        f"the document's table says {ok}/{caveat}/{no} and this parser reads "
-        f"{counted['ok']}/{counted['caveat']}/{counted['no']}")
-    assert sum(counted.values()) == total
 
 
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
@@ -211,7 +142,14 @@ def test_every_answerable_question_in_a_covered_tier_has_a_traversal():
     for line in text.splitlines():
         if line.startswith("## "):
             section = line[3:].strip()
-        m = re.match(r"^\*\*(Q\d+)\.\*\*", line)
+        # THE SHARED PARSER, not a second one. This required the closing `**`
+        # right after the number, so `**Q61. What is…**` was not a question —
+        # the exact bug `tests/questions_document.py` was written to fix, and
+        # it sat twenty lines from the fix. Measured: strict reads 96 of 102,
+        # and the six it cannot see are Q61-Q65 and Q75 — every one of them in
+        # the tier this change adds. An invisible question is exempt from the
+        # ratchet below, so deleting Q61's traversal failed nothing.
+        m = QUESTION.match(line)
         if m and section:
             tiers.setdefault(section, []).append(m.group(1))
 
@@ -247,6 +185,35 @@ def statement_blocks(path: pathlib.Path) -> list[str]:
     """Each query with the comments that belong to it."""
     return [b for b in re.split(r"(?<=;)\n", path.read_text(encoding="utf-8"))
             if uncommented(b).strip()]
+
+
+def labelled_statements(path: pathlib.Path) -> list[tuple[str | None, str]]:
+    """Every statement, paired with the question id whose answer it is.
+
+    Splitting raw text on `;` — which is what `statement_blocks` does, and what
+    a checker written against it did — is the hazard `uncommented()` exists to
+    prevent: three comments in these files contain a semicolon. It also assumes
+    one statement per question, and Q95 takes two. A per-block split ran the
+    isolated count and never ran the linked count beside it, so half of that
+    answer was outside every check in this file.
+
+    Comments are read for the label and then dropped, so a `;` inside one
+    cannot end a statement.
+    """
+    label, buffer, out = None, [], []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        marked = re.match(r"//\s+(Q\d+)\.", line.strip())
+        if marked:
+            label = marked.group(1)
+        if line.strip().startswith("//"):
+            continue
+        buffer.append(line)
+        if line.rstrip().endswith(";"):
+            body = "\n".join(buffer).strip().rstrip(";").strip()
+            if body:
+                out.append((label, body))
+            buffer = []
+    return out
 
 
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
@@ -374,4 +341,3 @@ def test_a_declared_key_matched_inline_is_not_a_gap():
     from tests.schema_properties import undeclared
 
     assert undeclared('MATCH (c:Course {url: "https://x/y"}) RETURN c.name') == set()
-

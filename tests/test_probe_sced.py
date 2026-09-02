@@ -15,14 +15,11 @@ from __future__ import annotations
 
 import io
 import zipfile
-from pathlib import Path
 
 import pytest
 
 from etl import probe_sced as probe
 from tests.workbook_support import workbook as cipsoc_workbook
-
-DOC = Path(__file__).resolve().parents[1] / "docs" / "sources" / "sced.md"
 
 
 def workbook(sheets: dict[str, list[list[str]]]) -> bytes:
