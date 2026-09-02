@@ -27,7 +27,6 @@ import argparse
 import http.client
 import io
 import json
-import re
 import sys
 import urllib.error
 import urllib.parse
@@ -65,10 +64,6 @@ NO_MATCH = "99-9999"
 # Queried alongside the system resolver. The page's whole argument rests on
 # telling "this network cannot resolve it" apart from "it resolves nowhere",
 # and one `gethostbyname()` call cannot make that distinction.
-#: An A or AAAA answer, as `dig +short` prints one. Anything else in that
-#: output is a CNAME, a message, or part of a chain.
-ADDRESS = re.compile(r"\A(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]{3,})\Z")
-
 PUBLIC_RESOLVERS = (("Google", "8.8.8.8"), ("Cloudflare", "1.1.1.1"))
 
 

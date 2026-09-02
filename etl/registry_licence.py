@@ -41,7 +41,6 @@ from etl.identity import USER_AGENT
 RIGHTS_FIELDS = ("ceterms:copyrightHolder",)
 
 TERMS_URL = "https://credentialengine.org/terms/"
-REGISTRY_FOOTER = "https://credreg.net/"
 
 
 class MalformedSource(Exception):

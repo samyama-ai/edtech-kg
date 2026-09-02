@@ -66,16 +66,31 @@ jobs:
           python-version: "3.11"
 
       - name: Install test dependencies
-        # `pip install -e .` is NOT used, and that is deliberate rather than an
-        # oversight. `pyproject.toml` still carries the repo template's
-        # placeholders — `project.name = "{{KG_SLUG}}-kg"` is not a valid
-        # identifier, so the editable install fails before it starts, and the
-        # dependencies it lists are not the ones the code imports. Measured:
-        # outside the standard library the suite needs pytest and nothing else.
-        # Fixing the packaging belongs with the repo-layout work (#17), not
-        # here — CI installing a dependency set nobody uses would be its own
-        # kind of green build that proves nothing.
-        run: python -m pip install --quiet pytest
+        # `pip install -e .` is NOT used, and that is still deliberate — but
+        # the reason has changed, so the note has to. It used to be that the
+        # packaging was broken: the template slug was not a valid identifier
+        # and the editable install failed before it started. #17 fixed that,
+        # and this file is part of #17, so leaving the old reason here would
+        # be an argument for a state the same branch removes.
+        #
+        # The reason now is that installing would add nothing and cost
+        # something. Measured: `dependencies` is empty because outside the
+        # standard library this package imports nothing, so an editable
+        # install brings no runtime dependency — while build isolation would
+        # reach the index for a backend, which is a network call CI does not
+        # need. The suite needs pytest and nothing else.
+        #
+        # `setuptools` is here because the suite imports it:
+        # `test_the_package_metadata_is_valid_enough_to_install` builds this
+        # package's metadata in-process rather than shelling out to a `pip
+        # install --dry-run` that would reach the index. It is present in most
+        # environments already; naming it is what keeps
+        # `test_the_workflow_installs_what_the_suite_actually_imports` true.
+        # Pinned to match `pyproject.toml`'s `dev` extra. Unconstrained,
+        # CI could resolve a setuptools older than the one the metadata
+        # test needs and fail for a reason that has nothing to do with
+        # the change under review.
+        run: python -m pip install --quiet pytest "setuptools>=61.0"
 
       - name: Start a fresh engine
         # A FRESH instance, never a loaded one: the schema tests validate
