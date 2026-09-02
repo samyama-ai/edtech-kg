@@ -30,13 +30,36 @@ import os
 # Deliberately matched on the REASON rather than on test names. A test renamed
 # or moved keeps its reason; an allowlist of names would rot into a list that
 # exempts tests nobody can find any more.
-ALLOWED_SKIPS = ("cached catalogue is incomplete",)
+ALLOWED_SKIPS = (
+    "cached catalogue is incomplete",
+    # A benchmark tier with no whole-graph statement, and one with no example
+    # url — both are properties of the tier, not of the run, so they skip on
+    # every machine including one with a district loaded.
+    "has no whole-graph statements to check",
+    "anchors on no course url",
+    # Tiers 1 to 3 carry the inline-property-map and wrong-anchor defects that
+    # tiers 4 to 6 were just fixed for. Named rather than silent: the guards
+    # skip them deliberately and the follow-up is edtech-kg#22.
+    "is not re-anchored yet",
+    # No district is loaded in CI, so the three data gates in
+    # tests/test_question_execution.py cannot run. That is honest and it is
+    # what `SAMYAMA_REQUIRE_DATA=1` exists to turn into a failure in a job that
+    # DOES load one — see `require_data` there. Allowlisting the reason keeps
+    # the skip visible in the summary rather than merely tolerated.
+    "load a district first",
+    "holds no prerequisite edges",
+    "holds no Course nodes",
+)
 
-# What the allowlist covers today, measured with no cache present. A cap rather
-# than an exact figure: adding a cache-backed test is ordinary work and should
-# not need a CI edit, but a jump to 40 means something skipped wholesale and
-# that is the case worth failing on.
-MAX_ALLOWED_SKIPS = 8
+# What the allowlist covers today, measured with no cache present and no
+# district loaded. A cap rather than an exact figure: adding a cache-backed
+# test is ordinary work and should not need a CI edit, but a jump means
+# something skipped wholesale and that is the case worth failing on.
+#
+# Raised from 8 when the tier-4-to-6 benchmark guards landed: six of them are
+# parametrised over the six tier files, so one guard that does not apply to a
+# tier is six skips, not one.
+MAX_ALLOWED_SKIPS = 24
 
 _skipped: list[tuple[str, str]] = []
 

@@ -43,7 +43,7 @@ import re
 
 import pytest
 
-from tests.questions_document import marks
+from tests.questions_document import QUESTION, marks
 from tests.schema_properties import undeclared
 from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
 
@@ -138,7 +138,14 @@ def test_every_answerable_question_in_a_covered_tier_has_a_traversal():
     for line in text.splitlines():
         if line.startswith("## "):
             section = line[3:].strip()
-        m = re.match(r"^\*\*(Q\d+)\.\*\*", line)
+        # THE SHARED PARSER, not a second one. This required the closing `**`
+        # right after the number, so `**Q61. What is…**` was not a question —
+        # the exact bug `tests/questions_document.py` was written to fix, and
+        # it sat twenty lines from the fix. Measured: strict reads 96 of 102,
+        # and the six it cannot see are Q61-Q65 and Q75 — every one of them in
+        # the tier this change adds. An invisible question is exempt from the
+        # ratchet below, so deleting Q61's traversal failed nothing.
+        m = QUESTION.match(line)
         if m and section:
             tiers.setdefault(section, []).append(m.group(1))
 

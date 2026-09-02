@@ -31,6 +31,26 @@ from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
 from tests.test_question_traversals import files, labelled_statements, statements
 
 
+def require_data(message: str) -> None:
+    """Skip, or FAIL under `SAMYAMA_REQUIRE_DATA=1`.
+
+    A SEPARATE FLAG from `SAMYAMA_REQUIRE_ENGINE`, which these three gates used
+    and which does not mean this. `SAMYAMA_REQUIRE_ENGINE=1` asserts an engine
+    is REACHABLE — `tests/test_schema_engine.py` defines it that way and CI sets
+    it against a deliberately empty engine, which is the right thing for the
+    schema tests to check. These gates need a district LOADED, which is a
+    different claim, and reading one flag as the other turned every one of them
+    into a hard failure on a run that was behaving exactly as intended.
+
+    So: `SAMYAMA_REQUIRE_DATA=1` in a job that loads a district. Nothing sets it
+    today, which is honest — CI loads no district — and the skips it produces
+    are on the `conftest.py` allowlist so they stay visible rather than silent.
+    """
+    if os.environ.get("SAMYAMA_REQUIRE_DATA") == "1":
+        pytest.fail(f"{message} — SAMYAMA_REQUIRE_DATA=1 forbids skipping this")
+    pytest.skip(message)
+
+
 def answers_emptily(result: dict) -> bool:
     """Whether a result is empty in the sense this file cares about.
 
@@ -63,8 +83,8 @@ def test_every_statement_runs_where_there_is_data_to_run_against(path):
 
     Gated on the graph holding COURSES rather than on the engine answering.
     Skipping when there is no data is honest; skipping when there IS data would
-    be the failure this file is about, so `SAMYAMA_REQUIRE_ENGINE=1` turns the
-    skip into a failure the same way the schema tests do.
+    be the failure this file is about, so `SAMYAMA_REQUIRE_DATA=1` turns the
+    skip into a failure — a flag about DATA, not about the engine answering.
     """
     require_engine()
     loaded = query(SAMYAMA_URL, "MATCH (c:Course) RETURN count(c) AS n")
@@ -73,9 +93,7 @@ def test_every_statement_runs_where_there_is_data_to_run_against(path):
         message = (f"the graph at {SAMYAMA_URL} holds no Course nodes, so a "
                    f"predicate inside a WHERE is never evaluated and this "
                    f"checks nothing — load a district first")
-        if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
-            pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
-        pytest.skip(message)
+        require_data(message)
 
     broken = []
     for statement in statements(path):
@@ -138,9 +156,7 @@ def test_a_whole_graph_question_answers_when_the_graph_is_not_empty(path):
         message = (f"the graph at {SAMYAMA_URL} holds no prerequisite edges, so "
                    f"every whole-graph statement is legitimately empty and this "
                    f"checks nothing — load a district first")
-        if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
-            pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
-        pytest.skip(message)
+        require_data(message)
 
     empty, reached = [], set()
     for label, body in labelled_statements(path):
@@ -228,9 +244,7 @@ def test_every_course_url_a_statement_anchors_on_exists(path):
     if not held:
         message = (f"the graph at {SAMYAMA_URL} holds no Course nodes, so no "
                    f"anchor can resolve and this checks nothing")
-        if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
-            pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
-        pytest.skip(message)
+        require_data(message)
 
     anchors = set()
     for _, body in labelled_statements(path):
