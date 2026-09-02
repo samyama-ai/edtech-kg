@@ -96,3 +96,62 @@ def test_no_question_carries_an_orphaned_fragment():
         f"these questions have unbalanced emphasis markers, which is what a "
         f"line-replaced re-mark leaves behind: {ragged}. Replace the whole "
         f"block, not its first line.")
+
+
+#: The questions blocked by the missing Course-to-Programme join, named rather
+#: than counted by regex. `docs/questions.md` has a section for them and
+#: `benchmarks/questions/tier-5-multi-domain.cypher` explains the tier's share.
+#:
+#: This was "nine" in both files and matched neither: the tier holds four and
+#: the document holds six. Nobody typed nine from a measurement — it was
+#: carried from an earlier draft and restated, which is how every stale figure
+#: in this repo has arrived.
+BLOCKED_BY_THE_MISSING_JOIN = ("Q62", "Q75", "Q81", "Q83", "Q89", "Q90")
+
+
+def test_the_missing_join_blocks_exactly_the_questions_the_documents_name():
+    """Both figures, held to the questions themselves.
+
+    A question stops citing the join, or a new one starts, and the two prose
+    counts go stale silently — there is no other check on them, which is
+    exactly how "nine" survived in two files at once.
+    """
+    citing = {q for q, text in blocks().items()
+              if re.search(r"#66|academic edge|geography wearing", text)}
+    assert citing == set(BLOCKED_BY_THE_MISSING_JOIN), (
+        f"the questions citing the missing academic join are "
+        f"{sorted(citing, key=lambda q: int(q[1:]))}, and the documents name "
+        f"{list(BLOCKED_BY_THE_MISSING_JOIN)}. Update both prose counts, in "
+        f"docs/questions.md and in tier-5-multi-domain.cypher.")
+
+    document = QUESTIONS.read_text(encoding="utf-8")
+    assert "## The missing academic join" in document, (
+        "the finding that blocks the most questions has no section again")
+    section = document.split("## The missing academic join", 1)[1].split("\n## ", 1)[0]
+    unnamed = [q for q in BLOCKED_BY_THE_MISSING_JOIN if q not in section]
+    assert not unnamed, (
+        f"the section does not name {unnamed}, which the join blocks")
+
+    # SPELLED OUT, because the prose spells its counts out. Matching digits
+    # would pass on any file that happens to contain them and fail on this one.
+    spelled = {4: "FOUR", 6: "SIX"}
+    tier = (QUESTIONS.parents[1] / "benchmarks" / "questions"
+            / "tier-5-multi-domain.cypher").read_text(encoding="utf-8")
+    in_tier = [q for q in BLOCKED_BY_THE_MISSING_JOIN if int(q[1:]) in range(81, 95)]
+    assert f"{spelled[len(in_tier)]} of those ten" in tier, (
+        f"tier 5 holds {len(in_tier)} of the ten unanswerable and its header "
+        f"says something else — the figure was 'nine' in two files at once")
+    assert f"{spelled[len(BLOCKED_BY_THE_MISSING_JOIN)]} across the document" in tier
+
+
+def test_the_mark_key_does_not_claim_every_gap_is_a_data_gap():
+    """`❌` read "needs data we do not have". Measured over the 25 that carry
+    it, that is a plurality and not the whole: some are the missing join, some
+    are properties no schema declares, and two are constructs this engine
+    cannot express. A key that names one cause invites a reader to assume it."""
+    document = QUESTIONS.read_text(encoding="utf-8")
+    assert "| ❌ | needs data we do not have" not in document
+    key = [line for line in document.splitlines() if line.startswith("| ❌ |")]
+    assert len(key) == 1, f"the key row for ❌ is {key}"
+    assert "the reason is on the question" in key[0]
+

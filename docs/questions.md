@@ -38,7 +38,7 @@ credible.
 |---|---|
 | ✅ | answerable from a source measured by a probe in `etl/` |
 | ⚠️ | answerable, with a caveat that must travel with the answer |
-| ❌ | needs data we do not have and may not be able to get |
+| ❌ | not answerable as the graph stands — the reason is on the question |
 
 **Statuses were re-checked on 2026-08-19, not carried over.** Two changed:
 
@@ -235,6 +235,34 @@ route nationally? ✅
 reachability most? ✅ *Counterfactual over the graph.*
 
 ---
+
+## The missing academic join
+
+Six questions above — Q62, Q75, Q81, Q83, Q89 and Q90 — are blocked on one
+thing, and it is the largest single finding of the #22 exercise. It had no
+section of its own until now: it lived inside Q75's prose and half a table
+cell, which is not where a reader meets a finding that blocks six questions.
+
+**There is no academic edge from a district Course to a Programme or an
+Occupation.** The only route the schema offers is geography:
+
+    Course <-TEACHES- School -IN_DISTRICT-> District -LOCATED_IN-> Place
+           <-LOCATED_IN- Institution -OFFERS-> Programme
+
+That walk returns rows. It answers "a programme exists near a school that
+teaches this course", and every question in the list above wants "this course
+prepares a student for that programme". A query written down it looks like an
+answer and is geography wearing an academic answer's clothes — which is why
+these are marked rather than answered with it.
+
+The join exists in the world: articulation agreements, dual-enrolment
+compacts, state CTE frameworks. None of them is published as data this repo has
+found. #66 is the research issue and #42 covers the dual-enrolment half.
+
+Counted rather than asserted — "nine" appeared in two files and matched neither
+the tier count nor the document-wide one, and
+`tests/test_questions_document.py` now holds this figure to the questions that
+cite it.
 
 ## The competency gap
 

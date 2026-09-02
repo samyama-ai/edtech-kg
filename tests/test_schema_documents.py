@@ -278,3 +278,52 @@ def _figure(text: str, pattern: str, group: int = 1) -> int:
     found = re.search(pattern, text)
     assert found, f"no figure matching {pattern!r} — the wording changed"
     return int(found.group(group).replace(",", ""))
+
+
+#: What `docs/schema.md` offers as examples of what `REQUIRES` makes
+#: answerable, and the tier-4 question each one names. An exemplar is a claim
+#: about a question, and the guard beside it only checked the COUNT — so the
+#: count was updated when the tier was re-marked and the words were not, which
+#: left "cycle detection" listed as answerable while Q71 is ❌ for it.
+REQUIRES_EXEMPLARS = {
+    "blast radius": "Q61",
+    "shortest path": "Q72",
+    "reachability": "Q77",
+    "ancestor and descendant sets": "Q69",
+}
+
+#: Named because the prose names it, and it must stay named: the sentence says
+#: NOT cycle detection, and the day Q71 becomes answerable that sentence is
+#: wrong in the other direction.
+NOT_AN_EXEMPLAR = {"cycle detection": "Q71"}
+
+
+def test_the_schema_doc_only_offers_examples_the_questions_agree_with():
+    """A figure restated in a second document with nothing tying it to the
+    first is this repo's most common finding. This is the words half of one."""
+    from tests.questions_document import marks
+
+    status = marks()
+    prose = SCHEMA_DOC.read_text(encoding="utf-8")
+    sentence = [line for line in prose.splitlines() if "tier-4 questions answerable" in line]
+    assert sentence, "the REQUIRES paragraph in docs/schema.md has moved or been reworded"
+    # WHITESPACE-NORMALISED. The prose is wrapped, so `shortest path` sits
+    # across a line break and a literal match reported it as removed — a guard
+    # that fails on a reflow is a guard someone deletes.
+    paragraph = " ".join(
+        prose.split("Prerequisite chains are the reason", 1)[1][:700].split())
+
+    for phrase, question in REQUIRES_EXEMPLARS.items():
+        assert phrase in paragraph, f"{phrase!r} is no longer offered as an example"
+        assert status[question] != "no", (
+            f"docs/schema.md offers {phrase!r} as answerable and {question} is "
+            f"marked ❌ — the count was updated and the examples were not")
+
+    for phrase, question in NOT_AN_EXEMPLAR.items():
+        assert status[question] == "no", (
+            f"{question} is no longer ❌, so docs/schema.md saying it is NOT "
+            f"{phrase!r} has gone stale in the other direction")
+        assert f"NOT {phrase}" in paragraph, (
+            f"docs/schema.md no longer says {phrase!r} is excluded, and "
+            f"{question} is still ❌ for it")
+
