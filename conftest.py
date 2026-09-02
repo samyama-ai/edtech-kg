@@ -80,10 +80,16 @@ SKIP_BUDGET = {
     # failures in a job that loads a district. Split by reason rather than
     # summed, because they are three different claims about the graph and one
     # of them going quiet should not be absorbed by the other two.
-    "holds no Course nodes, so a predicate inside a WHERE": 6,
-    # Six, not three: tiers 1 to 3 used to leave this guard before reaching
-    # the data gate, because their skip fired first. As xfails they run the
-    # body, so on an empty engine they reach this gate like every other tier.
+    # Seven, not six: edtech-kg#133 added a test asserting what the inline
+    # property map actually does, and it is a statement about the engine, so it
+    # is gated like the rest.
+    "holds no Course nodes, so a predicate inside a WHERE": 7,
+    # Six, which is every tier. Tiers 1 to 3 reached this gate only after
+    # edtech-kg#133 fixed them: before that they were strict xfails and left
+    # the guard earlier. REPLACING the note that described the state before
+    # that rather than adding to it — two justifications stacked on one number
+    # leave a reader working out which is live, which is the failure the PR
+    # this came from argues against.
     "holds no Course nodes, so no anchor can resolve": 6,
     "holds no prerequisite edges": 2,
 }
