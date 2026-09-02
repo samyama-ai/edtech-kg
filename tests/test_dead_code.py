@@ -35,8 +35,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def tracked() -> list[str]:
-    return subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True,
-                          text=True, check=True).stdout.split()
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True)
+    if out.returncode != 0:
+        pytest.skip("not a git checkout")
+    return [n for n in out.stdout.split("\0") if n]
 
 
 def test_no_module_leaves_a_helper_or_constant_behind():
@@ -68,12 +70,25 @@ def test_no_module_leaves_a_helper_or_constant_behind():
             other_tree = ast.parse(text)
         except SyntaxError:
             continue
-        direct: set[str] = set()          # names pulled in by `from X import n`
+        # DIRECT IMPORTS BY MODULE, for the same reason as the attributes
+        # below. A flat set was OR'd into every module this file imports, so
+        # `from etl.other import URL` spared `etl/thing.py`'s dead `URL` as
+        # soon as the file also imported `thing` — `a.NAME` vouching for
+        # `b.NAME` through the other channel.
+        #
+        # THE NARROWING HAS A FLOOR. `from etl import x` where `x` is not a
+        # tracked submodule still resolves to `etl`, so those names stay
+        # package-wide: deciding whether `x` is a symbol or a module without
+        # importing is only possible when a file answers it.
+        direct_by_module: dict[str, set[str]] = {}
         aliases: dict[str, str] = {}      # local alias -> module it refers to
         for node in ast.walk(other_tree):
             if isinstance(node, ast.ImportFrom) and node.module:
                 for alias in node.names:
-                    direct.add(alias.asname or alias.name)
+                    submodule = f"{node.module}.{alias.name}"
+                    resolved = submodule if submodule in modules else node.module
+                    direct_by_module.setdefault(resolved, set()).add(
+                        alias.asname or alias.name)
                     # THE SUBMODULE, not the package. `from etl import x as y`
                     # is an ImportFrom whose `node.module` is `etl`, so `y` was
                     # recorded against the PACKAGE — and the import test below
@@ -88,12 +103,17 @@ def test_no_module_leaves_a_helper_or_constant_behind():
                     # symbol, and only the first is a module. Resolved against
                     # the files this repo tracks rather than by importing
                     # anything.
-                    submodule = f"{node.module}.{alias.name}"
-                    aliases.setdefault(alias.asname or alias.name,
-                                       submodule if submodule in modules else node.module)
+                    aliases.setdefault(alias.asname or alias.name, resolved)
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    aliases[alias.asname or alias.name.split(".")[0]] = alias.name
+                    # `setdefault`, matching the branch above. The two used
+                    # different rules — first-binding-wins here, last-wins
+                    # there — which is not wrong today and is one dict with two
+                    # rules for whoever edits it next. FIRST wins, because a
+                    # rebinding later in a file is far more often a local shadow
+                    # than a correction of the import.
+                    aliases.setdefault(alias.asname or alias.name.split(".")[0],
+                                       alias.name)
         # ATTRIBUTES BY RECEIVER. A bare `{n.attr for ...}` pooled every
         # attribute in the file and handed the pool to every imported module,
         # so `a.NAME` vouched for `b.NAME`. Only attributes whose receiver is
@@ -123,6 +143,9 @@ def test_no_module_leaves_a_helper_or_constant_behind():
             imported = any(m == module or m.startswith(module + ".")
                            or module.startswith(m + ".")
                            for m in aliases.values())
+            direct = {name for alias_module, names in direct_by_module.items()
+                      for name in names
+                      if alias_module == module or alias_module.startswith(module + ".")}
             attributes = loose_attributes | {
                 attr for alias_module, attrs in by_receiver.items()
                 for attr in attrs
@@ -252,13 +275,19 @@ def test_a_name_IMPORTED_FROM_ELSEWHERE_does_not_spare_a_namesake(
     Two modules can define the same name — `URL`, `parse` and `population`
     each sit in several files here — and a third that imports one of them was
     enough to mark BOTH live. Four dead names walked through the repo that
-    way. Below, `reader` imports `other`'s `URL` and never touches `thing`, so
-    `thing`'s `URL` is dead and must be reported.
+    way.
+
+    `reader` imports BOTH, which is the shape that reproduces it — the guard
+    only reaches the name check for a module the file imports, so a tree where
+    the sparing file never imports the target proves nothing. This test had
+    that hole and passed over a `direct` set that was still pooled across
+    modules, which is the attribute defect one channel over.
     """
     guard = guard_over(tmp_path, monkeypatch, {
         "etl/thing.py": "URL = \"https://example.invalid/dead\"\n",
         "etl/other.py": "URL = \"https://example.invalid/live\"\n",
-        "etl/reader.py": "from etl.other import URL\n\n\ndef _read():\n    return URL\n",
+        "etl/reader.py": "from etl.other import URL\nfrom etl import thing\n\n\n"
+                         "def _read():\n    return URL, thing\n",
     })
     with pytest.raises(AssertionError, match=r"etl/thing\.py: \['URL'\]"):
         guard()
