@@ -44,6 +44,7 @@ import re
 
 import pytest
 
+from tests.questions_document import marks
 from tests.schema_properties import undeclared
 from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
 
@@ -78,100 +79,9 @@ def answered(path: pathlib.Path) -> list[str]:
     return re.findall(r"^// (Q\d+)\.", path.read_text(encoding="utf-8"), re.M)
 
 
-#: A question STARTS a block. Two spellings ship — `**Q1.** text` and
-#: `**Q61. text**` — and the second was invisible to a parser that required
-#: the closing `**` right after the number, so five questions were not read at
-#: all. Marks are read from the block, not the line, because a question that
-#: wraps carries its mark on the continuation.
-QUESTION = re.compile(r"^\*\*(Q\d+)\.", re.M)
-
-
-def blocks() -> dict[str, str]:
-    """Each question with everything up to the next one.
-
-    Line-by-line was wrong in two ways at once. It required `**Qn.**`, so
-    `**Q61. What is…**` was not a question; and it read the mark from the
-    FIRST physical line, so a question wrapping onto a second was reported
-    unmarked while its mark sat one line down. Eighteen were, and an unmarked
-    question is exempt from the ratchet — so eighteen answerable questions
-    could have had no traversal and nothing would have said so.
-    """
-    text = QUESTIONS.read_text(encoding="utf-8")
-    starts = [(m.group(1), m.start()) for m in QUESTION.finditer(text)]
-    found = {}
-    for index, (name, at) in enumerate(starts):
-        end = starts[index + 1][1] if index + 1 < len(starts) else len(text)
-        # A block also stops at the next HEADING, or the prose between tiers
-        # is read as part of the last question in the tier above.
-        heading = text.find("\n## ", at)
-        if heading != -1 and heading < end:
-            end = heading
-        found[name] = text[at:end]
-    return found
-
-
-def marks() -> dict[str, str]:
-    """Every question in the document, with its mark."""
-    found = {}
-    for name, block in blocks().items():
-        # The FIRST mark in the block, by position. A fixed priority order
-        # reads a status character mentioned in an explanation as the
-        # question's own mark — which is what happened when Q19's re-marking
-        # said what it used to be.
-        positions = [(block.index(c), state) for c, state in
-                     (("✅", "ok"), ("⚠️", "caveat"), ("❌", "no"))
-                     if c in block]
-        found[name] = min(positions)[1] if positions else "unmarked"
-    return found
-
-
 def test_there_are_benchmark_files_to_check():
     """A glob that matches nothing makes every test below vacuous."""
     assert files(), f"no tier-*.cypher under {BENCHMARKS}"
-
-
-def test_the_parser_reads_every_question_in_the_document():
-    """`> 50` was the old bound and it was far too loose.
-
-    The parser saw 97 of 102 and reported 18 of those as unmarked, so 79 were
-    classified correctly and the bound passed anyway. An unmarked question is
-    exempt from the ratchet below, so twenty-three answerable questions could
-    have had no traversal and nothing would have said so.
-
-    Counted against the document rather than a number written here, and
-    nothing may be left unmarked — "unmarked" is the state that quietly
-    excuses a question.
-    """
-    text = QUESTIONS.read_text(encoding="utf-8")
-    in_document = {m.group(1) for m in QUESTION.finditer(text)}
-    found = marks()
-    assert set(found) == in_document, (
-        f"the parser missed {sorted(in_document - set(found))} and invented "
-        f"{sorted(set(found) - in_document)}")
-    unmarked = [q for q, state in found.items() if state == "unmarked"]
-    assert not unmarked, (
-        f"{unmarked} carry no status, so the ratchet cannot tell whether they "
-        f"need a traversal")
-    assert {"ok", "caveat", "no"} <= set(found.values())
-
-
-def test_the_tally_the_document_prints_is_the_one_the_parser_reads():
-    """The document's own table is machine-checked by `test_questions.py`
-    against a different parser. If the two disagree, one of them is wrong
-    about the same file — and this one drives which questions need a
-    traversal."""
-    from collections import Counter
-
-    counted = Counter(marks().values())
-    text = QUESTIONS.read_text(encoding="utf-8")
-    row = re.search(r"\| \*\*Total\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \| "
-                    r"\*\*(\d+)\*\* \| \*\*(\d+)\*\* \|", text)
-    assert row, "the totals row is no longer in questions.md"
-    total, ok, caveat, no = (int(g) for g in row.groups())
-    assert (counted["ok"], counted["caveat"], counted["no"]) == (ok, caveat, no), (
-        f"the document's table says {ok}/{caveat}/{no} and this parser reads "
-        f"{counted['ok']}/{counted['caveat']}/{counted['no']}")
-    assert sum(counted.values()) == total
 
 
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
@@ -360,48 +270,6 @@ def test_a_declared_key_matched_inline_is_not_a_gap():
     assert undeclared('MATCH (c:Course {url: "https://x/y"}) RETURN c.name') == set()
 
 
-def prose_only(block: str) -> str:
-    """The block with `code spans` removed.
-
-    An asterisk inside backticks is code — a Cypher `*1..1`, a glob, a
-    multiplication — and counting it as emphasis is how a well-formed block
-    fails a truncation check.
-    """
-    return re.sub(r"`[^`]*`", "", block)
-
-
-def test_no_question_carries_an_orphaned_fragment():
-    """A by-line re-mark leaves the continuation behind, and the tier count
-    does not notice.
-
-    Q75's re-mark left two orphan lines and the document's own guards caught it
-    — the tier read 21 questions. Q78's left one, and nothing caught it,
-    because the fragment does not begin with `**Q` so the count stayed at 20.
-    The ratchet detects one shape of this bug and not the other.
-
-    What the fragment DOES carry is an unmatched `*`: `cover over paths.*` is
-    the tail of an italic whose opening went with the replaced line. Emphasis
-    markers pair, so an odd count in a block is a truncated one — measured,
-    Q78 was the only block in the document with one.
-
-    A PROXY for truncation, not a Markdown check. The message says emphasis
-    because that is the symptom, and the next person who trips it should know
-    they are looking at a truncation heuristic.
-
-    Asterisks inside `code spans` are excluded, and that is not a nicety: the
-    Q71 re-mark quotes a Cypher fragment whose `*` is a path quantifier, and
-    counting it failed this test on a block that was perfectly well formed. A
-    literal asterisk in PROSE still fails, and the fix then is to escape it,
-    because the pairing is what makes this mean anything.
-    """
-    ragged = {q: prose_only(block).count("*") for q, block in blocks().items()
-              if prose_only(block).count("*") % 2}
-    assert not ragged, (
-        f"these questions have unbalanced emphasis markers, which is what a "
-        f"line-replaced re-mark leaves behind: {ragged}. Replace the whole "
-        f"block, not its first line.")
-
-
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
 def test_every_statement_runs_where_there_is_data_to_run_against(path):
     """EXECUTION, not parsing. The distinction Q68 cost a round to learn.
@@ -446,6 +314,20 @@ def test_every_statement_runs_where_there_is_data_to_run_against(path):
 #: example URL, and Q97, Q98 and Q100 reach for Programme and Occupation, which
 #: no loader fills. Zero from those is correct and asserting otherwise would
 #: turn a fixture choice into a failure.
+#:
+#: Q101 IS here because `etl/load_pwcs.py` fills `Pathway` and writes
+#: `INCLUDES` — 42 pathways and 316 edges on the district it loads — so a zero
+#: there is a defect rather than a missing loader. Named, because the rule
+#: above is about which labels a loader fills and Q101 is the one case where
+#: that has to be checked rather than assumed.
+#:
+#: COST: Q72 runs `shortestPath` over every Course pair and Q74 unwinds every
+#: path in the prerequisite graph. Both complete on one district — 791 courses,
+#: 240 edges — and both scale with whatever is loaded. When a second district
+#: lands (#19) this test is where the suite slows down, and it will look like a
+#: hang rather than a failure. Bound them or drop them from this list then;
+#: they are here now because they are the two that exercise the deepest
+#: traversal the engine does.
 ANSWERS_OVER_THE_WHOLE_GRAPH = {
     "tier-4-graph-algorithms": ["Q66", "Q72", "Q73", "Q74", "Q76", "Q79"],
     "tier-6-whole-graph": ["Q95", "Q96", "Q99", "Q101", "Q102"],

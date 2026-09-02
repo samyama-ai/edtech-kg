@@ -20,9 +20,14 @@
 // note below proved it is not one; a reader who took that at face value would
 // have written another silently-zero query.
 //
-// FOUR questions in this tier are re-marked: Q68, Q75 and Q78 to ❌ and Q62 to
-// ⚠️. Q68 IS a gap in the engine — it is the sole member of the cluster
-// `docs/questions.md` calls "The engine cannot". The other three are gaps in
+// FIVE questions in this tier are re-marked: Q68, Q71, Q75 and Q78 to ❌ and
+// Q62 to ⚠️. Q68 and Q71 are BOTH gaps in the engine — together they are the
+// cluster `docs/questions.md` calls "The engine cannot", one answering none
+// where there are some and the other 359 where there are none.
+//
+// This paragraph said FOUR and called Q68 the sole member, because it was
+// written a round before Q71 was found and not revisited. A summary written
+// in an earlier round is exactly what this PR keeps having to correct. The other three are gaps in
 // the schema or in what a traversal can express.
 
 // Q61. If I skip chemistry this year, what does that close off later?
