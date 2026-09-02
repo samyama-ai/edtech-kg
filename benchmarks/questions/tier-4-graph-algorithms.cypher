@@ -14,7 +14,9 @@
 // `size(pattern)`, `UNWIND` as a leading clause, two `MATCH` clauses inside
 // `NOT EXISTS`, and — the one that cost this file a round — **`IN` over a list
 // of nodes**, which parses, runs, and matches nothing either way rather than
-// refusing. `NOT x IN nodes(p)` was listed HERE as a capability until the Q68
+// refusing; and **a repeated variable across a variable-length pattern**,
+// which is not bound — `(c)-[:R*]->(c)` matches any path rather than a cycle,
+// and cost this file Q71. `NOT x IN nodes(p)` was listed HERE as a capability until the Q68
 // note below proved it is not one; a reader who took that at face value would
 // have written another silently-zero query.
 //
@@ -119,15 +121,36 @@ RETURN DISTINCT a.url, a.name;
 MATCH (d:Course)-[:REQUIRES*]->(:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-1"})
 RETURN DISTINCT d.url, d.name;
 
-// Q71. Are there cycles in the prerequisite graph?
-// A cycle is a PUBLISHING ERROR — a course requiring itself transitively can
-// never be taken — so finding none is the answer worth having. Bounded at 10:
-// an unbounded walk over a cycle does not terminate.
-MATCH p = (c:Course)-[:REQUIRES*1..10]->(c)
-RETURN c.url, length(p) AS cycle_length;
+// Q71 is re-marked ❌ and has no query. It asked whether there are cycles in
+// the prerequisite graph, and the answer this file used to give was 359.
+//
+// There are none. Measured on the loaded district:
+//
+//     MATCH ()-[r:REQUIRES]->()                    RETURN count(r)  ->  240
+//     MATCH p=(c:Course)-[:REQUIRES*1..1]->(c)     RETURN count(p)  ->  240
+//     MATCH (a:Course)-[:REQUIRES]->(b:Course)
+//       WHERE a.url = b.url                        RETURN count(*)  ->    0
+//
+// The "cycles of length 1" count is EVERY EDGE IN THE GRAPH. `french-2`
+// appeared as a self-loop and it requires `french-1`. **This engine does not
+// bind a repeated variable across a variable-length pattern** — `(c)-[:R*]->(c)`
+// matches any path, not the paths that return to `c`.
+//
+// So Q71 is Q68's failure in the other direction: Q68 reported none where
+// there were some, and this reported 359 where there are none. Both parse,
+// both run, both answer confidently.
+//
+// Found by doing what the review asked — checking what the statements actually
+// RETURN, rather than only that they do not error.
+//
+// A cycle IS worth detecting: it is a publishing error, and a course
+// transitively requiring itself can never be taken. It needs a construct this
+// engine does not have, and pretending otherwise is worse than saying so.
 
 // Q72. Which two courses are furthest apart in the prerequisite graph?
 // The DIAMETER — the longest shortest path, which is not the longest path.
+// Like Q68 and Q74 this is a REPORT: `shortestPath` over every Course pair is
+// unbounded, so it is quadratic in the catalogue and merely large here.
 MATCH p = shortestPath((a:Course)-[:REQUIRES*]->(b:Course))
 WITH a, b, length(p) AS distance
 RETURN a.url, b.url, distance ORDER BY distance DESC LIMIT 5;

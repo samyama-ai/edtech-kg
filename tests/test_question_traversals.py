@@ -14,11 +14,19 @@ So two things are checked, and they are not the same:
 
 * **Parsing**, ratcheted below against whatever engine is reachable. Cheap, and
   it runs on an empty one.
-* **Execution against LOADED data**, which is what caught Q68 — and which an
-  empty engine cannot do, because a predicate inside a `WHERE` is never
-  evaluated when nothing matches. `test_every_statement_runs_where_there_is_
-  data_to_run_against` does this when the graph holds courses, and says so
-  loudly when it cannot.
+* **Execution against LOADED data** — which catches a statement that ERRORS
+  when real rows reach it, and an empty engine cannot, because a predicate
+  inside a `WHERE` is never evaluated when nothing matches.
+* **A non-empty answer** where one is expected. This is the check that bites,
+  and neither of the two above is it: Q68 returned zero rows without erroring,
+  and Q71 returned 359 rows that were every edge in the graph. Both parsed,
+  both ran, both answered confidently and wrongly.
+
+Q68 and Q71 were found BY HAND, not by any of these. What is guarded now is
+the shape they share — a whole-graph statement whose answer is empty when the
+graph is not — and the shape they do not: a wrong non-empty answer is still
+only caught by reading it. Said plainly rather than implied, because the last
+version of this docstring claimed execution "caught Q68" and it did not.
 
 A query that parses, runs, and names a property nothing writes would still
 pass. That is what the `NEEDS:` annotations are for, and #123 is closing the
@@ -352,6 +360,16 @@ def test_a_declared_key_matched_inline_is_not_a_gap():
     assert undeclared('MATCH (c:Course {url: "https://x/y"}) RETURN c.name') == set()
 
 
+def prose_only(block: str) -> str:
+    """The block with `code spans` removed.
+
+    An asterisk inside backticks is code — a Cypher `*1..1`, a glob, a
+    multiplication — and counting it as emphasis is how a well-formed block
+    fails a truncation check.
+    """
+    return re.sub(r"`[^`]*`", "", block)
+
+
 def test_no_question_carries_an_orphaned_fragment():
     """A by-line re-mark leaves the continuation behind, and the tier count
     does not notice.
@@ -365,9 +383,19 @@ def test_no_question_carries_an_orphaned_fragment():
     the tail of an italic whose opening went with the replaced line. Emphasis
     markers pair, so an odd count in a block is a truncated one — measured,
     Q78 was the only block in the document with one.
+
+    A PROXY for truncation, not a Markdown check. The message says emphasis
+    because that is the symptom, and the next person who trips it should know
+    they are looking at a truncation heuristic.
+
+    Asterisks inside `code spans` are excluded, and that is not a nicety: the
+    Q71 re-mark quotes a Cypher fragment whose `*` is a path quantifier, and
+    counting it failed this test on a block that was perfectly well formed. A
+    literal asterisk in PROSE still fails, and the fix then is to escape it,
+    because the pairing is what makes this mean anything.
     """
-    ragged = {q: block.count("*") for q, block in blocks().items()
-              if block.count("*") % 2}
+    ragged = {q: prose_only(block).count("*") for q, block in blocks().items()
+              if prose_only(block).count("*") % 2}
     assert not ragged, (
         f"these questions have unbalanced emphasis markers, which is what a "
         f"line-replaced re-mark leaves behind: {ragged}. Replace the whole "
@@ -408,3 +436,59 @@ def test_every_statement_runs_where_there_is_data_to_run_against(path):
     assert not broken, (
         f"{path.name} carries statements that PARSE and fail when run against "
         f"{held:,} loaded courses: {broken}")
+
+
+#: Statements that walk the WHOLE graph and touch only loaded labels. Each must
+#: return at least one row against a loaded district, because zero from one of
+#: these is the signal Q68 emitted — a query that runs, answers, and is wrong.
+#:
+#: Not every question belongs here. Q61-Q65, Q69, Q70 and Q77 scope to an
+#: example URL, and Q97, Q98 and Q100 reach for Programme and Occupation, which
+#: no loader fills. Zero from those is correct and asserting otherwise would
+#: turn a fixture choice into a failure.
+ANSWERS_OVER_THE_WHOLE_GRAPH = {
+    "tier-4-graph-algorithms": ["Q66", "Q72", "Q73", "Q74", "Q76", "Q79"],
+    "tier-6-whole-graph": ["Q95", "Q96", "Q99", "Q101", "Q102"],
+}
+
+
+@pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
+def test_a_whole_graph_question_answers_when_the_graph_is_not_empty(path):
+    """The check the two above are not.
+
+    Q68 ran clean and returned nothing on a graph with 119 chains; Q71 ran
+    clean and returned 359 rows that were every edge in the graph. Erroring is
+    not the failure mode that hurt — answering is.
+
+    This catches the empty half. The non-empty-but-wrong half is not
+    guardable without knowing the right answer, and saying so is better than a
+    check that implies otherwise.
+    """
+    wanted = ANSWERS_OVER_THE_WHOLE_GRAPH.get(path.stem)
+    if not wanted:
+        pytest.skip(f"{path.stem} has no whole-graph statements to check")
+    require_engine()
+    loaded = query(SAMYAMA_URL, "MATCH (c:Course)-[:REQUIRES]->(:Course) RETURN count(*) AS n")
+    held = (loaded.get("records") or [[0]])[0][0] if "error" not in loaded else 0
+    if not held:
+        message = (f"the graph at {SAMYAMA_URL} holds no prerequisite edges, so "
+                   f"every whole-graph statement is legitimately empty and this "
+                   f"checks nothing — load a district first")
+        if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
+            pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
+        pytest.skip(message)
+
+    text = path.read_text(encoding="utf-8")
+    empty = []
+    for block in re.split(r"(?<=;)\n", text):
+        label = re.search(r"^// (Q\d+)\.", block, re.M)
+        body = uncommented(block).strip().rstrip(";")
+        if not label or label.group(1) not in wanted or not body:
+            continue
+        result = query(SAMYAMA_URL, body)
+        if "error" in result or not (result.get("records") or []):
+            empty.append(label.group(1))
+    assert not empty, (
+        f"{path.name}: {empty} returned nothing against {held:,} prerequisite "
+        f"edges. A whole-graph question answering emptily on a non-empty graph "
+        f"is the signal Q68 gave — it runs, it answers, and it is wrong.")

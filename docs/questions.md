@@ -171,8 +171,7 @@ from sources.* Orphans are a data-quality finding as much as a student one.
 **Q68.** Which single course, if removed, disconnects the most others? ❌ — **re-marked by #22.** *Articulation points*, and the operation is not available. `NOT x IN nodes(p)` parses and runs, and returns nothing either way: measured on the loaded district, both `x IN nodes(p)` and its negation count 0 rows over 119 chains of length two or more. `IN` over a list of nodes is unusable here, so the query answers "there are none" on a graph that has them. An earlier round marked this answerable on the strength of parsing alone, against an engine holding no data.
 **Q69.** What is the full ancestor set of this course? ✅ *Transitive closure.*
 **Q70.** What is its full descendant set — everything it unlocks? ✅
-**Q71.** Are there cycles in the prerequisite graph? ✅ *Cycle detection.* A cycle
-is a publishing error and finding one is worth reporting to the district.
+**Q71.** Are there cycles in the prerequisite graph? ❌ — **re-marked by #22.** *Cycle detection*, and the construct is not available. This engine does not bind a repeated variable across a variable-length pattern: `(c)-[:REQUIRES*1..1]->(c)` matches **all 240** REQUIRES edges on the loaded district, not the ones returning to `c`, and no course requires itself. The query answered 359 where the answer is none — Q68's failure in the other direction.
 **Q72.** Which two courses are furthest apart in the prerequisite graph? ✅
 *Graph diameter.* Computable from the measured edges; like Q66, the value
 itself has not been computed and put in a document yet.
@@ -267,21 +266,21 @@ than assuming a shape.
 | 1 — lookup | 20 | 16 | 2 | 2 |
 | 2 — one hop | 22 | 15 | 3 | 4 |
 | 3 — change impact | 18 | 13 | 1 | 4 |
-| 4 — graph algorithms | 20 | 15 | 1 | 4 |
+| 4 — graph algorithms | 20 | 14 | 1 | 5 |
 | 5 — multi-domain | 14 | 0 | 4 | 10 |
 | 6 — whole-graph | 8 | 8 | 0 | 0 |
-| **Total** | **102** | **67** | **11** | **24** |
+| **Total** | **102** | **66** | **11** | **25** |
 
 This table is checked by `tests/test_questions.py`, which counts the questions
 and their status marks and fails if it disagrees. It exists because the first
 version of the table was written by hand and got three rows wrong.
 
-**Sixty-seven answerable, and fifteen of the twenty tier-4 questions among
+**Sixty-six answerable, and fourteen of the twenty tier-4 questions among
 them.** That is the argument for building this as a graph rather than a
 database, and three days ago it was not true — every tier-4 question was blocked
 on prerequisites that #63 has since measured.
 
-**Twenty-four blocked**, in eight clusters:
+**Twenty-five blocked**, in eight clusters:
 
 | Cluster | Questions | Why |
 |---|---|---|
@@ -292,7 +291,7 @@ on prerequisites that #63 has since measured.
 | **Rules joining the two tiers** | Q39, Q57, Q58, Q93, Q75, Q81, Q83, Q89, Q90 | nobody publishes them as data, and the schema has no edge for them — #66 |
 | Not in the schema at all | Q19, Q84, Q92 | cost, and enrolment, have no node or property — #22 |
 | Not a traversal | Q78 | set cover is an optimisation over the graph, not a walk of it; #22 |
-| The engine cannot | Q68 | `IN` over a node list is unusable, so articulation points return a confident zero; #22 |
+| The engine cannot | Q68, Q71 | `IN` over a node list is unusable and a repeated variable is not bound across a variable-length pattern, so articulation points return a confident zero and cycle detection a confident 359; #22 |
 
 **Rules joining the two tiers** is the interesting cluster, and it was missed on the first pass — named rather than pointed at, because two clusters have since been appended below it and "that last one" now means something else.
 Course-to-programme entry rules, state graduation requirements, accreditation
@@ -305,7 +304,7 @@ predicate device. It is worth its own research issue.
 
 ## What this tells us before designing anything
 
-The schema has to serve the 67. In particular it has to make tier 4 cheap, which
+The schema has to serve the 66. In particular it has to make tier 4 cheap, which
 means the prerequisite edge is the load-bearing structure and everything else
 hangs off the CIP-SOC join.
 
