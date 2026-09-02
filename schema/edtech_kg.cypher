@@ -425,3 +425,73 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 // 6. PREPARES_FOR is a published claim, not causation. The crosswalk says a
 //    programme prepares for an occupation. It does not say graduates get those
 //    jobs, and no data here supports that reading.
+
+
+// -----------------------------------------------------------------------------
+// Attributes — edtech-kg#123
+// -----------------------------------------------------------------------------
+// Every constraint above declares a KEY. Until now the schema declared nothing
+// else, so a traversal naming `o.name` on an Occupation parsed, returned null,
+// and looked like an answer — and #22 found fifteen of those across the six
+// tiers. `Q2. What occupation does this SOC code name?` is entirely the name,
+// and the schema promised only the code.
+//
+// Each line below is `Label.property <- the field a source publishes it as`.
+// The source field is the point: a property with no field behind it is a wish,
+// and the whole reason for this section is that a reader can check the
+// commitment rather than trust it.
+//
+// WHAT IT DOES NOT SAY IS THAT ANYTHING WRITES THEM. Measured: `load_pwcs.py`
+// is the only loader here and it writes Course, Pathway, Requirement and
+// Subject. Nothing loads Occupation, Programme, Institution, School, District
+// or Completion, and `SOC2018Title`, `INSTNM`, `school_name` and `lea_name`
+// appear in no loader at all. So `o.name` still returns null, and the `NEEDS:`
+// annotation on every such query stays until a loader lands — see
+// `tests/schema_properties.declared`, which reads the CONSTRAINTS and the
+// LOADERS and deliberately not this block. The first attempt at #123 read it
+// as reachability and dropped 33 of those annotations.
+//
+// Two entries name a file; the rest name a published dataset and its column,
+// because this repo has no downloader for them and inventing a filename would
+// be the same wish this section refuses.
+//
+// PROPERTIES
+//   Occupation.name        <- CIP2020_SOC2018_Crosswalk.xlsx, SOC2018Title
+//   Programme.name         <- CIP2020_SOC2018_Crosswalk.xlsx, CIP2020Title
+//   Institution.name       <- IPEDS HD, INSTNM
+//   Institution.control    <- IPEDS HD, CONTROL
+//   School.name            <- CCD school directory, school_name
+//   District.name          <- CCD district directory, lea_name
+//   Completion.awards      <- IPEDS C, CTOTALT
+//   Completion.award_level <- IPEDS C, AWLEVEL
+//   Course.description     <- catalog.pwcs.edu, field--name-field-description
+//   Course.grade_levels    <- catalog.pwcs.edu, field--name-field-grades
+// END PROPERTIES
+//
+// `Course.description` and `Course.grade_levels` sit here with the rest and
+// not in a block of their own. An earlier revision separated them on the
+// grounds that `Course` HAS a loader which omits them, while the other eight
+// labels have no loader at all — which is the weaker position, not the
+// stronger one. edtech-kg#137 tracks the two `load_pwcs.py` could extract
+// today.
+//
+// NOT declared, and each for its own reason:
+//
+//   Course.length — no source publishes it. The catalogue carries
+//   `field-credits` and `field-grades` and no length or duration field at all,
+//   so Q9's "grade levels and length" is answerable in one half. Declaring a
+//   property to satisfy a question is how a schema starts describing what
+//   somebody wanted rather than what anyone publishes.
+//
+//   EarningsRecord.median, .year, .source, .employment — no loader exists and
+//   the key's own note above says the components firm up when the first source
+//   is loaded (#21, #37). Declaring them now would fix a shape before anything
+//   has been read, which is the mistake `Pathway` already made once when it
+//   was keyed on `ctid` and left empty.
+//
+// Award level is the one attribute anything FILTERS on — `Q25`, `Q32`, `Q85`
+// and `Q91` all select by it — so it is the one that earns an index. The rest
+// are returned, not searched, and indexing them would claim a lookup pattern
+// this graph does not have.
+CREATE INDEX ON :Completion(award_level);
+

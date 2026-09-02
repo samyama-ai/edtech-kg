@@ -50,11 +50,18 @@ MATCH (c:Course {district: "Prince William County Public Schools"})
 RETURN count(c) AS courses;
 
 // Q9. What are this course's grade levels and length?
-//   NEEDS: Course.grade_levels, Course.length
-//   — the schema declares keys and these are not among them, so this
-//     parses and reaches for something no loader writes. See #123.
+//   [caveat: grade levels yes, LENGTH no — no source publishes it]
+//   The catalogue carries `field-grades` and `field-credits` and no length or
+//   duration field at all. Credits are not length: a one-credit course can run
+//   a semester or a year. So this answers the half that exists and does not
+//   dress the other half in a property nothing publishes (#123).
+//   NEEDS: Course.grade_levels
+//   — the half that exists is not LOADED either. The catalogue publishes
+//     `field--name-field-grades` and `etl/load_pwcs.py` does not extract it,
+//     so a loaded district holds 0 of 791 courses carrying it. The schema
+//     names the source field; nothing writes it. edtech-kg#137.
 MATCH (c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
-RETURN c.name, c.grade_levels, c.length;
+RETURN c.name, c.grade_levels;
 
 // Q10. Which schools teach this course?
 //   NEEDS: School.name

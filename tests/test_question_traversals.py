@@ -44,7 +44,7 @@ import re
 import pytest
 
 from tests.questions_document import QUESTION, marks
-from tests.schema_properties import undeclared
+from tests.schema_properties import declared, named_in_schema, undeclared
 from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -62,6 +62,10 @@ def uncommented(text: str) -> str:
     """
     return "\n".join(line for line in text.splitlines()
                      if not line.strip().startswith("//"))
+
+
+def schema_text() -> str:
+    return (ROOT / "schema" / "edtech_kg.cypher").read_text(encoding="utf-8")
 
 
 def files() -> list[pathlib.Path]:
@@ -246,27 +250,119 @@ def test_no_query_claims_a_gap_it_does_not_have(path):
         f"caught up: {stale}")
 
 
-def test_the_schema_still_declares_almost_nothing_but_keys():
-    """The premise the annotations rest on, asserted rather than assumed.
+#: Every attribute the schema NAMES, and the source field behind each.
+#: An EXACT SET, not a count and not a shape. The check this replaced asserted
+#: `len(source) > 8 and "," in source`, which `xxxxxxxxx,y` satisfies — so an
+#: entry could be added with a source field nobody could look up and the guard
+#: would pass it.
+#:
+#: Two of the ten name a FILE. The rest name a published dataset and its
+#: column, because this repo has no downloader for them: `IPEDS HD` and
+#: `IPEDS C` appear nowhere in the tree. So this holds the block to a stable
+#: enumeration, and NOT — as an earlier version of it claimed — to a file
+#: anyone can open. Naming a plausible filename would be the same wish the
+#: block exists to refuse.
+NAMED_ATTRIBUTES = {
+    "Occupation.name": ("CIP2020_SOC2018_Crosswalk.xlsx", "SOC2018Title"),
+    "Programme.name": ("CIP2020_SOC2018_Crosswalk.xlsx", "CIP2020Title"),
+    "Institution.name": ("IPEDS HD", "INSTNM"),
+    "Institution.control": ("IPEDS HD", "CONTROL"),
+    "School.name": ("CCD school directory", "school_name"),
+    "District.name": ("CCD district directory", "lea_name"),
+    "Completion.awards": ("IPEDS C", "CTOTALT"),
+    "Completion.award_level": ("IPEDS C", "AWLEVEL"),
+    "Course.description": ("catalog.pwcs.edu", "field--name-field-description"),
+    "Course.grade_levels": ("catalog.pwcs.edu", "field--name-field-grades"),
+}
 
-    If this fails the schema has gained properties, which is #123 being fixed —
-    and the NEEDS lines above should shrink with it rather than linger.
+
+def entries_of(marker: str = "PROPERTIES") -> dict[str, tuple[str, ...]]:
+    from tests.schema_properties import block
+
+    found = {}
+    for line in block(marker).splitlines():
+        matched = re.match(r"^//\s+(\w+\.\w+)\s+<-\s+(.+?)\s*$", line)
+        if matched:
+            found[matched.group(1)] = tuple(
+                part.strip() for part in matched.group(2).split(","))
+    return found
+
+
+def test_the_schema_names_exactly_these_attributes_and_these_sources():
+    """The point of the PROPERTIES block. A property with no field behind it is
+    a wish, and a schema that grants wishes stops describing what anyone
+    publishes."""
+    assert entries_of() == NAMED_ATTRIBUTES
+
+
+def test_naming_an_attribute_does_not_make_it_reachable():
+    """The distinction the first attempt at #123 collapsed, and the reason
+    there are two functions.
+
+    `declared()` is what tells a query it may reach for a property without a
+    `NEEDS:` line. Reading the PROPERTIES block into it dropped 33 annotations
+    from queries that still return null, because eight of the ten labels have
+    NO LOADER AT ALL — `Q2` reaches for `o.name` on a graph holding zero
+    `Occupation` nodes. Naming a source is not writing a property.
     """
+    named, reachable = named_in_schema(), declared()
+    still_unreachable = []
+    for name in NAMED_ATTRIBUTES:
+        label, prop = name.split(".")
+        assert prop in named.get(label, set()), f"{name} is not in the block"
+        if prop not in reachable.get(label, set()):
+            still_unreachable.append(name)
+    assert sorted(still_unreachable) == sorted(NAMED_ATTRIBUTES), (
+        f"{sorted(set(NAMED_ATTRIBUTES) - set(still_unreachable))} became "
+        f"reachable — a loader now writes them, so their `NEEDS:` lines are "
+        f"stale and should come off the queries that carry them")
+
+
+def test_only_the_four_loaded_labels_carry_anything_beyond_a_key():
+    """The measurement the whole distinction rests on, asserted not quoted.
+
+    `etl/load_pwcs.py` is the only loader this repo has, and it writes four
+    labels. Everything else carries its constraint key and nothing more — which
+    is why naming an attribute in the schema cannot make a query answerable.
+
+    Keys are DERIVED from the constraints rather than listed here. Listing them
+    was the first version and it missed `Credential.ctid`, so the test failed
+    on a label nothing writes — a guard reporting the opposite of its subject.
+    """
+    from tests.schema_properties import SCHEMA
+
+    keys: dict[str, set[str]] = {}
+    for _, label, prop in re.findall(
+            r"CREATE CONSTRAINT ON \((\w+):(\w+)\) ASSERT \1\.(\w+)",
+            SCHEMA.read_text(encoding="utf-8")):
+        keys.setdefault(label, set()).add(prop)
+
+    beyond = {label: sorted(props - keys.get(label, set()))
+              for label, props in declared().items()
+              if props - keys.get(label, set())}
+    assert set(beyond) == {"Course", "Pathway", "Requirement", "Subject"}, (
+        f"the set of labels a loader writes has changed to {sorted(beyond)}. "
+        f"The PROPERTIES block's note about what is unloaded, and every "
+        f"`NEEDS:` line resting on it, are now wrong.")
+
+
+def test_the_undeclared_ones_are_undeclared_deliberately():
+    """Five remain, and each is refused for a reason the schema states. A test
+    that only checked what IS declared would let the next author quietly add
+    `EarningsRecord.median` with no source loaded."""
     from tests.schema_properties import declared
 
     known = declared()
-    with_attributes = {label for label, props in known.items() if len(props) > 1}
-    assert with_attributes == {"Course", "Subject", "Pathway", "Requirement"}, (
-        f"the set of labels carrying more than a key has changed: "
-        f"{sorted(with_attributes)}. Every one of those has a loader; if a "
-        f"label gained properties another way, this check is now reading the "
-        f"wrong source")
+    assert "length" not in known.get("Course", set()), (
+        "Course.length is declared, and no source publishes it — the catalogue "
+        "carries credits and grades and no length field at all")
+    for prop in ("median", "year", "source", "employment"):
+        assert prop not in known.get("EarningsRecord", set()), (
+            f"EarningsRecord.{prop} is declared before any earnings source is "
+            f"loaded, which fixes a shape before anything has been read")
+    schema = schema_text()
+    assert "NOT declared, and each for its own reason" in schema
 
-
-# --------------------------------------------------------------------------
-# The extractor, driven. It decides which gaps get reported, so a hole in it
-# is a gap nobody hears about — and it had two, both found writing tier 2.
-# --------------------------------------------------------------------------
 
 def test_a_property_matched_inline_is_reached_for():
     """`MATCH (c:Completion {award_level: "X"})` reaches for `award_level`
