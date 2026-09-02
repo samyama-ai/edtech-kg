@@ -252,15 +252,15 @@ blocks. The other five are the ones here, where a source exists and the SCHEMA
 has no edge to hold it. Q62 is not in that row at all, because the row lists
 blocked questions and Q62 is answered with a caveat.
 
-Nine and six are both right, about different populations. This section is about
-the smaller one, and an earlier draft of it called nine a figure that "matched
-neither count" — it matches that row exactly.
+Nine and six are both right, about different populations. This section is
+about the smaller one.
 
-(This paragraph deliberately avoids two things the document's parsers read as
-structure: the status glyphs, which are counted per question to catch one
-carrying two, and a bold run opening with `**Q` followed by a number, which
-declares a question. Prose using either made the tally read 103 questions and
-twenty-six blocked ones. edtech-kg#146 is the fix; this note goes with it.)
+<!-- Contributor note, not for readers. This section avoids two things the
+     document's parsers read as structure: the status glyphs, counted per
+     question to catch one carrying two, and a bold run opening `**Q` followed
+     by a number, which declares a question. Prose using either made the tally
+     read 103 questions and twenty-six blocked. edtech-kg#146 is the fix, and
+     this note goes with it. -->
 
 It had no section of its own until now: it lived inside Q75's prose and half a
 table cell, which is not where a reader meets a finding this size.

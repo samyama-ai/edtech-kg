@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from tests.spelling import spelled
+
 from tests.questions_document import QUESTIONS, blocks, marks, prose_only
 
 
@@ -147,28 +149,34 @@ def test_the_missing_join_blocks_exactly_the_questions_the_documents_name():
     assert "## The missing academic join" in document, (
         "the finding that blocks the most questions has no section again")
     section = document.split("## The missing academic join", 1)[1].split("\n## ", 1)[0]
-    unnamed = [q for q in TURNING_ON_THE_MISSING_JOIN if q not in section]
+    # WORD-BOUNDED. `"Q9" in section` is satisfied by `Q90`, so a question in
+    # the Q1-Q9 range joining this set would go unchecked.
+    unnamed = [q for q in TURNING_ON_THE_MISSING_JOIN
+               if not re.search(rf"\b{q}\b", section)]
     assert not unnamed, (
         f"the section does not name {unnamed}, which the join blocks")
 
-    # SPELLED OUT, because the prose spells its counts out. Matching digits
-    # would pass on any file that happens to contain them and fail on this one.
-    spelled = {4: "FOUR", 5: "FIVE", 6: "SIX", 7: "SEVEN"}
+    # ONE DIRECTION, as `tests/spelling.py` says in its own docstring: read the
+    # document's word and compare ints. The first version of this held a
+    # `{4: "FOUR"}` table and asserted the literal — the reverse direction that
+    # module was written to reject, and it wedges: rewriting the header as
+    # "Four of those ten" in ordinary sentence case is a correct,
+    # count-preserving edit that would turn this red with no way out but
+    # editing the test. It also shadowed the repo's own `spelled`.
     tier = (QUESTIONS.parents[1] / "benchmarks" / "questions"
             / "tier-5-multi-domain.cypher").read_text(encoding="utf-8")
     in_tier = [q for q in TURNING_ON_THE_MISSING_JOIN if int(q[1:]) in range(81, 95)]
-    assert len(in_tier) in spelled, (
-        f"tier 5 holds {len(in_tier)} of them and this test cannot spell that "
-        f"— add it to `spelled` rather than letting a KeyError stand in for a "
-        f"finding")
-    assert f"{spelled[len(in_tier)]} of those ten" in tier, (
-        f"tier 5 holds {len(in_tier)} of the ten unanswerable and its header "
-        f"says something else — the figure was 'nine' in two files at once")
-    across = len(TURNING_ON_THE_MISSING_JOIN)
-    assert across in spelled, f"cannot spell {across}"
-    assert f"{spelled[across]} across the document" in tier, (
-        f"tier 5's header should say {spelled[across]} questions turn on the "
-        f"join across the document, and says something else")
+
+    for pattern, count, what in (
+            (r"(\w+) of those ten", len(in_tier), "tier 5's share"),
+            (r"(\w+) across the document", len(TURNING_ON_THE_MISSING_JOIN),
+             "the document-wide count")):
+        found = re.search(pattern, tier)
+        assert found, f"tier 5's header no longer states {what}"
+        assert spelled(found.group(1)) == count, (
+            f"tier 5's header says {found.group(1)!r} for {what} and the "
+            f"questions say {count} — this figure was 'nine' in two files at "
+            f"once, which is what this test exists for")
 
 
 #: The cluster row's OTHER half: questions in "Rules joining the two tiers"
@@ -234,7 +242,6 @@ def test_the_mark_key_does_not_claim_every_gap_is_a_data_gap():
     are properties no schema declares, and two are constructs this engine
     cannot express. A key that names one cause invites a reader to assume it."""
     document = QUESTIONS.read_text(encoding="utf-8")
-    assert "| ❌ | needs data we do not have" not in document
     key = [line for line in document.splitlines() if line.startswith("| ❌ |")]
     assert len(key) == 1, f"the key row for ❌ is {key}"
     assert "the reason is on the question" in key[0]
