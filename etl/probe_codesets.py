@@ -56,10 +56,6 @@ ONET_MEMBER = "OccupationalListings/Crosswalks/2019_to_SOC_Crosswalk.xlsx"
 # sentence beside it pointed at another.
 
 
-# The crosswalk's own NO MATCH sentinel, excluded here for the reason
-# edtech-kg#70 established: it is not an occupation.
-NO_MATCH = "99-9999"
-
 # A CIP code that names a whole 2-digit family, and one that names a 4-digit
 # series. Both are ROLLUP rows rather than programmes.
 FAMILY = re.compile(r"\A\d{2}\.0000\Z")
@@ -156,10 +152,19 @@ def crosswalk_pairs() -> list[tuple[str, str]]:
 
 
 def crosswalk_soc(mapped: list[tuple[str, str]] | None = None) -> set[str]:
-    """The SOC codes our crosswalk reaches, minus the NO MATCH sentinel."""
-    if mapped is None:
-        mapped = crosswalk_pairs()
-    return {soc for _, soc in mapped if soc != NO_MATCH}
+    """The SOC codes our crosswalk reaches, non-occupations excluded.
+
+    ONE reading now, in `etl/probe_cipsoc.py` (#112). This module and
+    `probe_bls` each had their own and they filtered differently: this one
+    dropped only the `99-9999` sentinel, the other dropped `00-0000` as well.
+    They agreed at 867 anyway, because `00-0000` is not in the CIP-SOC sheet —
+    correct by accident about this release.
+
+    `crosswalk_pairs()` is still what fetches and validates the workbook, so
+    the pairs are passed on rather than re-read: measured, the workbook route
+    is ~650ms against ~0.5ms here, and this module calls it twice.
+    """
+    return crosswalk.soc_codes(crosswalk_pairs() if mapped is None else mapped)
 
 
 def cip_hierarchy(mapped: list[tuple[str, str]] | None = None) -> dict:
