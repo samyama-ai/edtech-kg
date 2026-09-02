@@ -135,6 +135,29 @@ ANSWERS_OVER_THE_WHOLE_GRAPH = {
 
 
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
+def test_every_whole_graph_question_named_is_in_its_file(path):
+    """The ratchet half, HOISTED OUT of the data gate.
+
+    It read the file and nothing else, and sat below `require_engine()` and the
+    loaded-district check — so in CI, which starts an empty engine, the one
+    assertion here that needs no graph never ran. A ratchet that cannot fire
+    where it matters most is the failure it exists to prevent.
+
+    Renaming or deleting a question emptied the list silently: it went green by
+    checking nothing.
+    """
+    wanted = ANSWERS_OVER_THE_WHOLE_GRAPH.get(path.stem)
+    if not wanted:
+        pytest.skip(f"{path.stem} has no whole-graph statements to check")
+    present = {label for label, _ in labelled_statements(path)}
+    assert set(wanted) <= present, (
+        f"{path.name}: {sorted(set(wanted) - present)} are named in "
+        f"ANSWERS_OVER_THE_WHOLE_GRAPH and are not in the file. Either the "
+        f"question moved and the list did not follow, or it was dropped and "
+        f"the list is now guarding fewer statements than it says.")
+
+
+@pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
 def test_a_whole_graph_question_answers_when_the_graph_is_not_empty(path):
     """The check the two above are not.
 
@@ -158,25 +181,16 @@ def test_a_whole_graph_question_answers_when_the_graph_is_not_empty(path):
                    f"checks nothing — load a district first")
         require_data(message)
 
-    empty, reached = [], set()
+    empty = []
     for label, body in labelled_statements(path):
         if label not in wanted:
             continue
-        reached.add(label)
         result = query(SAMYAMA_URL, body)
         if result.get("transport"):
             continue          # excluded, as the sibling test above excludes it
         if "error" in result or answers_emptily(result):
             empty.append(label)
 
-    # The list is a ratchet, so it has to fail when it stops applying. Renaming
-    # or deleting a question silently emptied it before, which is the failure
-    # mode a ratchet exists to not have: it went green by checking nothing.
-    assert reached == set(wanted), (
-        f"{path.name}: {sorted(set(wanted) - reached)} are named in "
-        f"ANSWERS_OVER_THE_WHOLE_GRAPH and are not in the file. Either the "
-        f"question moved and the list did not follow, or it was dropped and "
-        f"the list is now guarding fewer statements than it says.")
     assert not empty, (
         f"{path.name}: {sorted(set(empty))} answered emptily against {held:,} "
         f"prerequisite edges — no rows, or a lone aggregate row that is null "
@@ -184,17 +198,51 @@ def test_a_whole_graph_question_answers_when_the_graph_is_not_empty(path):
         f"graph is the signal Q68 gave: it runs, it answers, and it is wrong.")
 
 
-#: The tiers this change re-anchored. Tiers 1 to 3 carry both defects below in
-#: 39 of their 51 statements and are NOT fixed here — that is edtech-kg#133,
-#: and a guard that quietly skipped them would read as coverage.
-ANCHORS_CHECKED = ("tier-4-graph-algorithms", "tier-5-multi-domain",
-                   "tier-6-whole-graph")
+#: The tiers still carrying the two defects below — an INVERTED list, and that
+#: is the point of it.
+#:
+#: It named the tiers that ARE checked, so anything not in it was exempt: a
+#: `tier-7-*.cypher` added tomorrow would be skipped by both guards, and its
+#: skip reason is budgeted in `conftest.py`, so CI would not mention it either.
+#: A new file would arrive uncovered and look covered.
+#:
+#: Inverted, a new file is checked by default and this shrinks to empty as
+#: edtech-kg#133 lands. Tiers 1 to 3 carry the defects in 39 of their 51
+#: statements; they are exempt because that is a PR of its own, not because
+#: nobody looked.
+NOT_YET_ANCHORED = ("tier-1-lookup", "tier-2-one-hop", "tier-3-change-impact")
+
+
+def expect_failure(request, path) -> None:
+    """Mark a not-yet-anchored tier as an EXPECTED failure, strictly.
+
+    Not `pytest.skip()`: these tiers are not inapplicable, they are known
+    broken, and the two read identically in every summary line. The genuine
+    "not applicable" skips elsewhere in this file — a tier with no whole-graph
+    statement, a tier with no example url — stay skips, because only one of
+    those two states should ever go away.
+
+    And not `pytest.xfail()`, which is imperative: it short-circuits, so the
+    body never runs and the test can never XPASS. That is the whole point
+    missed — a reminder that cannot notice being satisfied is just a skip
+    wearing a different word. The marker is applied and the body RUNS, so
+    strict xfail turns an unexpected pass into a failure the day edtech-kg#133
+    fixes a tier, and the exemption removes itself.
+
+    `conftest.py` excludes xfail from skip accounting, so this also returns six
+    to the skip budget.
+    """
+    if path.stem in NOT_YET_ANCHORED:
+        request.applymarker(pytest.mark.xfail(
+            strict=True,
+            reason=f"{path.stem} is not re-anchored yet — edtech-kg#133"))
+
 
 INLINE_MAP = re.compile(r"\(\s*\w*\s*:\s*\w+\s*\{\s*\w+\s*:\s*[\"']")
 
 
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
-def test_no_statement_filters_with_an_inline_property_map(path):
+def test_no_statement_filters_with_an_inline_property_map(path, request):
     """An inline property map does not filter on this engine.
 
     Measured, and it is the worst thing in this file's history because it is
@@ -214,8 +262,7 @@ def test_no_statement_filters_with_an_inline_property_map(path):
 
     `WHERE` filters correctly. Use it.
     """
-    if path.stem not in ANCHORS_CHECKED:
-        pytest.skip(f"{path.stem} is not re-anchored yet — edtech-kg#133")
+    expect_failure(request, path)
     offenders = [body.splitlines()[0][:60] for _, body in labelled_statements(path)
                  if INLINE_MAP.search(body)]
     assert not offenders, (
@@ -225,7 +272,7 @@ def test_no_statement_filters_with_an_inline_property_map(path):
 
 
 @pytest.mark.parametrize("path", files(), ids=lambda p: p.stem)
-def test_every_course_url_a_statement_anchors_on_exists(path):
+def test_every_course_url_a_statement_anchors_on_exists(path, request):
     """An anchor that matches no node is a question answered about nothing.
 
     Every url in tier 4 pointed at `catalog.pwcs.edu/agriculture/...` and
@@ -236,8 +283,7 @@ def test_every_course_url_a_statement_anchors_on_exists(path):
     suite was green, because the inline property map above meant the anchor was
     never applied in the first place and there was nothing to notice.
     """
-    if path.stem not in ANCHORS_CHECKED:
-        pytest.skip(f"{path.stem} is not re-anchored yet — edtech-kg#133")
+    expect_failure(request, path)
     require_engine()
     loaded = query(SAMYAMA_URL, "MATCH (c:Course) RETURN count(c) AS n")
     held = (loaded.get("records") or [[0]])[0][0] if "error" not in loaded else 0
@@ -269,3 +315,66 @@ def test_every_course_url_a_statement_anchors_on_exists(path):
     assert not missing, (
         f"{path.name} anchors on course urls that no node carries, so those "
         f"statements answer about nothing: {missing}")
+
+
+# --------------------------------------------------------------------------
+# The constants above are keyed on FILE STEMS, and a stem is not a thing the
+# type system checks. Measured on #128: renaming `tier-4-graph-algorithms.cypher`
+# made the suite GREENER — two failures vanished and three skips appeared —
+# and deleting `tier-6-whole-graph.cypher` lost the whole-graph guard with
+# nothing said. A ratchet that goes quiet when its subject moves is the exact
+# class it exists to prevent.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name, keys", [
+    ("ANSWERS_OVER_THE_WHOLE_GRAPH", tuple(ANSWERS_OVER_THE_WHOLE_GRAPH)),
+    ("NOT_YET_ANCHORED", NOT_YET_ANCHORED),
+])
+def test_every_tier_a_constant_names_is_a_file_that_exists(name, keys):
+    """Renaming or deleting a tier file has to say so, not go quiet."""
+    stems = {path.stem for path in files()}
+    assert stems, "files() found no benchmark files at all"
+    missing = sorted(set(keys) - stems)
+    assert not missing, (
+        f"{name} names {missing}, and no `tier-*.cypher` has that stem. Either "
+        f"the file was renamed and the constant did not follow — in which case "
+        f"its guard is now silently checking nothing — or it was deleted and "
+        f"the entry is stale.")
+
+
+def test_require_data_fails_rather_than_skips_when_the_flag_is_set(monkeypatch):
+    """`SAMYAMA_REQUIRE_DATA=1` has no test and no job that sets it.
+
+    It was introduced so these gates stop misreading `SAMYAMA_REQUIRE_ENGINE`,
+    which asserts an engine is REACHABLE and not that a district is LOADED.
+    Nothing exercises the fail branch, so it can rot unnoticed — which is the
+    class of bug it was added to fix. Verified by hand once is not covered.
+    """
+    monkeypatch.setenv("SAMYAMA_REQUIRE_DATA", "1")
+    # NOT `pytest.raises(pytest.fail.Exception)`. `Skipped` is a
+    # `BaseException` and is not `Failed`, so if `require_data` starts skipping
+    # here — which is exactly the regression this test exists to catch — the
+    # skip escapes the block and SKIPS this test rather than failing it.
+    # Measured: deleting the fail branch left the suite green at 17 passed,
+    # 11 skipped. The type of what was raised has to BE the assertion.
+    try:
+        require_data("no district loaded")
+    except BaseException as raised:      # noqa: B036 - the type is the assertion
+        outcome: BaseException | None = raised
+    else:
+        outcome = None
+    assert isinstance(outcome, pytest.fail.Exception), (
+        f"SAMYAMA_REQUIRE_DATA=1 must FAIL, not skip — require_data raised "
+        f"{type(outcome).__name__ if outcome else 'nothing'}")
+    assert "forbids skipping this" in str(outcome)
+
+
+def test_require_data_skips_when_the_flag_is_unset(monkeypatch):
+    """The other bound, and `pytest.raises(Skipped)` rather than
+    `pytest.raises(Failed)`: `Skipped` is a `BaseException` and is not
+    `Failed`, so a `Failed` block around a skip SKIPS the test instead of
+    failing it — and every assertion about the guard turns green."""
+    monkeypatch.delenv("SAMYAMA_REQUIRE_DATA", raising=False)
+    with pytest.raises(pytest.skip.Exception, match="no district loaded"):
+        require_data("no district loaded")
+
