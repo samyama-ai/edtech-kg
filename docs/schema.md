@@ -132,12 +132,9 @@ host is what separates them, so the key keeps it.
 **Prerequisite chains are the reason this is a graph.** `REQUIRES` is what makes
 fourteen of the twenty tier-4 questions answerable — blast radius, shortest
 path, reachability, ancestor and descendant sets. NOT cycle detection: that is
-Q71, and #22 marked it ❌ because this engine does not bind a repeated variable
-across a variable-length pattern, so `(c)-[:REQUIRES*1..1]->(c)` matches every
-edge rather than the ones returning to `c`. The count here was updated when the
-tier was re-marked and the examples beside it were not, which is the shape of
-stale figure this repo finds most often — a guard checking the number does not
-see the words. Direction is *course → what it requires*,
+Q71, marked ❌ because this engine does not bind a repeated variable across a
+variable-length pattern, so `(c)-[:REQUIRES*1..1]->(c)` matches every edge
+rather than the ones returning to `c`. Direction is *course → what it requires*,
 so "what does skipping this close off" is an inbound traversal and "what do I
 need first" is outbound. Before `etl/probe_pwcs.py` measured this catalogue,
 every one of those questions was blocked for want of a source.

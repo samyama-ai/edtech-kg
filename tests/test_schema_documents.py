@@ -287,7 +287,13 @@ def _figure(text: str, pattern: str, group: int = 1) -> int:
 #: left "cycle detection" listed as answerable while Q71 is ❌ for it.
 REQUIRES_EXEMPLARS = {
     "blast radius": "Q61",
-    "shortest path": "Q72",
+    # Q62, NOT Q72. Q72 is "which two courses are furthest apart" — graph
+    # diameter. It is ✅, so pointing here at it made this guard pass for the
+    # wrong reason: the exemplar it claims to check would have gone stale
+    # without firing. The shortest-path questions are Q62 (⚠️) and Q75 (❌),
+    # and the assertion below allows ⚠️ because a caveated answer is still an
+    # answer.
+    "shortest path": "Q62",
     "reachability": "Q77",
     "ancestor and descendant sets": "Q69",
 }
@@ -310,8 +316,12 @@ def test_the_schema_doc_only_offers_examples_the_questions_agree_with():
     # WHITESPACE-NORMALISED. The prose is wrapped, so `shortest path` sits
     # across a line break and a literal match reported it as removed — a guard
     # that fails on a reflow is a guard someone deletes.
+    # THE PARAGRAPH, not a character budget over prose. `[:700]` was a window
+    # a phrase could drop out of as the text grew, and the guard would pass by
+    # not seeing it.
     paragraph = " ".join(
-        prose.split("Prerequisite chains are the reason", 1)[1][:700].split())
+        prose.split("Prerequisite chains are the reason", 1)[1]
+             .split("\n\n", 1)[0].split())
 
     for phrase, question in REQUIRES_EXEMPLARS.items():
         assert phrase in paragraph, f"{phrase!r} is no longer offered as an example"

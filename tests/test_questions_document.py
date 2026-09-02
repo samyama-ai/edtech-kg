@@ -106,7 +106,16 @@ def test_no_question_carries_an_orphaned_fragment():
 #: the document holds six. Nobody typed nine from a measurement — it was
 #: carried from an earlier draft and restated, which is how every stale figure
 #: in this repo has arrived.
-BLOCKED_BY_THE_MISSING_JOIN = ("Q62", "Q75", "Q81", "Q83", "Q89", "Q90")
+#: Five are BLOCKED — ❌, no query. Q62 is CAVEATED — ⚠️, and its own text says
+#: "held at a caveat rather than blocked outright, because the narrowed reading
+#: is the one a student asks and it is fully answered". Split, and the marks
+#: asserted, because the first version of this called all six blocked while
+#: Q62 said otherwise — the exact defect this file is correcting, reintroduced
+#: in the correction. Citation alone cannot tell them apart.
+TURNING_ON_THE_MISSING_JOIN = {
+    "Q62": "caveat", "Q75": "no", "Q81": "no",
+    "Q83": "no", "Q89": "no", "Q90": "no",
+}
 
 
 def test_the_missing_join_blocks_exactly_the_questions_the_documents_name():
@@ -118,30 +127,46 @@ def test_the_missing_join_blocks_exactly_the_questions_the_documents_name():
     """
     citing = {q for q, text in blocks().items()
               if re.search(r"#66|academic edge|geography wearing", text)}
-    assert citing == set(BLOCKED_BY_THE_MISSING_JOIN), (
+    assert citing == set(TURNING_ON_THE_MISSING_JOIN), (
         f"the questions citing the missing academic join are "
         f"{sorted(citing, key=lambda q: int(q[1:]))}, and the documents name "
-        f"{list(BLOCKED_BY_THE_MISSING_JOIN)}. Update both prose counts, in "
+        f"{list(TURNING_ON_THE_MISSING_JOIN)}. Update both prose counts, in "
         f"docs/questions.md and in tier-5-multi-domain.cypher.")
+
+    # THE MARKS, not only the membership. A question flipping ❌ to ✅ would
+    # otherwise stay in this set silently, and the section would keep calling
+    # it blocked.
+    status = marks()
+    wrong = {q: status[q] for q, expected in TURNING_ON_THE_MISSING_JOIN.items()
+             if status[q] != expected}
+    assert not wrong, (
+        f"{wrong} no longer carry the marks this section describes — five are "
+        f"blocked and Q62 is caveated, and the prose says which is which.")
 
     document = QUESTIONS.read_text(encoding="utf-8")
     assert "## The missing academic join" in document, (
         "the finding that blocks the most questions has no section again")
     section = document.split("## The missing academic join", 1)[1].split("\n## ", 1)[0]
-    unnamed = [q for q in BLOCKED_BY_THE_MISSING_JOIN if q not in section]
+    unnamed = [q for q in TURNING_ON_THE_MISSING_JOIN if q not in section]
     assert not unnamed, (
         f"the section does not name {unnamed}, which the join blocks")
 
     # SPELLED OUT, because the prose spells its counts out. Matching digits
     # would pass on any file that happens to contain them and fail on this one.
-    spelled = {4: "FOUR", 6: "SIX"}
+    spelled = {4: "FOUR", 5: "FIVE", 6: "SIX", 7: "SEVEN"}
     tier = (QUESTIONS.parents[1] / "benchmarks" / "questions"
             / "tier-5-multi-domain.cypher").read_text(encoding="utf-8")
-    in_tier = [q for q in BLOCKED_BY_THE_MISSING_JOIN if int(q[1:]) in range(81, 95)]
+    in_tier = [q for q in TURNING_ON_THE_MISSING_JOIN if int(q[1:]) in range(81, 95)]
+    assert len(in_tier) in spelled, (
+        f"tier 5 holds {len(in_tier)} of them and this test cannot spell that "
+        f"— add it to `spelled` rather than letting a KeyError stand in for a "
+        f"finding")
     assert f"{spelled[len(in_tier)]} of those ten" in tier, (
         f"tier 5 holds {len(in_tier)} of the ten unanswerable and its header "
         f"says something else — the figure was 'nine' in two files at once")
-    assert f"{spelled[len(BLOCKED_BY_THE_MISSING_JOIN)]} across the document" in tier
+    across = len(TURNING_ON_THE_MISSING_JOIN)
+    assert across in spelled, f"cannot spell {across}"
+    assert f"{spelled[across]} across the document" in tier
 
 
 def test_the_mark_key_does_not_claim_every_gap_is_a_data_gap():
@@ -154,4 +179,3 @@ def test_the_mark_key_does_not_claim_every_gap_is_a_data_gap():
     key = [line for line in document.splitlines() if line.startswith("| ❌ |")]
     assert len(key) == 1, f"the key row for ❌ is {key}"
     assert "the reason is on the question" in key[0]
-

@@ -238,10 +238,21 @@ reachability most? ✅ *Counterfactual over the graph.*
 
 ## The missing academic join
 
-Six questions above — Q62, Q75, Q81, Q83, Q89 and Q90 — are blocked on one
-thing, and it is the largest single finding of the #22 exercise. It had no
-section of its own until now: it lived inside Q75's prose and half a table
-cell, which is not where a reader meets a finding that blocks six questions.
+Six questions above turn on one thing, and it is the largest single finding of
+the #22 exercise. **Five are blocked outright by it** — Q75, Q81, Q83, Q89 and
+Q90. **Caveated rather than blocked:** Q62. The narrowed reading, course to course,
+is the one a student actually asks and it is fully answered. The distinction
+matters — a reader who takes all six as unanswerable undercounts what the graph
+does.
+
+(This paragraph deliberately avoids two things the document's parsers read as
+structure: the status glyphs, which are counted per question to catch one
+carrying two, and a bold run opening with `**Q` followed by a number, which
+declares a question. Prose using either made the tally read 103 questions and
+twenty-six blocked ones.)
+
+It had no section of its own until now: it lived inside Q75's prose and half a
+table cell, which is not where a reader meets a finding this size.
 
 **There is no academic edge from a district Course to a Programme or an
 Occupation.** The only route the schema offers is geography:
