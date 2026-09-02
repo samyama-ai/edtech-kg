@@ -15,7 +15,7 @@
 
 // Q82. Are high-earning occupations reachable from programmes offered in low-income districts?
 //   [caveat: the equity framing needs an income measure this graph does not hold]
-//   NEEDS: EarningsRecord.median, EarningsRecord.year
+//   NEEDS: EarningsRecord.median, EarningsRecord.year, Occupation.name
 //   The POST-SECONDARY half only. "Low-income district" is a school-side fact
 //   and joins to a Place, not to a programme, so this answers what a Place's
 //   institutions reach and at what earnings — leaving the income measure to a
@@ -44,7 +44,7 @@ ORDER BY r.median DESC LIMIT 25;
 
 // Q85. Which occupations pay above median but need only a certificate?
 //   [caveat: award level is what a programme confers, not what an occupation requires]
-//   NEEDS: EarningsRecord.median
+//   NEEDS: Completion.award_level, EarningsRecord.median, Occupation.name
 //   ABOVE MEDIAN, computed. It said "above median" and returned every
 //   reachable occupation at any wage — the question's own condition dropped.
 //   There is no percentile function and no GDS here, so the midpoint is the
@@ -70,6 +70,7 @@ ORDER BY er.median DESC LIMIT 25;
 
 // Q86. Is this programme oversupplied — more graduates than the occupation absorbs?
 //   [caveat: completions are measured, absorption is not]
+//   NEEDS: Completion.awards, Occupation.name
 //   Half a question, and the half that exists is the supply. Nothing published
 //   here says how many an occupation absorbs, so the ratio the question wants
 //   cannot be computed — only its numerator.
@@ -83,6 +84,7 @@ ORDER BY graduates_supplied DESC;
 
 // Q91. Which institution offers the most efficient route to this occupation?
 //   [caveat: efficiency here is award level, not time or cost — neither is held]
+//   NEEDS: Completion.award_level, Institution.name
 //   EFFICIENT is doing a lot of work in the question. What is measurable is
 //   the award level a programme reaching the occupation is conferred at; a
 //   certificate is a shorter route than a bachelor's, and that ordering is the

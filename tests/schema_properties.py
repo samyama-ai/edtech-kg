@@ -1,21 +1,28 @@
-"""What the schema actually commits a node to carrying.
+"""What a query can actually reach, and what the schema merely names.
 
-`schema/edtech_kg.cypher` declares **keys** in its constraints and
-**attributes** in its PROPERTIES block, each naming the field a source
-publishes it as (#123). Before that block the schema declared keys and nothing
-else, so a label with no loader could commit to nothing and `Occupation.name`
-was undeclared while every source publishes it.
+Two different questions, and conflating them is what this module got wrong.
 
-DECLARED MEANS A LOADER WRITES IT, and the distinction is load-bearing. The
-schema also carries a PUBLISHED_NOT_LOADED block — `Course.description` and
-`Course.grade_levels`, which the catalogue publishes and `etl/load_pwcs.py`
-does not extract (#137). `declared()` does not read it. If it did, Q9 and Q14
-would lose their `NEEDS:` annotations and look served while returning null,
-which is the failure this whole apparatus exists to make visible.
+`schema/edtech_kg.cypher` declares **keys** in its constraints and names
+**attributes** in its PROPERTIES block, each with the field a source publishes
+it as (#123). That block is a statement about SOURCES. It is not a claim that
+anything writes them, and it must not be read as one:
 
-A traversal naming `o.name` on an `Occupation` parses, looks like an answer,
-and reaches for something nothing has promised to write.
-`tests/test_question_traversals.py` uses this to say so.
+    $ grep -rln "MERGE (\|CREATE (" etl/*.py     -> engine, cypher_script, load_pwcs
+    load_pwcs writes                             -> Course, Pathway, Requirement, Subject
+
+Nothing loads `Occupation`, `Programme`, `Institution`, `School`, `District` or
+`Completion`. `SOC2018Title`, `INSTNM`, `school_name` and `lea_name` appear in
+no loader at all; `CTOTALT` and `AWLEVEL` appear in a probe.
+
+So `declared()` — which is what tells a query it may reach for a property
+without a `NEEDS:` line — is keys plus **what a loader writes**, and nothing
+else. An earlier version of this docstring asserted that the PROPERTIES block
+meant "a loader writes it". It does not, for eight of its ten entries, and
+saying so dropped 33 `NEEDS:` annotations from queries that still return null:
+`Q2` reaches for `o.name` on a graph holding zero `Occupation` nodes.
+
+`named_in_schema()` is the other question, kept separate and used by the tests
+that hold the block to its sources.
 """
 
 from __future__ import annotations
@@ -47,9 +54,10 @@ def declared() -> dict[str, set[str]]:
             r"CREATE CONSTRAINT ON \((\w+):(\w+)\) ASSERT \1\.(\w+)", schema):
         found.setdefault(label, set()).add(prop)
 
-    for label, prop in re.findall(r"^//\s+(\w+)\.(\w+)\s+<-", declared_block(), re.M):
-        found.setdefault(label, set()).add(prop)
-
+    # The PROPERTIES block is NOT read here. It names attributes and their
+    # source fields; it does not write them, and eight of its ten labels have
+    # no loader whatsoever. Adding it made every query naming one of those look
+    # served while returning null. See the module docstring.
     for source in sorted((ROOT / "etl").glob("*.py")):
         text = source.read_text(encoding="utf-8")
         for match in re.finditer(
@@ -58,6 +66,20 @@ def declared() -> dict[str, set[str]]:
             label, key, body = match.groups()
             found.setdefault(label, set()).add(key)
             found[label] |= set(re.findall(r'"(\w+)":', body))
+    return found
+
+
+def named_in_schema() -> dict[str, set[str]]:
+    """Label to the attributes the schema NAMES, with a source field behind each.
+
+    The other question from `declared()`, and the reason they are two
+    functions: this is what the schema commits to describing, that is what a
+    query can reach. Today the second is a subset of the first by a wide
+    margin, and pretending otherwise is what #123's first attempt did.
+    """
+    found: dict[str, set[str]] = {}
+    for label, prop in re.findall(r"^//\s+(\w+)\.(\w+)\s+<-", block(), re.M):
+        found.setdefault(label, set()).add(prop)
     return found
 
 
@@ -74,14 +96,19 @@ def block(name: str = "PROPERTIES") -> str:
     other however they are ordered in the file.
     """
     schema = SCHEMA.read_text(encoding="utf-8")
-    start = schema.index(f"// {name}\n")
-    end = schema.index(f"// END {name}", start)
-    return schema[start:end]
-
-
-def declared_block() -> str:
-    """Kept as a name because tests and the schema comment both use it."""
-    return block("PROPERTIES")
+    opening, closing = f"// {name}\n", f"// END {name}"
+    # A MESSAGE, not `ValueError: substring not found` from `str.index`, which
+    # names neither the marker nor the file and sends the reader nowhere.
+    if opening not in schema:
+        raise ValueError(
+            f"{SCHEMA} has no `{opening.strip()}` marker — it was renamed or "
+            f"removed, and every attribute test reads this block through it.")
+    start = schema.index(opening)
+    if closing not in schema[start:]:
+        raise ValueError(
+            f"{SCHEMA} opens `{opening.strip()}` and never closes it with "
+            f"`{closing}`, so the block would run to the end of the file.")
+    return schema[start:schema.index(closing, start)]
 
 
 def accesses(cypher: str) -> dict[str, set[str]]:

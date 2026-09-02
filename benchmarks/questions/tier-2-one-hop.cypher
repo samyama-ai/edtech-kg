@@ -10,14 +10,17 @@
 // return null and look like an answer. Saying so is the point.
 
 // Q21. This degree programme — what jobs does it lead to?
+//   NEEDS: Occupation.name
 MATCH (p:Programme {cip_code: "11.0101"})-[:PREPARES_FOR]->(o:Occupation)
 RETURN o.soc_code, o.name;
 
 // Q22. I want this job. Which programmes lead to it?
+//   NEEDS: Programme.name
 MATCH (p:Programme)-[:PREPARES_FOR]->(o:Occupation {soc_code: "15-1252"})
 RETURN p.cip_code, p.name;
 
 // Q23. Which colleges near me offer this programme?
+//   NEEDS: Institution.name
 //   "Near me" is a Place join and Place is tier 2, blocked on #44 — so this
 //   scopes by the Place a caller already holds rather than by distance.
 MATCH (i:Institution)-[:OFFERS]->(:Programme {cip_code: "11.0101"})
@@ -25,6 +28,7 @@ MATCH (i)-[:LOCATED_IN]->(pl:Place {id: "state|VA"})
 RETURN i.unitid, i.name;
 
 // Q24. Of those, which actually graduate people in it, rather than listing it?
+//   NEEDS: Completion.awards, Institution.name
 //   The DISTINCTION this question exists for: OFFERS is a listing, Completion
 //   is an award conferred. An institution can do the first and not the second.
 MATCH (i:Institution)-[:OFFERS]->(p:Programme {cip_code: "11.0101"})
@@ -34,6 +38,7 @@ RETURN i.unitid, i.name, sum(cm.awards) AS conferred
 ORDER BY conferred DESC;
 
 // Q25. Which institutions award this programme at certificate level?
+//   NEEDS: Completion.award_level, Institution.name
 MATCH (cm:Completion {award_level: "Certificate"})-[:IN]->(:Programme {cip_code: "11.0101"})
 MATCH (cm)-[:AT]->(i:Institution)
 RETURN DISTINCT i.unitid, i.name;
@@ -56,6 +61,7 @@ MATCH (c:Course)-[:REQUIRES]->(:Course {url: "https://catalog.pwcs.edu/agricultu
 RETURN c.url, c.name;
 
 // Q29. How many people graduated in this programme nationally last year?
+//   NEEDS: Completion.awards
 //   AWARDS, not rows. A Completion is a demographic cell — 9,026,310 rows
 //   describe 10,620,172 awards (#43) — so counting nodes answers a different
 //   question from the one asked.
@@ -63,10 +69,12 @@ MATCH (cm:Completion)-[:IN]->(:Programme {cip_code: "11.0101"})
 RETURN sum(cm.awards) AS graduates;
 
 // Q30. Which districts contain this school?
+//   NEEDS: District.name, School.name
 MATCH (s:School {ncessch: "510126000341"})-[:IN_DISTRICT]->(d:District)
 RETURN s.name, d.leaid, d.name;
 
 // Q31. Which programmes does this institution offer that map to healthcare occupations?
+//   NEEDS: Programme.name
 //   Healthcare is SOC major group 29. Matched on the code's own prefix rather
 //   than on an occupation name, because the code is the thing the crosswalk
 //   publishes and a name is not declared anywhere (#123).
@@ -77,6 +85,7 @@ RETURN DISTINCT p.cip_code, p.name;
 
 // Q32. Which occupations does this programme lead to that need only a certificate?
 //   [caveat: award level is measured, entry requirement is not]
+//   NEEDS: Completion.award_level, Occupation.name
 //   What is answerable is what this programme is AWARDED at, not what the
 //   occupation REQUIRES. Nothing published here says an occupation's entry
 //   requirement, so the caveat is the answer's, not the query's.
@@ -99,10 +108,12 @@ WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->(:Course) }
 RETURN c.url, c.name;
 
 // Q35. Which occupations are reachable from programmes this institution offers?
+//   NEEDS: Occupation.name
 MATCH (:Institution {unitid: "100654"})-[:OFFERS]->(:Programme)-[:PREPARES_FOR]->(o:Occupation)
 RETURN DISTINCT o.soc_code, o.name;
 
 // Q36. Which programmes here are dead ends, mapping to only one occupation?
+//   NEEDS: Programme.name
 //   ONE, not zero. A programme mapping to nothing is a different finding —
 //   it is absent from the crosswalk rather than narrow within it.
 MATCH (p:Programme)-[:PREPARES_FOR]->(o:Occupation)
@@ -111,6 +122,7 @@ WHERE reaches = 1
 RETURN p.cip_code, p.name;
 
 // Q37. Which occupations can be reached from the most different programmes?
+//   NEEDS: Occupation.name
 MATCH (p:Programme)-[:PREPARES_FOR]->(o:Occupation)
 WITH o, count(DISTINCT p) AS routes
 RETURN o.soc_code, o.name, routes ORDER BY routes DESC LIMIT 20;

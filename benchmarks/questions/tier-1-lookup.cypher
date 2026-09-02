@@ -14,9 +14,15 @@
 // `NOT EXISTS { MATCH ... }` throughout.
 
 // Q1. What is this programme called, and what is its CIP code?
+//   NEEDS: Programme.name
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (p:Programme {cip_code: "11.0101"}) RETURN p.cip_code, p.name;
 
 // Q2. What occupation does this SOC code name?
+//   NEEDS: Occupation.name
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (o:Occupation {soc_code: "15-1252"}) RETURN o.soc_code, o.name;
 
 // Q3. How many institutions are in the directory?
@@ -48,25 +54,33 @@ RETURN count(c) AS courses;
 //   The catalogue carries `field-grades` and `field-credits` and no length or
 //   duration field at all. Credits are not length: a one-credit course can run
 //   a semester or a year. So this answers the half that exists and does not
-//   dress the other half in a property nothing writes (#123).
+//   dress the other half in a property nothing publishes (#123).
 //   NEEDS: Course.grade_levels
-//   — AND THE HALF THAT EXISTS IS NOT LOADED EITHER. The catalogue publishes
-//     `field--name-field-grades`; `etl/load_pwcs.py` does not extract it, and
-//     a loaded district holds 0 of 791 courses carrying it. The schema records
-//     the source under PUBLISHED_NOT_LOADED rather than PROPERTIES for that
-//     reason, so this still says so. edtech-kg#137.
+//   — the half that exists is not LOADED either. The catalogue publishes
+//     `field--name-field-grades` and `etl/load_pwcs.py` does not extract it,
+//     so a loaded district holds 0 of 791 courses carrying it. The schema
+//     names the source field; nothing writes it. edtech-kg#137.
 MATCH (c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
 RETURN c.name, c.grade_levels;
 
 // Q10. Which schools teach this course?
+//   NEEDS: School.name
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (s:School)-[:TEACHES]->(c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
 RETURN s.ncessch, s.name;
 
 // Q11. What award levels does this institution grant?
+//   NEEDS: Completion.award_level
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (cm:Completion)-[:AT]->(i:Institution {unitid: "100654"})
 RETURN DISTINCT cm.award_level;
 
 // Q12. Where is this institution, and is it public or private?
+//   NEEDS: Institution.control, Institution.name
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 //
 //   `pl.state` is NOT used, and that is a different objection. `Place` is
 //   keyed `"<kind>|<published identifier>"` — "state|VA" — so a state IS a
@@ -76,16 +90,17 @@ MATCH (i:Institution {unitid: "100654"})-[:LOCATED_IN]->(pl:Place)
 RETURN i.name, i.control, pl.id;
 
 // Q13. How many people completed this programme at this institution?
+//   NEEDS: Completion.awards
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (cm:Completion)-[:AT]->(i:Institution {unitid: "100654"})
 MATCH (cm)-[:IN]->(p:Programme {cip_code: "11.0101"})
 RETURN sum(cm.awards) AS completions;
 
 // Q14. What is this course's description, as the district publishes it?
 //   NEEDS: Course.description
-//   — the catalogue publishes `field--name-field-description` and
-//     `etl/load_pwcs.py` does not extract it, so this parses, returns null,
-//     and looks like an answer. Declared under PUBLISHED_NOT_LOADED, which
-//     names the source without promising the property. edtech-kg#137.
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (c:Course {url: "https://catalog.pwcs.edu/agriculture/landscaping-2"})
 RETURN c.name, c.description, c.source;
 
@@ -106,12 +121,16 @@ RETURN count(DISTINCT c) AS courses_with_free_text;
 // EarningsRecord is declared and empty. The traversal is right; the answer is
 // not available until a BLS loader exists.
 //   NEEDS: EarningsRecord.median, EarningsRecord.source, EarningsRecord.year
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (er:EarningsRecord)-[:FOR_OCCUPATION]->(o:Occupation {soc_code: "15-1252"})
 RETURN er.year, er.median, er.source;
 
 // Q18. Is this occupation growing or shrinking?  [caveat: not yet measured]
 // Two records for one occupation, compared. Nothing loaded supplies them.
 //   NEEDS: EarningsRecord.employment, EarningsRecord.year
+//   — the schema declares keys and these are not among them, so this
+//     parses and reaches for something no loader writes. See #123.
 MATCH (er:EarningsRecord)-[:FOR_OCCUPATION]->(o:Occupation {soc_code: "15-1252"})
 RETURN o.soc_code, er.year, er.employment ORDER BY er.year;
 

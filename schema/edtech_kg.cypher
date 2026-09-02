@@ -439,8 +439,21 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 // Each line below is `Label.property <- the field a source publishes it as`.
 // The source field is the point: a property with no field behind it is a wish,
 // and the whole reason for this section is that a reader can check the
-// commitment rather than trust it. `tests/schema_properties.py` reads these,
-// and `tests/test_question_traversals.py` holds every one to a named source.
+// commitment rather than trust it.
+//
+// WHAT IT DOES NOT SAY IS THAT ANYTHING WRITES THEM. Measured: `load_pwcs.py`
+// is the only loader here and it writes Course, Pathway, Requirement and
+// Subject. Nothing loads Occupation, Programme, Institution, School, District
+// or Completion, and `SOC2018Title`, `INSTNM`, `school_name` and `lea_name`
+// appear in no loader at all. So `o.name` still returns null, and the `NEEDS:`
+// annotation on every such query stays until a loader lands — see
+// `tests/schema_properties.declared`, which reads the CONSTRAINTS and the
+// LOADERS and deliberately not this block. The first attempt at #123 read it
+// as reachability and dropped 33 of those annotations.
+//
+// Two entries name a file; the rest name a published dataset and its column,
+// because this repo has no downloader for them and inventing a filename would
+// be the same wish this section refuses.
 //
 // PROPERTIES
 //   Occupation.name        <- CIP2020_SOC2018_Crosswalk.xlsx, SOC2018Title
@@ -451,27 +464,16 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 //   District.name          <- CCD district directory, lea_name
 //   Completion.awards      <- IPEDS C, CTOTALT
 //   Completion.award_level <- IPEDS C, AWLEVEL
-// END PROPERTIES
-//
-// PUBLISHED BUT NOT EXTRACTED — declared as SOURCES, not as commitments.
-//
-// The catalogue publishes both fields and `etl/load_pwcs.py` writes neither:
-// `grade_levels` appears in no file under `etl/`, `description` only as an
-// argparse keyword, and a loaded district holds 0 of 791 courses carrying
-// either. They are recorded here because the source field is known and the
-// gap is a loader's, not a source's — edtech-kg#137.
-//
-// They are kept OUT of the block above deliberately. `declared()` reads that
-// block, and `declared()` is what tells a query it may reach for a property.
-// Listing these there would drop the `NEEDS:` annotations from Q9 and Q14 and
-// make both look served while they return null — which is the exact failure
-// the top of this section describes. One meaning, kept: declared means a
-// loader writes it.
-//
-// PUBLISHED_NOT_LOADED
 //   Course.description     <- catalog.pwcs.edu, field--name-field-description
 //   Course.grade_levels    <- catalog.pwcs.edu, field--name-field-grades
-// END PUBLISHED_NOT_LOADED
+// END PROPERTIES
+//
+// `Course.description` and `Course.grade_levels` sit here with the rest and
+// not in a block of their own. An earlier revision separated them on the
+// grounds that `Course` HAS a loader which omits them, while the other eight
+// labels have no loader at all — which is the weaker position, not the
+// stronger one. edtech-kg#137 tracks the two `load_pwcs.py` could extract
+// today.
 //
 // NOT declared, and each for its own reason:
 //

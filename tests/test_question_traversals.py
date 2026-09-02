@@ -44,7 +44,7 @@ import re
 import pytest
 
 from tests.questions_document import QUESTION, marks
-from tests.schema_properties import declared, undeclared
+from tests.schema_properties import declared, named_in_schema, undeclared
 from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -250,35 +250,19 @@ def test_no_query_claims_a_gap_it_does_not_have(path):
         f"caught up: {stale}")
 
 
-def test_the_schema_declares_the_attributes_the_questions_need():
-    """This replaces a test that asserted the OPPOSITE.
-
-    It used to assert only four labels carried more than a key, and said in its
-    own docstring: "when #123 fixes that, this fails and the NEEDS lines shrink
-    with it rather than lingering." #123 is fixed, it failed, and 27 NEEDS lines
-    went with it.
-
-    What remains is the honest floor: the labels a question asks for by name
-    must carry one, because `Q2. What occupation does this SOC code name?` is
-    entirely the name.
-    """
-    from tests.schema_properties import declared
-
-    known = declared()
-    for label in ("Occupation", "Programme", "Institution", "School", "District"):
-        assert "name" in known.get(label, set()), (
-            f"{label} carries no name, so a question asking what something is "
-            f"called cannot be answered")
-    assert {"awards", "award_level"} <= known.get("Completion", set())
-
-
-#: Every attribute the schema commits to, and the source field behind each.
+#: Every attribute the schema NAMES, and the source field behind each.
 #: An EXACT SET, not a count and not a shape. The check this replaced asserted
 #: `len(source) > 8 and "," in source`, which `xxxxxxxxx,y` satisfies — so an
 #: entry could be added with a source field nobody could look up and the guard
-#: would pass it. Enumerating them means an addition has to be argued for here
-#: as well as there.
-DECLARED_ATTRIBUTES = {
+#: would pass it.
+#:
+#: Two of the ten name a FILE. The rest name a published dataset and its
+#: column, because this repo has no downloader for them: `IPEDS HD` and
+#: `IPEDS C` appear nowhere in the tree. So this holds the block to a stable
+#: enumeration, and NOT — as an earlier version of it claimed — to a file
+#: anyone can open. Naming a plausible filename would be the same wish the
+#: block exists to refuse.
+NAMED_ATTRIBUTES = {
     "Occupation.name": ("CIP2020_SOC2018_Crosswalk.xlsx", "SOC2018Title"),
     "Programme.name": ("CIP2020_SOC2018_Crosswalk.xlsx", "CIP2020Title"),
     "Institution.name": ("IPEDS HD", "INSTNM"),
@@ -287,19 +271,12 @@ DECLARED_ATTRIBUTES = {
     "District.name": ("CCD district directory", "lea_name"),
     "Completion.awards": ("IPEDS C", "CTOTALT"),
     "Completion.award_level": ("IPEDS C", "AWLEVEL"),
-}
-
-#: Published by a source, NOT written by any loader — so not declared, and not
-#: reachable without a `NEEDS:` line. Kept apart from the set above because
-#: `declared()` reads only that one, and merging them would drop the
-#: annotations from Q9 and Q14 and make both look served while returning null.
-PUBLISHED_NOT_LOADED = {
     "Course.description": ("catalog.pwcs.edu", "field--name-field-description"),
     "Course.grade_levels": ("catalog.pwcs.edu", "field--name-field-grades"),
 }
 
 
-def entries_of(marker: str) -> dict[str, tuple[str, ...]]:
+def entries_of(marker: str = "PROPERTIES") -> dict[str, tuple[str, ...]]:
     from tests.schema_properties import block
 
     found = {}
@@ -311,45 +288,62 @@ def entries_of(marker: str) -> dict[str, tuple[str, ...]]:
     return found
 
 
-def test_the_schema_declares_exactly_these_attributes_and_these_sources():
+def test_the_schema_names_exactly_these_attributes_and_these_sources():
     """The point of the PROPERTIES block. A property with no field behind it is
     a wish, and a schema that grants wishes stops describing what anyone
     publishes."""
-    assert entries_of("PROPERTIES") == DECLARED_ATTRIBUTES
+    assert entries_of() == NAMED_ATTRIBUTES
 
 
-def test_the_unloaded_ones_are_recorded_apart_and_stay_apart():
-    """The distinction this PR turns on.
+def test_naming_an_attribute_does_not_make_it_reachable():
+    """The distinction the first attempt at #123 collapsed, and the reason
+    there are two functions.
 
-    Both fields ARE published — the catalogue carries them — and no loader
-    extracts either: `grade_levels` appears in no file under `etl/`,
-    `description` only as an argparse keyword, and a loaded district holds 0 of
-    791 courses carrying them. Recording the source is right; declaring the
-    property is not, because `declared()` is what tells a query it may reach
-    for one.
+    `declared()` is what tells a query it may reach for a property without a
+    `NEEDS:` line. Reading the PROPERTIES block into it dropped 33 annotations
+    from queries that still return null, because eight of the ten labels have
+    NO LOADER AT ALL — `Q2` reaches for `o.name` on a graph holding zero
+    `Occupation` nodes. Naming a source is not writing a property.
     """
-    assert entries_of("PUBLISHED_NOT_LOADED") == PUBLISHED_NOT_LOADED
-    reachable = declared()
-    for name in PUBLISHED_NOT_LOADED:
+    named, reachable = named_in_schema(), declared()
+    still_unreachable = []
+    for name in NAMED_ATTRIBUTES:
         label, prop = name.split(".")
-        assert prop not in reachable.get(label, set()), (
-            f"{name} is in PUBLISHED_NOT_LOADED and reachable anyway, so the "
-            f"queries that use it lost their NEEDS annotation and now look "
-            f"served while returning null — edtech-kg#137")
+        assert prop in named.get(label, set()), f"{name} is not in the block"
+        if prop not in reachable.get(label, set()):
+            still_unreachable.append(name)
+    assert sorted(still_unreachable) == sorted(NAMED_ATTRIBUTES), (
+        f"{sorted(set(NAMED_ATTRIBUTES) - set(still_unreachable))} became "
+        f"reachable — a loader now writes them, so their `NEEDS:` lines are "
+        f"stale and should come off the queries that carry them")
 
 
-def test_no_loader_writes_the_unloaded_ones():
-    """The ratchet. When a loader starts writing one of these, this fails and
-    the entry moves to PROPERTIES — which is the whole removal condition for
-    #137, rather than a note somebody has to remember."""
-    corpus = "\n".join(p.read_text(encoding="utf-8")
-                        for p in sorted((ROOT / "etl").glob("*.py")))
-    written = [name for name in PUBLISHED_NOT_LOADED
-               if f'"{name.split(".")[1]}"' in corpus]
-    assert not written, (
-        f"a loader now writes {written}, so they are no longer merely "
-        f"published — move them into the schema's PROPERTIES block and drop "
-        f"the NEEDS lines that name them")
+def test_only_the_four_loaded_labels_carry_anything_beyond_a_key():
+    """The measurement the whole distinction rests on, asserted not quoted.
+
+    `etl/load_pwcs.py` is the only loader this repo has, and it writes four
+    labels. Everything else carries its constraint key and nothing more — which
+    is why naming an attribute in the schema cannot make a query answerable.
+
+    Keys are DERIVED from the constraints rather than listed here. Listing them
+    was the first version and it missed `Credential.ctid`, so the test failed
+    on a label nothing writes — a guard reporting the opposite of its subject.
+    """
+    from tests.schema_properties import SCHEMA
+
+    keys: dict[str, set[str]] = {}
+    for _, label, prop in re.findall(
+            r"CREATE CONSTRAINT ON \((\w+):(\w+)\) ASSERT \1\.(\w+)",
+            SCHEMA.read_text(encoding="utf-8")):
+        keys.setdefault(label, set()).add(prop)
+
+    beyond = {label: sorted(props - keys.get(label, set()))
+              for label, props in declared().items()
+              if props - keys.get(label, set())}
+    assert set(beyond) == {"Course", "Pathway", "Requirement", "Subject"}, (
+        f"the set of labels a loader writes has changed to {sorted(beyond)}. "
+        f"The PROPERTIES block's note about what is unloaded, and every "
+        f"`NEEDS:` line resting on it, are now wrong.")
 
 
 def test_the_undeclared_ones_are_undeclared_deliberately():
