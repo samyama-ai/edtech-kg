@@ -68,7 +68,7 @@ def test_a_sentinel_in_the_pairs_never_reaches_the_codes():
     assert probe_cipsoc.soc_codes(mapped) == {"13-2011"}
 
 
-def crosswalk_like(path, extra_sheet=None):
+def crosswalk_like(path):
     """A workbook shaped like the real one: a CIP-SOC sheet, and a second sheet.
 
     Synthetic ON PURPOSE, and this file carried a cache-gated version first.
@@ -77,13 +77,12 @@ def crosswalk_like(path, extra_sheet=None):
     machines and nowhere else. A skip is indistinguishable from a pass in every
     summary line.
     """
-    book = workbook(path, "CIP-SOC", [
+    return workbook(path, "CIP-SOC", [
         ["CIP Code", "SOC Code"],
         ["11.0101", "13-2011"],
         ["51.3801", "29-1141"],
         ["99.9999", "99-9999"],
     ])
-    return book
 
 
 def test_the_two_routes_agree_on_a_workbook_shaped_like_the_real_one(tmp_path, monkeypatch):

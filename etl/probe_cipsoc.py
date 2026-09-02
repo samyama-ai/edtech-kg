@@ -377,6 +377,12 @@ def measure(book: zipfile.ZipFile, path: Path, stamp: str, quiet: bool) -> dict:
     # The sentinel is a statement that there is NO occupation, so it is not one
     # and its rows are not mappings. Split rather than filtered in place, so
     # both halves stay reportable.
+    # THE SENTINEL ONLY, deliberately — not `NOT_AN_OCCUPATION`, which
+    # `soc_codes()` uses two hundred lines up. This counts MAPPINGS, and a
+    # `00-0000` row would be a real CIP mapped to a real all-occupations code;
+    # `soc_codes()` answers "which occupations can a programme reach", where
+    # `00-0000` is not one. Same file, two questions, and the difference is
+    # not an oversight — #112 merged three readings and left this alone.
     mapped = [(c, s) for c, s in listed if s != NO_MATCH_SOC]
     declared_no_match = len(listed) - len(mapped)
     cip = [c for c, _ in mapped]

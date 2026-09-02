@@ -56,10 +56,6 @@ ONET_MEMBER = "OccupationalListings/Crosswalks/2019_to_SOC_Crosswalk.xlsx"
 # sentence beside it pointed at another.
 
 
-# The crosswalk's own NO MATCH sentinel, excluded here for the reason
-# edtech-kg#70 established: it is not an occupation.
-NO_MATCH = "99-9999"
-
 # A CIP code that names a whole 2-digit family, and one that names a 4-digit
 # series. Both are ROLLUP rows rather than programmes.
 FAMILY = re.compile(r"\A\d{2}\.0000\Z")
