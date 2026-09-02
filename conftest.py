@@ -84,12 +84,12 @@ SKIP_BUDGET = {
     # property map actually does, and it is a statement about the engine, so it
     # is gated like the rest.
     "holds no Course nodes, so a predicate inside a WHERE": 7,
-    # Six, not three: tiers 1 to 3 used to leave this guard before reaching
-    # the data gate, because their skip fired first. As xfails they run the
-    # body, so on an empty engine they reach this gate like every other tier.
-    # Six is now every tier. Tiers 1 to 3 used to be strict xfails and left
-    # this guard before reaching the data gate; edtech-kg#133 fixed them, the
-    # xfails XPASSed, and they reach it like the others.
+    # Six, which is every tier. Tiers 1 to 3 reached this gate only after
+    # edtech-kg#133 fixed them: before that they were strict xfails and left
+    # the guard earlier. REPLACING the note that described the state before
+    # that rather than adding to it — two justifications stacked on one number
+    # leave a reader working out which is live, which is the failure the PR
+    # this came from argues against.
     "holds no Course nodes, so no anchor can resolve": 6,
     "holds no prerequisite edges": 2,
 }
