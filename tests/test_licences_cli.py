@@ -26,7 +26,6 @@ from tests.test_licence_positions import (CROSSWALKS_PAGE, DATABASE_PAGE,
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PAGE = ROOT / "docs" / "sources" / "licences.md"
 RECORD = ROOT / "docs" / "sources" / "licences-measured.json"
 
 

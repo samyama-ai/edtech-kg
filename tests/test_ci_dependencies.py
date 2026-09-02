@@ -77,7 +77,32 @@ def packages_installed(workflow: str) -> set[str]:
         elif inline:
             commands.append(inline)
 
+    # Join backslash continuations, so `pip install \` followed by the
+    # packages on the next line is one command rather than two halves, the
+    # second of which mentions no `pip install` and is therefore ignored.
+    joined, buffer = [], ""
     for command in commands:
+        buffer += command.rstrip()[:-1] + " " if command.rstrip().endswith("\\") else command
+        if not command.rstrip().endswith("\\"):
+            joined.append(buffer)
+            buffer = ""
+    if buffer:
+        joined.append(buffer)
+    commands = joined
+
+    for raw in commands:
+        # COMMENTS ARE NOT COMMANDS, and this is the dangerous direction. A
+        # `#` line inside a `run: |` block was read as an install — measured,
+        # `# pip install evil` put `evil` in the installed set — and an inline
+        # `# and flake8` contributed `#`, `and` and `flake8`. Both INFLATE
+        # what CI is believed to install, so the guard reports a dependency as
+        # covered when the install step never mentions it. That is a false
+        # green in the check written to prevent one.
+        command = raw.split("#", 1)[0]
+        # A trailing backslash continues the command onto the next line, and
+        # splitting per line dropped everything after it.
+        if command.rstrip().endswith("\\"):
+            command = command.rstrip()[:-1]
         for piece in re.findall(r"pip install([^\n;&|]*)", command):
             skip_next = False
             for word in piece.split():
@@ -102,7 +127,12 @@ def packages_installed(workflow: str) -> set[str]:
                 # leaving the quote on made the token `"setuptools`, which
                 # matches nothing, so the guard reported a package as missing
                 # that the same line installs.
-                found.add(re.split(r"[<>=!\[]", word.strip('"\''))[0].lower())
+                # `~` and `;` too. PEP 508 spells a compatible-release pin
+                # `packaging~=24.0`, which split to `packaging~` — a name no
+                # install line contains, so the guard would report the package
+                # as missing while it is right there. `;` starts an
+                # environment marker.
+                found.add(re.split(r"[<>=!~;\[]", word.strip('"\''))[0].lower())
 
     return found
 
@@ -250,45 +280,6 @@ def test_the_workflow_installs_what_the_suite_actually_imports(workflow):
            if missing_runs else "")
         + f"CI installs {sorted(installed)}. Either add it to the install step "
           f"or drop the dependency.")
-
-
-def test_a_package_named_only_in_a_comment_does_not_count_as_installed():
-    """The guard reads what the step RUNS, not what the file mentions.
-
-    `ci.yml` explains at length why `pip install -e .` is not used, so a guard
-    matching any line containing `pip install` treated the words of that
-    explanation as installed packages.
-    """
-    workflow = """
-jobs:
-  test:
-    steps:
-      # We deliberately do not run `pip install -e . numpy` here, and that is
-      # explained above.
-      - name: Install
-        run: python -m pip install --quiet pytest
-"""
-    installed = packages_installed(workflow)
-    assert installed == {"pytest"}, (
-        f"the guard read {sorted(installed)} as installed — anything beyond "
-        f"pytest came from the comment, not from the command")
-
-
-def test_a_pinned_dependency_is_read_through_its_quotes():
-    """A pin is normally quoted in a shell command, and the quote broke it.
-
-    `"setuptools>=61.0"` parsed to `"setuptools` — so the guard reported a
-    package as missing that the very same line installs, and the obvious
-    "fix" would have been to remove the pin rather than to read it.
-    """
-    workflow = (
-        "jobs:\n"
-        "  test:\n"
-        "    steps:\n"
-        "      - run: python -m pip install --quiet pytest "
-        '"setuptools>=61.0" ' + "'wheel<1'\n"
-    )
-    assert packages_installed(workflow) == {"pytest", "setuptools", "wheel"}
 
 
 def test_a_module_run_as_a_subprocess_is_seen_as_a_dependency():

@@ -54,6 +54,8 @@ class Recorder:
 # `FOR … REQUIRE` form does not parse in 1.1.0 — but a pattern pinned to only
 # that form returns an EMPTY map the day the engine catches up and someone
 # modernises the file, and every check below then passes on nothing.
+
+
 DECLARATION = re.compile(
     r"CREATE CONSTRAINT (?:\w+ )?(?:IF NOT EXISTS )?"
     r"(?:ON|FOR) \(\w+:(\w+)\) (?:ASSERT|REQUIRE) \w+\.(\w+) IS UNIQUE")
@@ -166,19 +168,6 @@ def test_upsert_refuses_a_label_or_property_that_is_not_an_identifier():
 # --------------------------------------------------------------------------
 # building the edges — the arithmetic, without an engine
 # --------------------------------------------------------------------------
-
-# Every published page, and the courses among them. A prerequisite resolves
-# against the SECOND — the whole point of the split.
-BY_PATH = {"/a/one": "https://catalog.pwcs.edu/a/one",
-           "/a/two": "https://catalog.pwcs.edu/a/two",
-           "/a": "https://catalog.pwcs.edu/a"}
-COURSE_BY_PATH = {"/a/one": "https://catalog.pwcs.edu/a/one",
-                  "/a/two": "https://catalog.pwcs.edu/a/two"}
-
-
-def course(url: str, *hrefs: str) -> dict:
-    return {"url": url,
-            "prerequisite_links": [{"href": h, "name": "n"} for h in hrefs]}
 
 
 def test_a_requirement_is_labelled_from_the_list_it_came_from():
