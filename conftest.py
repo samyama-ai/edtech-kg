@@ -55,7 +55,15 @@ import os
 SKIP_BUDGET = {
     # No `data/` in CI and none wanted: the corpus is a school district's
     # catalogue and the alternative is fetching it on every push.
-    "cached catalogue is incomplete": 11,
+    #
+    # THE ONE FAMILY WITH HEADROOM, and deliberately. 11 is what the tree
+    # raises today. The other five sit at exactly their observed count because
+    # each is a defect with an issue against it and should shrink to nothing —
+    # editing the number down as #133 and #134 land is the point of them. This
+    # one is not a defect: adding a cache-gated test is ordinary work, the
+    # comment this replaced said so, and a budget of exactly 11 would turn the
+    # next such test red for no reason anybody would recognise.
+    "cached catalogue is incomplete": 14,
     # Tiers 1 to 3 filter with an inline property map, which this engine does
     # not apply, at urls no course carries. 39 of their 51 statements — the
     # measurement is in edtech-kg#133, whose acceptance criteria include
