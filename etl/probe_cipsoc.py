@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -58,6 +59,15 @@ LOCAL = DATA_DIR / "CIP2020_SOC2018_Crosswalk.xlsx"
 # The crosswalk's own "NO MATCH" sentinel, written in the SOC column. Not an
 # occupation, and its rows are not mappings — see the module docstring.
 NO_MATCH_SOC = "99-9999"
+
+# `00-0000` as well. The two readings of this workbook that #112 merges
+# disagreed here: one excluded both, the other only the sentinel. They still
+# produced the same 867 codes, because `00-0000` is not in the CIP-SOC sheet —
+# so the narrower filter was correct by accident about this release and would
+# admit an all-occupations total the day one appeared.
+NOT_AN_OCCUPATION = frozenset({NO_MATCH_SOC, "00-0000"})
+
+SOC_CODE = re.compile(r"\b\d{2}-\d{4}\b")
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
@@ -234,6 +244,94 @@ def find_header(table: list[list[str]], name: str) -> int:
         f"no header row naming a {name} code column in the first 12 rows — "
         f"first rows read {table[:3]}"
     )
+
+
+class MalformedSource(Exception):
+    """The workbook is present and cannot be read as the crosswalk.
+
+    Defined here, beside the reading, and re-exported by `probe_bls` — which
+    had its own and needed the same class once the reading moved (#112). A
+    renamed sheet, a reshaped release, a truncated download.
+    """
+
+
+class MissingSource(Exception):
+    """The workbook is not on this machine, and that is not a measurement.
+
+    `data/` is gitignored, so a fresh clone has none of it — which makes the
+    wrong answer the one a new contributor gets by default. The reading this
+    replaces returned an empty set here, and an empty set is what a real
+    measurement of zero also looks like. Downstream that published
+
+        crosswalk_soc_codes      0
+        crosswalk_codes_covered  0
+        crosswalk_codes_missing  0
+
+    and `0 missing` reads as nothing missing — perfect alignment — from a file
+    nobody had downloaded. Reproduced before this change.
+
+    Separate from `MalformedSource`, which is "present and unreadable". Both
+    are refusals and they are different facts; only one is fixed by fetching.
+    """
+
+
+def soc_codes(mapped: list[tuple[str, str]] | None = None) -> set[str]:
+    """Every SOC code this crosswalk reaches, non-occupations excluded.
+
+    ONE reading, replacing two that took different routes to the same answer:
+    `probe_bls` read the SOC column of every sheet, `probe_codesets` derived
+    them from the CIP-SOC pairs it had already parsed. Measured identical at
+    867 codes, and both routes are kept because they cost differently — the
+    workbook read is ~650ms and the derivation ~0.5ms, and one caller does it
+    twice. `tests/test_crosswalk_soc.py` asserts they still agree rather than
+    leaving that as something someone remembers.
+
+    Never returns an empty set to mean "no workbook" — see `MissingSource`.
+
+    Raises `MalformedSource` when the file is present and no sheet has a SOC
+    column, which is a reshaped release rather than an absence: reporting zero
+    reachable occupations there would read as BLS covering none of them.
+    """
+    if mapped is not None:
+        return {soc for _, soc in mapped if soc not in NOT_AN_OCCUPATION}
+
+    if not LOCAL.exists():
+        raise MissingSource(
+            f"the CIP-SOC crosswalk is not at {LOCAL}. `data/` is gitignored, "
+            f"so a fresh clone has none of it — run "
+            f"`python -m etl.probe_cipsoc --download` first. Returning no "
+            f"codes here would be published as a measurement of zero.")
+
+    found: set[str] = set()
+    columns_seen, headers_seen = 0, []
+    with zipfile.ZipFile(LOCAL) as book:
+        for part in sheets(book).values():
+            table = list(rows(book, part))
+            if not table:
+                continue
+            # The SOC COLUMN, named by the sheet's own header — not every cell.
+            # Scanning every cell means any `NN-NNNN` string anywhere in the
+            # workbook joins the denominator: a note, a page range, a phone
+            # fragment.
+            header = table[0]
+            soc_at = next((i for i, name in enumerate(header)
+                           if "SOC" in name and "Code" in name), None)
+            if soc_at is None:
+                headers_seen.append(header[:4])
+                continue
+            columns_seen += 1
+            for row in table[1:]:
+                if len(row) <= soc_at:
+                    continue
+                code = row[soc_at].strip()
+                if SOC_CODE.fullmatch(code) and code not in NOT_AN_OCCUPATION:
+                    found.add(code)
+    if not columns_seen:
+        raise MalformedSource(
+            f"{LOCAL} is present but no sheet has a SOC code column — the "
+            f"headers are {headers_seen}. Reporting zero reachable occupations "
+            f"would read as BLS covering none of them.")
+    return found
 
 
 def probe(path: Path | None = None, quiet: bool = False) -> dict:

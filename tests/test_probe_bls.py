@@ -19,6 +19,7 @@ import pytest
 
 from etl import bls_access as access
 from etl import probe_bls as probe
+from etl import probe_cipsoc
 from tests.bls_fixtures import HEADER, page, row, serve
 
 
@@ -54,7 +55,7 @@ def test_the_no_match_sentinel_is_filtered_by_the_reader(tmp_path, monkeypatch):
         ["11.0101", "13-2011"],
         ["01.0508", "99-9999"],
     ])
-    monkeypatch.setattr(probe, "CROSSWALK", book)
+    monkeypatch.setattr(probe_cipsoc, "LOCAL", book)
     found = probe.crosswalk_soc()
     assert "13-2011" in found
     assert "99-9999" not in found, "the NO MATCH sentinel reached the coverage set"
@@ -155,35 +156,39 @@ def test_the_three_causes_account_for_every_missing_code(monkeypatch):
         result["missing_but_broad_parent_carried"] == 1, result
 
 
-def test_no_crosswalk_locally_does_not_claim_zero_coverage(monkeypatch, tmp_path):
+def test_no_crosswalk_locally_is_refused_rather_than_reported_as_zero(monkeypatch, tmp_path):
     """A missing local file must not report as "BLS covers none of them".
 
-    The file is made ABSENT rather than `crosswalk_soc` being stubbed to
-    return nothing. Stubbing the function is stubbing the code under test:
-    delete the `if not CROSSWALK.exists()` guard and the stub still returns an
-    empty set, so the test passes on the defect it was written for.
+    THE TEST THIS REPLACES ASSERTED THE OPPOSITE OF ITS OWN NAME. It was called
+    `..._does_not_claim_zero_coverage` and then asserted
+    `crosswalk_soc_codes == 0`, `crosswalk_codes_covered == 0` and
+    `crosswalk_codes_missing == 0` — the three figures that together read as
+    perfect alignment. All it really checked was that no NaN escaped. `data/`
+    is gitignored, so those zeros are what a fresh clone published by default.
+
+    The refusal is the behaviour now, so the probe cannot publish anything.
     """
-    monkeypatch.setattr(probe, "CROSSWALK", tmp_path / "not-here.xlsx")
+    monkeypatch.setattr(probe_cipsoc, "LOCAL", tmp_path / "not-here.xlsx")
     serve(monkeypatch, page(row("13-2011")))
     monkeypatch.setattr(access, "head",
                         lambda url: {"status": 200, "bytes": 1, "is_file": True})
     monkeypatch.setattr(access, "attempt", lambda url, agent=None: {"status": 200})
-    result = probe.probe(quiet=True)
+    with pytest.raises(probe.MissingSource, match="not at"):
+        probe.probe(quiet=True)
 
-    assert result["crosswalk_soc_codes"] == 0
-    assert result["crosswalk_codes_covered"] == 0
-    assert result["crosswalk_codes_missing"] == 0, (
-        "with no crosswalk there is nothing measured as missing either")
 
-    # The claim the docstring makes, actually asserted: 0/0 must not be
-    # rendered as a coverage percentage anywhere in the output. "BLS covers
-    # 0%" is a statement about BLS; "there is no crosswalk on this machine" is
-    # the fact, and only one of them is true.
-    assert "answerable_including_broad_parent" in result
-    assert result["answerable_including_broad_parent"] == 0, result
-    for key, value in result.items():
-        assert not (isinstance(value, float) and value != value), (
-            f"{key} is NaN — a 0/0 ratio reached the output")
+def test_the_missing_workbook_exit_code_is_its_own(monkeypatch, tmp_path, capsys):
+    """A message and a distinct code, not a traceback and not a zero. The fix
+    is one command, so `main()` says which — and 4 rather than 3, because
+    `MalformedSource` already means present-and-unreadable and the two are
+    fixed differently."""
+    monkeypatch.setattr(probe_cipsoc, "LOCAL", tmp_path / "not-here.xlsx")
+    serve(monkeypatch, page(row("13-2011")))
+    monkeypatch.setattr(access, "head",
+                        lambda url: {"status": 200, "bytes": 1, "is_file": True})
+    monkeypatch.setattr(access, "attempt", lambda url, agent=None: {"status": 200})
+    assert probe.main([]) == 4
+    assert "probe_cipsoc --download" in capsys.readouterr().err
 
 
 def test_next_releases_employment_headings_are_read_not_refused(monkeypatch):
@@ -271,7 +276,7 @@ def test_the_reachable_set_reads_the_soc_column_not_every_cell(tmp_path, monkeyp
         ["55-1234", "Agriculture, General.", "19-1011", "Animal Scientists"],
         ["01.0001", "Agriculture", "99-9999", "NO MATCH"],
     ])
-    monkeypatch.setattr(probe, "CROSSWALK", book)
+    monkeypatch.setattr(probe_cipsoc, "LOCAL", book)
     got = probe.crosswalk_soc()
     assert got == {"19-1011"}, got
     assert "55-1234" not in got, "a SOC-shaped string outside the SOC column was counted"
@@ -292,7 +297,7 @@ def test_a_workbook_with_no_soc_column_anywhere_is_refused(tmp_path, monkeypatch
         ["File Name", "Description"],
         ["CIP-SOC", "crosswalks 2020 CIP to 2018 SOC, e.g. 19-1011"],
     ])
-    monkeypatch.setattr(probe, "CROSSWALK", book)
+    monkeypatch.setattr(probe_cipsoc, "LOCAL", book)
     with pytest.raises(probe.MalformedSource, match="no sheet has a SOC code column"):
         probe.crosswalk_soc()
 
@@ -300,10 +305,21 @@ def test_a_workbook_with_no_soc_column_anywhere_is_refused(tmp_path, monkeypatch
 def test_a_missing_workbook_is_not_the_same_as_an_unreadable_one(tmp_path, monkeypatch):
     """Absent is a fact about this machine — `data/` is gitignored, so a fresh
     clone has none of it. Present-and-unreadable is a fact about the source.
-    Reporting both as an empty set made a coverage figure of zero mean two
-    different things."""
-    monkeypatch.setattr(probe, "CROSSWALK", tmp_path / "not-here.xlsx")
-    assert probe.crosswalk_soc() == set()
+
+    THIS TEST USED TO ASSERT `crosswalk_soc() == set()` — the behaviour its own
+    docstring criticised for making a coverage figure of zero mean two
+    different things. Two exception types now, and neither is a value a caller
+    can add up.
+    """
+    monkeypatch.setattr(probe_cipsoc, "LOCAL", tmp_path / "not-here.xlsx")
+    with pytest.raises(probe.MissingSource):
+        probe.crosswalk_soc()
+
+    reshaped = workbook(tmp_path / "reshaped.xlsx", "Sheet1",
+                        [["Something Else", "Another"], ["a", "b"]])
+    monkeypatch.setattr(probe_cipsoc, "LOCAL", reshaped)
+    with pytest.raises(probe.MalformedSource, match="no sheet has a SOC code column"):
+        probe.crosswalk_soc()
 
 
 def test_a_renamed_header_is_refused_before_the_rows_are_walked(monkeypatch):
@@ -370,7 +386,7 @@ def test_the_workbook_handle_is_closed(tmp_path, monkeypatch):
         ["CIP Code", "SOC Code"],
         ["11.0101", "13-2011"],
     ])
-    monkeypatch.setattr(probe, "CROSSWALK", book)
+    monkeypatch.setattr(probe_cipsoc, "LOCAL", book)
 
     opened = []
     real = zipfile.ZipFile
@@ -380,7 +396,7 @@ def test_the_workbook_handle_is_closed(tmp_path, monkeypatch):
             super().__init__(*args, **kwargs)
             opened.append(self)
 
-    monkeypatch.setattr(probe.zipfile, "ZipFile", Watched)
+    monkeypatch.setattr(probe_cipsoc.zipfile, "ZipFile", Watched)
     probe.crosswalk_soc()
     assert opened, "the workbook was never opened"
     assert all(handle.fp is None for handle in opened), (

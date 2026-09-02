@@ -41,9 +41,7 @@ import html
 import json
 import re
 import sys
-import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
 
 # The MODULE, not its names. `from … import head` binds by value, so a test
 # that replaces `bls_access.head` leaves this module calling the original —
@@ -53,19 +51,11 @@ from etl import bls_access
 # the import cost off a run that never reads the crosswalk — but it also made
 # the handle unobservable to a test, and `probe_cipsoc` is imported by this
 # package anyway.
-from etl.probe_cipsoc import rows, sheets
+from etl import probe_cipsoc
+from etl.probe_cipsoc import MissingSource
 
 PROJECTIONS = "https://data.bls.gov/projections/occupationProj"
 
-# Fetched on every run, so a change in access shows up rather than being
-# remembered. www.bls.gov is where OEWS and the education-system documentation
-# live; data.bls.gov is where the projections table is served from.
-#
-# The OEWS constants this paragraph used to introduce — the per-geography URLs,
-# the release-year search and the reasons for both — moved to
-# `etl/bls_access.py` when the access layer was split out. The rationale went
-# with them; what follows is the crosswalk, which is a different subject.
-CROSSWALK = Path("data/CIP2020_SOC2018_Crosswalk.xlsx")
 SOC_CODE = re.compile(r"\b\d{2}-\d{4}\b")
 
 # Sentinels, not occupations. `99-9999` is the crosswalk's explicit "NO MATCH"
@@ -102,8 +92,11 @@ def employment_columns(header: list[str]) -> list[str]:
     return [name for name in header if EMPLOYMENT_YEAR.search(name)]
 
 
-class MalformedSource(Exception):
-    """Reachable, but not the table we asked for."""
+# ONE class, defined beside the reading it describes. This module had its own
+# and `probe_cipsoc` needed the same one once `crosswalk_soc` moved there
+# (#112), so the name is re-exported rather than duplicated — every `except
+# probe_bls.MalformedSource` and every exit code keeps working.
+MalformedSource = probe_cipsoc.MalformedSource
 
 
 def text_of(markup: str) -> str:
@@ -193,58 +186,12 @@ def projections() -> dict:
 def crosswalk_soc() -> set[str]:
     """The SOC codes a programme can actually reach, from the merged crosswalk.
 
-    Read from the same file `probe_cipsoc` uses. Coverage against *these* is the
-    measurement that matters — a national table of 800 occupations is not the
-    same as covering the ones this graph reaches.
+    ONE reading now, in `etl/probe_cipsoc.py` beside the workbook it reads —
+    this module and `probe_codesets` each had their own, taking different
+    routes to the same 867 codes (#112). Kept as a name here because the
+    coverage figures below are the reason it exists.
     """
-    if not CROSSWALK.exists():
-        # Absent is a fact about this MACHINE — the file is gitignored, so a
-        # fresh clone has none of it. Distinct from "present and unreadable".
-        return set()
-
-    found: set[str] = set()
-    columns_seen, headers_seen = 0, []
-    # `with`: the handle was left to the garbage collector, and this module is
-    # imported by a long-lived MCP-style process as readily as by a script.
-    with zipfile.ZipFile(CROSSWALK) as book:
-        for part in sheets(book).values():
-            table = list(rows(book, part))
-            if not table:
-                continue
-            # The SOC COLUMN, named by the sheet's own header — not every cell.
-            # Scanning every cell means any `NN-NNNN` string anywhere in the
-            # workbook joins the denominator: a note, a page range, a phone
-            # fragment. Measured against the current file the two agree exactly at
-            # 867, so this changes the shape and not the number — which is the
-            # honest way to describe it.
-            header = table[0]
-            soc_at = next((i for i, name in enumerate(header)
-                           if "SOC" in name and "Code" in name), None)
-            if soc_at is None:
-                headers_seen.append(header[:4])
-                continue
-            columns_seen += 1
-            for row in table[1:]:
-                if len(row) <= soc_at:
-                    continue
-                code = row[soc_at].strip()
-                if SOC_CODE.fullmatch(code) and code not in NOT_AN_OCCUPATION:
-                    found.add(code)
-    # The one structural parse in this file that used to degrade quietly. If
-    # the workbook is present and NO sheet yields a SOC column — a renamed
-    # header, a re-shaped release — every sheet was skipped and this returned
-    # an empty set, indistinguishable from "there is no crosswalk on this
-    # machine". Coverage would then be reported against a denominator of zero
-    # as though it had been measured.
-    #
-    # Refused, like every other layout change in this module. `projections()`
-    # raises MalformedSource on a renamed heading for exactly this reason.
-    if not columns_seen:
-        raise MalformedSource(
-            f"{CROSSWALK} is present but no sheet has a SOC code column — the "
-            f"headers are {headers_seen}. Reporting zero reachable occupations "
-            f"would read as BLS covering none of them.")
-    return found
+    return probe_cipsoc.soc_codes()
 
 
 def probe(quiet: bool = False) -> dict:
@@ -369,6 +316,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = probe(quiet=args.json)
+    except MissingSource as exc:
+        # A MESSAGE, not a traceback, and not a zero. This is the case a fresh
+        # clone hits first, and the fix is one command — so say which.
+        print(f"\nsource missing: {exc}", file=sys.stderr)
+        return 4
     except ValueError as exc:
         print(f"\nrefused: {exc}", file=sys.stderr)
         return 1

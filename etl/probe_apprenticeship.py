@@ -205,7 +205,16 @@ def our_soc() -> set[str]:
                 f"every SOC code below is read from that sheet.")
         table = rows(book, parts["CIP-SOC"])
     mapped, _ = crosswalk.pairs(table, crosswalk.find_header(table, "CIP"))
-    return {soc for _, soc in mapped if soc != NO_MATCH}
+    # THE ONE FILTER, in `probe_cipsoc` beside the workbook (#112). This was
+    # the third reading of the same file and the third spelling of what counts
+    # as an occupation: it dropped `99-9999` and not `00-0000`. All three
+    # produced 867 codes anyway, because `00-0000` is not in this release —
+    # right by accident, and the accident is not in the schema.
+    #
+    # The fetch above stays here. This function downloads when the workbook is
+    # absent and `probe_bls` does not, and consolidating the READING is not a
+    # reason to change either one's behaviour on a missing file.
+    return crosswalk.soc_codes(mapped)
 
 
 # SOC major groups, by the first two digits of the code. Only the groups the
