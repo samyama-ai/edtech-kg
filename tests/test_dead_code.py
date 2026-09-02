@@ -20,6 +20,21 @@ are tests below rather than memories:
   file imported, so `a.NAME` vouched for `b.NAME` — and `from etl import x as
   y` recorded `y` against the PACKAGE, so the pool went to everything under
   `etl.` (edtech-kg#140).
+- `direct` pooled the same way, one channel over: `from etl.other import URL`
+  spared a dead `URL` in any other module the file imported (edtech-kg#140,
+  second round).
+
+WHAT STILL SPARES TOO WIDELY, named because this is a sequence and the next
+one is easier to find when the last is written down:
+
+- `by_string` credits EVERY string literal in a file to every module it
+  imports. A `"NO_MATCH"` in an assertion message spares `NO_MATCH` everywhere
+  that file reaches. It exists for `monkeypatch.setattr(m, "THING")`, which is
+  real. Narrowing it means pairing a literal with the module it is aimed at —
+  edtech-kg#145.
+- `loose_attributes` spares every imported module by design, for attributes
+  whose receiver cannot be resolved. That one is deliberate: turning "I could
+  not tell" into a report of dead code is what gets a guard switched off.
 """
 
 from __future__ import annotations
@@ -35,6 +50,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def tracked() -> list[str]:
+    """DUPLICATED in `tests/test_repo_layout.py`, deliberately.
+
+    Both files monkeypatch it through `sys.modules[__name__]` to drive their
+    guards over a synthetic tree, so a shared import would leave one of them
+    patching a name the other still reads. Three lines is cheaper than that.
+    """
     out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True)
     if out.returncode != 0:
         pytest.skip("not a git checkout")
@@ -76,10 +97,13 @@ def test_no_module_leaves_a_helper_or_constant_behind():
         # soon as the file also imported `thing` — `a.NAME` vouching for
         # `b.NAME` through the other channel.
         #
-        # THE NARROWING HAS A FLOOR. `from etl import x` where `x` is not a
-        # tracked submodule still resolves to `etl`, so those names stay
-        # package-wide: deciding whether `x` is a symbol or a module without
-        # importing is only possible when a file answers it.
+        # WHAT HAPPENS TO AN UNRESOLVABLE ONE, for this channel: `from etl
+        # import x` where `x` is not a tracked submodule resolves to `etl`, and
+        # no target matches `"etl" == m or "etl".startswith(m + ".")` because
+        # `etl/__init__.py` is not in `sources`. So those names are credited to
+        # NOTHING here — not package-wide. Package-wide is what happens to
+        # `loose_attributes` and `by_string` below, which still reach every
+        # module the `imported` test admits.
         direct_by_module: dict[str, set[str]] = {}
         aliases: dict[str, str] = {}      # local alias -> module it refers to
         for node in ast.walk(other_tree):
@@ -143,6 +167,10 @@ def test_no_module_leaves_a_helper_or_constant_behind():
             imported = any(m == module or m.startswith(module + ".")
                            or module.startswith(m + ".")
                            for m in aliases.values())
+            if not imported:
+                continue
+            # The two comprehensions below are built AFTER the import test,
+            # not before it: they were discarded on every pair that fails it.
             direct = {name for alias_module, names in direct_by_module.items()
                       for name in names
                       if alias_module == module or alias_module.startswith(module + ".")}
@@ -150,8 +178,6 @@ def test_no_module_leaves_a_helper_or_constant_behind():
                 attr for alias_module, attrs in by_receiver.items()
                 for attr in attrs
                 if alias_module == module or alias_module.startswith(module + ".")}
-            if not imported:
-                continue
             referenced_elsewhere[target] |= (direct & plain) | attributes | by_string
 
     offenders = []
@@ -397,8 +423,20 @@ def test_an_aliased_submodule_import_resolves_to_the_submodule(tmp_path, monkeyp
         "etl/reader.py": "from etl import other as o\n\n\ndef _read():\n"
                          "    return o.URL\n",
     })
-    with pytest.raises(AssertionError, match=r"etl/thing\.py: \['URL'\]"):
+    with pytest.raises(AssertionError, match=r"etl/thing\.py: \['URL'\]") as caught:
         guard()
+    # THE NEGATIVE HALF, and it is the half that tests the resolution. With
+    # `resolved = node.module`, `o` binds to `etl`, and `by_receiver["etl"]` is
+    # asked whether it matches `etl.thing` — it does not, so `thing` is still
+    # reported and the assertion above is satisfied either way. What changes is
+    # `other`: its live `URL` loses its only reference and turns into a false
+    # positive. Measured — the mutation this test is NAMED for was caught by
+    # `test_an_attribute_on_the_RIGHT_module_still_spares_it` and not by this
+    # one, which is a test asserting something true regardless of the behaviour
+    # under it.
+    assert "etl/other.py" not in str(caught.value), (
+        "`o` resolved to the package rather than the submodule, so the live "
+        "`URL` in etl/other.py is now reported dead")
 
 
 def test_an_attribute_whose_receiver_cannot_be_resolved_still_spares(

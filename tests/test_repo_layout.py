@@ -26,6 +26,12 @@ EXPECTED_DIRS = ("etl", "schema", "docs", "benchmarks", "mcp_server", "demo", "t
 
 
 def tracked() -> list[str]:
+    """DUPLICATED in `tests/test_dead_code.py`, deliberately.
+
+    Both files monkeypatch it through `sys.modules[__name__]` to drive their
+    guards over a synthetic tree, so a shared import would leave one of them
+    patching a name the other still reads. Three lines is cheaper than that.
+    """
     out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True)
     if out.returncode != 0:
         pytest.skip("not a git checkout")
