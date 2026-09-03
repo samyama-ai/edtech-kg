@@ -27,6 +27,43 @@ QUESTIONS = ROOT / "docs" / "questions.md"
 QUESTION = re.compile(r"^\*\*(Q\d+)\.", re.M)
 
 
+#: A tier heading. The document is questions AND prose about them, and only the
+#: tier sections hold questions — `## The missing academic join`,
+#: `## The competency gap` and `## Counts` are narrative.
+TIER_HEADING = re.compile(r"^## (Tier \d+ .+)$", re.M)
+
+
+def tiers() -> dict[str, str]:
+    """Each tier's body, and nothing else in the document — edtech-kg#146.
+
+    Both parsers over this file used to read ALL of it, so ordinary prose in a
+    narrative section was interpreted as question structure. Two shapes bit,
+    within one afternoon of each other and in the same section:
+
+    - a bold run opening `**Q` and a number DECLARES a question, so writing
+      "**Q62 is caveated, not blocked**" in a paragraph made the tally read 103
+      questions and gave tier 6 nine
+    - every ✅ ⚠️ ❌ is counted to catch a question carrying two, so "neither the
+      row nor the ❌ count" made tier 6 report nine marks for eight questions
+
+    Both were worked around by telling the writer which characters to avoid,
+    in a note sitting in reader-facing prose. The document is for readers; its
+    prose should not be shaped around a parser.
+
+    A tier ends at the next `##` heading of ANY kind, not the next tier — tier
+    6 is followed by narrative, and taking the next tier heading would swallow
+    it, which is the bug in the other direction.
+    """
+    text = QUESTIONS.read_text(encoding="utf-8")
+    headings = list(TIER_HEADING.finditer(text))
+    found = {}
+    for heading in headings:
+        after = text.index("\n", heading.end())
+        end = text.find("\n## ", after)
+        found[heading.group(1)] = text[after:end if end != -1 else len(text)]
+    return found
+
+
 def blocks() -> dict[str, str]:
     """Each question with everything up to the next one.
 
@@ -37,17 +74,12 @@ def blocks() -> dict[str, str]:
     question is exempt from the ratchet — so eighteen answerable questions
     could have had no traversal and nothing would have said so.
     """
-    text = QUESTIONS.read_text(encoding="utf-8")
-    starts = [(m.group(1), m.start()) for m in QUESTION.finditer(text)]
     found = {}
-    for index, (name, at) in enumerate(starts):
-        end = starts[index + 1][1] if index + 1 < len(starts) else len(text)
-        # A block also stops at the next HEADING, or the prose between tiers
-        # is read as part of the last question in the tier above.
-        heading = text.find("\n## ", at)
-        if heading != -1 and heading < end:
-            end = heading
-        found[name] = text[at:end]
+    for body in tiers().values():
+        starts = [(m.group(1), m.start()) for m in QUESTION.finditer(body)]
+        for index, (name, at) in enumerate(starts):
+            end = starts[index + 1][1] if index + 1 < len(starts) else len(body)
+            found[name] = body[at:end]
     return found
 
 
