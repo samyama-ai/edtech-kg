@@ -38,7 +38,7 @@ credible.
 |---|---|
 | ✅ | answerable from a source measured by a probe in `etl/` |
 | ⚠️ | answerable, with a caveat that must travel with the answer |
-| ❌ | needs data we do not have and may not be able to get |
+| ❌ | not answerable as the graph stands — the reason is on the question |
 
 **Statuses were re-checked on 2026-08-19, not carried over.** Two changed:
 
@@ -236,6 +236,56 @@ reachability most? ✅ *Counterfactual over the graph.*
 
 ---
 
+## The missing academic join
+
+Six questions turn on one thing. **Five are blocked outright by it** — Q75,
+Q81, Q83, Q89 and Q90. **Caveated rather than blocked:** Q62, because the
+narrowed reading — course to course — is the one a student actually asks and
+is fully answered. A reader who takes all six as unanswerable undercounts what
+the graph does.
+
+**This is a subset of the "Rules joining the two tiers" cluster below, not the
+same set.** That row names nine and its reason is compound. Four of the nine —
+Q39, Q57, Q58, Q93 — have no published source to load: entry rules, graduation
+requirements, accreditation and dual enrolment, tagged #41 and #42 in their own
+blocks. The other five are the ones here, where a source exists and the SCHEMA
+has no edge to hold it. Q62 is not in that row at all, because the row lists
+blocked questions and Q62 is answered with a caveat.
+
+Nine and six are both right, about different populations. This section is
+about the smaller one.
+
+<!-- Contributor note, not for readers. This section avoids two things the
+     document's parsers read as structure: the status glyphs, counted per
+     question to catch one carrying two, and a bold run opening `**Q` followed
+     by a number, which declares a question. Prose using either made the tally
+     read 103 questions and twenty-six blocked. edtech-kg#146 is the fix, and
+     this note goes with it. -->
+
+It had no section of its own until now: it lived inside Q75's prose and half a
+table cell, which is not where a reader meets a finding this size.
+
+**There is no academic edge from a district Course to a Programme or an
+Occupation.** The only route the schema offers is geography:
+
+    Course <-TEACHES- School -IN_DISTRICT-> District -LOCATED_IN-> Place
+           <-LOCATED_IN- Institution -OFFERS-> Programme
+
+That walk returns rows. It answers "a programme exists near a school that
+teaches this course", and every question in the list above wants "this course
+prepares a student for that programme". A query written down it looks like an
+answer and is geography wearing an academic answer's clothes — which is why
+these are marked rather than answered with it.
+
+The join exists in the world: articulation agreements, dual-enrolment
+compacts, state CTE frameworks. None of them is published as data this repo has
+found. #66 is the research issue and #42 covers the dual-enrolment half.
+
+Counted rather than asserted — "nine" appeared in two files and matched neither
+the tier count nor the document-wide one, and
+`tests/test_questions_document.py` now holds this figure to the questions that
+cite it.
+
 ## The competency gap
 
 Three questions above — Q41, Q59 and Q94 — are blocked on the same thing, and it
@@ -288,7 +338,7 @@ on prerequisites that #63 has since measured.
 | Employer demand | Q40, Q87 | no public source |
 | Competency definitions | Q41, Q59, Q94 | the gap above |
 | Needs a second district | Q80, Q88 | #19 |
-| **Rules joining the two tiers** | Q39, Q57, Q58, Q93, Q75, Q81, Q83, Q89, Q90 | nobody publishes them as data, and the schema has no edge for them — #66 |
+| **Rules joining the two tiers** | Q39, Q57, Q58, Q93 · Q75, Q81, Q83, Q89, Q90 | TWO reasons, split by the dot: the first four have no published source (#41, #42), the last five have a source and no schema edge — *the missing academic join* above, #66 |
 | Not in the schema at all | Q19, Q84, Q92 | cost, and enrolment, have no node or property — #22 |
 | Not a traversal | Q78 | set cover is an optimisation over the graph, not a walk of it; #22 |
 | The engine cannot | Q68, Q71 | `IN` over a node list is unusable and a repeated variable is not bound across a variable-length pattern, so articulation points return a confident zero and cycle detection a confident 359; #22 |
