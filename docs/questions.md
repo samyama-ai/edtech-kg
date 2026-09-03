@@ -199,7 +199,7 @@ centrality* — the real bottleneck courses.
 **Q75. Given a target occupation, what is the shortest course sequence in this district that reaches a programme leading to it?** ❌ — **re-marked by #22.** There is no academic edge from a district `Course` to a `Programme`. The only route in the schema is `Course <-TEACHES- School -IN_DISTRICT-> District -LOCATED_IN-> Place <-LOCATED_IN- Institution -OFFERS-> Programme`, which says a college in the same state offers it, not that the course prepares you for it. A traversal would return a geographic path and read as an academic answer. *Shortest path across two domains* is still the operation it needs; the domains are not joined. That join is #66.
 **Q76.** Which entry-level courses open the most downstream options? ✅
 *Descendant count.*
-**Q77.** Is this programme reachable from this school's course offering at all? ⚠️ — **re-marked by #143.** Answers the COURSE side only, for the reason in Q75 — the route to a Programme runs through Place, which is geography.
+**Q77.** Is this programme reachable from this school's course offering at all? ⚠️ — **re-marked by #143.** Answers the COURSE side only, for the reason in Q75 — there is no academic edge from a Course to a Programme, so the only route runs through Place, which is geography wearing an academic answer's clothes (#66).
 *Reachability.*
 **Q78.** What is the minimum set of courses covering the most pathways? ❌ — **re-marked by #22.** Set cover is an optimisation over the graph rather than a traversal of it: the data is all here and the operation is not Cypher. The greedy first step — rank courses by pathways included — is expressible and answers a different question. *Set cover over paths* is still the operation it names; it is not a traversal.
 **Q79.** Which prerequisite chains cross subject boundaries? ✅ *Path
@@ -255,22 +255,23 @@ reachability most? ⚠️ — **re-marked by #143.** Answers Q76's ranking of en
 
 ## The missing academic join
 
-Six questions turn on one thing. **Five are blocked outright by it** — Q75,
-Q81, Q83, Q89 and Q90. **Caveated rather than blocked:** Q62, because the
-narrowed reading — course to course — is the one a student actually asks and
-is fully answered. A reader who takes all six as unanswerable undercounts what
-the graph does.
+Seven questions turn on one thing. **Five are blocked outright by it** — Q75,
+Q81, Q83, Q89 and Q90. **Caveated rather than blocked:** Q62 and Q77, because
+each has a narrowed reading that is fully answered — course to course for Q62,
+the course side alone for Q77. A reader who takes all seven as unanswerable
+undercounts what the graph does.
 
-**This is a subset of the "Rules joining the two tiers" cluster below, not the
-same set.** That row names nine and its reason is compound. Four of the nine —
-Q39, Q57, Q58, Q93 — have no published source to load: entry rules, graduation
-requirements, accreditation and dual enrolment, tagged #41 and #42 in their own
-blocks. The other five are the ones here, where a source exists and the SCHEMA
-has no edge to hold it. Q62 is not in that row at all, because the row lists
-blocked questions and Q62 is answered with a caveat.
+**This overlaps the "Rules joining the two tiers" cluster below without
+matching it.** That row names nine and its reason is compound. Four of the nine
+— Q39, Q57, Q58, Q93 — have no published source to load: entry rules,
+graduation requirements, accreditation and dual enrolment, tagged #41 and #42
+in their own blocks. The other five are the blocked ones here, where a source
+exists and the SCHEMA has no edge to hold it. Q62 and Q77 are in neither the
+row nor the blocked count, because the row lists blocked questions and both are
+answered with a caveat.
 
-Nine and six are both right, about different populations. This section is
-about the smaller one.
+Nine and seven are both right, about different populations: nine is the
+cluster, seven is this finding, and five questions are in both.
 
 <!-- Contributor note, not for readers. This section avoids two things the
      document's parsers read as structure: the status glyphs, counted per
@@ -343,10 +344,12 @@ and their status marks and fails if it disagrees. It exists because the first
 version of the table was written by hand and got three rows wrong.
 
 **Fifty-eight answered outright and nineteen with a caveat — seventy-seven
-answerable in all, and thirteen of the twenty tier-4 questions among them.**
+answerable in all, and fifteen of the twenty tier-4 questions among them.**
 Both halves are stated because the key calls ⚠️ *answerable, with a caveat that
-must travel with the answer*, and a single "answerable" figure has to pick one
-of the two readings without saying which. That is the argument for building this as a graph rather than a
+must travel with the answer*, so a single "answerable" figure has to say
+which reading it means. Fifteen is the same reading as seventy-seven —
+thirteen ✅ and two ⚠️. Quoting thirteen here would switch readings inside the
+sentence that argues against doing exactly that. That is the argument for building this as a graph rather than a
 database, and three days ago it was not true — every tier-4 question was blocked
 on prerequisites that #63 has since measured.
 

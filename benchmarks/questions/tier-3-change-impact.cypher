@@ -143,9 +143,9 @@ WHERE renamed.url = "https://catalog.pwcs.edu/agriculture-food-and-natural-resou
 RETURN renamed.url, renamed.name, count(dependant) AS inbound_links;
 
 // Q60. The crosswalk gains a mapping. Which occupations become newly reachable
+// from this institution?
 //   SUBSTITUTES: what is reachable NOW, not what is newly reachable.
 //     "Newly" is a comparison against a previous revision; one is loaded.
-// from this institution?
 //   NEEDS: Occupation.name
 //   Reachable NOW. "Newly" is a comparison against a previous revision, and
 //   only one is loaded — so this answers the after half, and the newness is a

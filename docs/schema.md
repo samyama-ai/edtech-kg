@@ -130,8 +130,11 @@ one — `/mathematics/algebra-1` is a path two districts can both publish. The
 host is what separates them, so the key keeps it.
 
 **Prerequisite chains are the reason this is a graph.** `REQUIRES` is what makes
-thirteen of the twenty tier-4 questions answerable — blast radius, shortest
-path, reachability, ancestor and descendant sets. NOT cycle detection: that is
+fifteen of the twenty tier-4 questions answerable — blast radius, shortest
+path, reachability, ancestor and descendant sets. Two of those four are
+answered with a caveat rather than outright — shortest path is Q62 and
+reachability is Q77, both ⚠️ — and they are counted here because the key calls
+⚠️ answerable. NOT cycle detection: that is
 Q71, marked ❌ because this engine does not bind a repeated variable across a
 variable-length pattern, so `(c)-[:REQUIRES*1..1]->(c)` matches every edge
 rather than the ones returning to `c`. Direction is *course → what it requires*,

@@ -188,3 +188,17 @@ def test_the_prose_totals_agree_with_the_counted_ones():
 
     # The schema has to serve everything answerable, caveated included.
     assert f"serve the {totals['✅'] + totals['⚠️']}" in text
+
+    # THE TIER-4 CLAUSE, in the same sentence and the same reading. It said
+    # "thirteen of the twenty tier-4 questions among them" while "them" was the
+    # seventy-seven — switching from ✅+⚠️ to ✅ alone inside the sentence that
+    # argues a figure has to say which reading it means. Nothing read this
+    # clause, so nothing caught it.
+    tier_four = re.search(r"and ([\w-]+) of the ([\w-]+) tier-4", text)
+    assert tier_four, "the headline no longer states a tier-4 share"
+    tier = counted()["4 — graph algorithms"]
+    among = tier["✅"] + tier["⚠️"]
+    assert spelled(tier_four.group(1)) == among, (
+        f"the headline says {tier_four.group(1)!r} of the tier-4 questions are "
+        f"among the answerable and {among} are — ✅ plus ⚠️, the same reading "
+        f"the sentence uses for its own total.")
