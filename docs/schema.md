@@ -38,13 +38,32 @@ source holds, not what any graph contains.
 It was modelled on the Credential Registry, which publishes 98 pathways against
 47,861 Registry *course records* — a different population from `Course` above,
 which is district catalogue pages — so it was declared and left empty. But a
-district publishes pathways too, as pages: PWCS publishes 38, and they load. A
-district pathway has no `ctid`, so keeping that key would have given all 38
-nodes a null value for the declared key — which 1.1.0 accepts in silence,
-because a constraint here declares the key and does not enforce it. The
-Registry's own pathways remain unloaded and will need a distinct label or a
-composite key carrying the publisher; that is **edtech-kg#85**, not a decision
-to take on one publisher's evidence.
+district publishes pathways too, as pages: 42 load from PWCS. A district
+pathway has no `ctid`, so keeping that key would have given all 42 nodes a null
+value for the declared key — which 1.1.0 accepts in silence, because a
+constraint here declares the key and does not enforce it.
+
+**edtech-kg#85 then asked what the second publisher needs, and it is measured**
+rather than argued — `python -m etl.probe_pathway_identity` reads all 98
+published Registry pathways (`docs/sources/pathway-identity.md`):
+
+| candidate | present | distinct | lost to a merge |
+|---|---|---|---|
+| `ceterms:ctid` | 98 / 98 | 98 | 0 |
+| `ceterms:subjectWebpage` | 78 / 98 | 71 | 7 |
+
+Twenty Registry pathways publish no webpage, so `url` repeats the null-key
+failure in the other direction — and seven more would be *silently merged*,
+because four department landing pages are each published as several distinct
+programmes. A key that is absent is visible; a key that merges is not.
+
+The verdict is a composite carrying the identifier space,
+`Pathway.id = "<space>|<identifier>"` with space `url` or `ctid` — the shape
+`AwardingBody`, `Level` and `Competency` already use. It is **parsed from the
+left**, the opposite of `Level`, because here the leading component is the one
+free of `|`. The constraint still names `url` and moves to `id` when a loader
+first writes one; the Registry's own pathways remain unloaded, blocked on
+**#56**.
 
 **Where the district's figures come from.** `etl/probe_pwcs.py` reads the
 sitemap's 960 pages and classifies each one before counting it. The catalogue

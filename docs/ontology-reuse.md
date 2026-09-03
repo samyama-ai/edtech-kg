@@ -40,6 +40,7 @@ mapping rather than trust it.
 | `Occupation` | [`schema:Occupation`](https://schema.org/Occupation) · [`ceterms:Occupation`](https://credreg.net/ctdl/terms/Occupation) | **adopt** | |
 | `Institution` | [`schema:CollegeOrUniversity`](https://schema.org/CollegeOrUniversity) | **align** | Ours is keyed on IPEDS UNITID and covers non-degree providers too — see #45 |
 | `Credential` | [`schema:EducationalOccupationalCredential`](https://schema.org/EducationalOccupationalCredential) | **adopt** | |
+| `Pathway` | [`ceterms:Pathway`](https://credreg.net/ctdl/terms/Pathway) | **align** | The class is adopted; the KEY is not. CTDL identifies a pathway by `ctid`, which 98/98 published pathways carry — and which no district pathway has. Ours is a composite carrying the identifier space, `"<space>\|<identifier>"`, so both publishers key without collision. Measured in `docs/sources/pathway-identity.md` (#85) |
 | `Standard` / competency | [`CASE`](https://www.imsglobal.org/spec/case/v1p0) | **provisional — blocked on #32** | Not decided. #32 has not reported |
 | `School`, `District` | Ed-Fi | **provisional — blocked on #31** | Not decided. #31 has not reported |
 
