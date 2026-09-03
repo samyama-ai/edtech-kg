@@ -449,3 +449,28 @@ def test_a_page_with_neither_field_reports_absence_not_emptiness():
     assert found["description"] is None
     assert found["grade_levels"] == []
 
+
+def test_the_items_container_is_not_read_as_an_item():
+    """`field__item` also matches inside `class="field__items"`.
+
+    `[^>]*` absorbed the `s"`, so the CONTAINER matched first and its capture
+    ran to the first `</div>` inside it. On the current template that is the
+    first real item, so the answer came out right by coincidence of ordering.
+    Move the label inside `field__items` — which Drupal templates do — and
+    `Grades` is emitted as a grade level. Verified before the fix.
+    """
+    label_inside = """<html><h1>C</h1>
+<div class="field field--name-field-grades">
+  <div class="field__items">
+    <div class="field__label">Grades</div>
+    <div class="field__item">10,</div>
+    <div class="field__item">11</div>
+  </div>
+</div></html>"""
+    label_outside = label_inside.replace(
+        '<div class="field__items">\n    <div class="field__label">Grades</div>',
+        '<div class="field__label">Grades</div>\n  <div class="field__items">')
+    for markup, where in ((label_inside, "inside"), (label_outside, "outside")):
+        found = probe.parse_course(markup, "u")["grade_levels"]
+        assert found == ["10", "11"], f"label {where} the container gave {found}"
+

@@ -97,8 +97,33 @@ def upserts(tree: ast.AST) -> list[tuple[str, str, set[str]]]:
         if not all(isinstance(a, ast.Constant) and isinstance(a.value, str)
                    for a in (label, key)):
             continue
-        found.append((label.value, key.value, property_names(tree, node.args[4])))
+        found.append((label.value, key.value,
+                      property_names(scope_of(tree, node), node.args[4])))
     return found
+
+
+def scope_of(tree: ast.AST, call: ast.Call) -> ast.AST:
+    """The innermost function containing `call`, or the module.
+
+    A dict passed by name is resolved WITHIN this, not across the file. Walking
+    the module meant every assignment to a matching name anywhere contributed
+    keys: two loaders in one module each building their own `properties` would
+    merge into both labels, and `declared()` would report properties as written
+    that no upsert for that label writes. A query would then lose its `NEEDS:`
+    line and answer null on a loaded district — the failure this module exists
+    to prevent, arriving through the parser meant to prevent it.
+    """
+    innermost = tree
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(child is call for child in ast.walk(node)):
+            # The innermost wins: a nested function is inside its parent's
+            # walk too, and the nearer scope is the one that binds.
+            if innermost is tree or any(child is node
+                                        for child in ast.walk(innermost)):
+                innermost = node
+    return innermost
 
 
 def property_names(tree: ast.AST, argument: ast.AST) -> set[str]:

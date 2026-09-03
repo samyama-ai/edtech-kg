@@ -410,3 +410,33 @@ def test_a_course_without_them_is_written_without_the_properties():
     assert "n.grade_levels" not in written
     assert "n.name = 'Course 2'" in written, written
 
+
+def test_two_loaders_in_one_module_do_not_share_their_properties():
+    """`property_names` resolved a dict passed by name across the whole MODULE.
+
+    Every assignment to a matching name anywhere in the file contributed keys,
+    so two labels each building their own `properties` merged into both — and
+    `declared()` would report properties as written that no upsert for that
+    label writes. A query then loses its `NEEDS:` line and answers null on a
+    loaded district, which is the failure `schema_properties` exists to
+    prevent, arriving through the parser meant to prevent it.
+
+    Nothing in `etl/` does this today. That is why it needs a test rather than
+    a reader noticing.
+    """
+    import ast
+
+    from tests.schema_properties import upserts
+
+    module = ast.parse(
+        "def one(engine):\n"
+        "    properties = {'name': 1}\n"
+        "    upsert(engine, 'Alpha', 'url', 'u', properties)\n"
+        "\n"
+        "def two(engine):\n"
+        "    properties = {'colour': 1}\n"
+        "    properties['extra'] = 2\n"
+        "    upsert(engine, 'Beta', 'url', 'u', properties)\n")
+    found = {label: props for label, _, props in upserts(module)}
+    assert found == {"Alpha": {"name"}, "Beta": {"colour", "extra"}}, found
+
