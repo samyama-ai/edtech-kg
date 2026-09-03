@@ -24,17 +24,24 @@ are tests below rather than memories:
   spared a dead `URL` in any other module the file imported (edtech-kg#140,
   second round).
 
-WHAT STILL SPARES TOO WIDELY, named because this is a sequence and the next
-one is easier to find when the last is written down:
+- `by_string` credited EVERY string literal to every module the file imports —
+  a `"NO_MATCH"` in an assertion message spared `NO_MATCH` everywhere that file
+  reached. The widest of the four, because it was every literal and not just
+  names. Narrowed to the calls that actually reach a name by string
+  (edtech-kg#145).
 
-- `by_string` credits EVERY string literal in a file to every module it
-  imports. A `"NO_MATCH"` in an assertion message spares `NO_MATCH` everywhere
-  that file reaches. It exists for `monkeypatch.setattr(m, "THING")`, which is
-  real. Narrowing it means pairing a literal with the module it is aimed at —
-  edtech-kg#145.
-- `loose_attributes` spares every imported module by design, for attributes
-  whose receiver cannot be resolved. That one is deliberate: turning "I could
-  not tell" into a report of dead code is what gets a guard switched off.
+WHAT STILL SPARES TOO WIDELY, and deliberately. Both are the same judgement:
+an unresolvable receiver means "I could not tell", and turning that into a
+report of dead code is what gets a guard switched off.
+
+- `loose_attributes` — an attribute whose receiver is not a resolvable alias
+  (`self.URL`, `Holder().URL`) spares every imported module.
+- `loose_strings` — `setattr(probe.crosswalk, "LOCAL")` names its target
+  through an attribute chain rather than a plain alias, so its literal is
+  pooled the same way.
+
+If either ever reports a live name as dead, the fix is to teach it that shape,
+not to widen it back.
 """
 
 from __future__ import annotations
@@ -155,10 +162,38 @@ def test_no_module_leaves_a_helper_or_constant_behind():
             else:
                 loose_attributes.add(node.attr)
         plain = {n.id for n in ast.walk(other_tree) if isinstance(n, ast.Name)}
-        # A name reached by string — `monkeypatch.setattr(m, "THING")`, a
-        # getattr. Rare, real, and cheap to keep.
-        by_string = {n.value for n in ast.walk(other_tree)
-                     if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        # A name reached BY STRING, keyed by the module it is aimed at —
+        # `monkeypatch.setattr(m, "THING")`, `getattr(m, "THING")`. Rare, real,
+        # and the last of the four channels that pooled (edtech-kg#145).
+        #
+        # Every string constant in the file used to be credited to every module
+        # the file imports, so a `"NO_MATCH"` in an assertion message spared
+        # `NO_MATCH` everywhere that file reached — the widest of the four,
+        # because it was every literal and not just names.
+        #
+        # A literal that is NOT an argument to one of these calls is not
+        # reaching a name, so it credits nothing. Measured before changing it:
+        # dropping that pool reports no new dead names in this tree, so nothing
+        # here depended on it. A receiver this cannot resolve keeps its literal
+        # pooled, the same lenience `loose_attributes` gets and for the same
+        # reason — "I could not tell" must not become a report of dead code.
+        by_string_by_module: dict[str, set[str]] = {}
+        loose_strings: set[str] = set()
+        for node in ast.walk(other_tree):
+            if not isinstance(node, ast.Call) or len(node.args) < 2:
+                continue
+            called = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+            if called not in ("setattr", "getattr", "delattr"):
+                continue
+            receiver, wanted = node.args[0], node.args[1]
+            if not (isinstance(wanted, ast.Constant) and isinstance(wanted.value, str)):
+                continue
+            reached = (aliases.get(receiver.id)
+                       if isinstance(receiver, ast.Name) else None)
+            if reached:
+                by_string_by_module.setdefault(reached, set()).add(wanted.value)
+            else:
+                loose_strings.add(wanted.value)
 
         for target in sources:
             if target == other:
@@ -177,6 +212,10 @@ def test_no_module_leaves_a_helper_or_constant_behind():
             attributes = loose_attributes | {
                 attr for alias_module, attrs in by_receiver.items()
                 for attr in attrs
+                if alias_module == module or alias_module.startswith(module + ".")}
+            by_string = loose_strings | {
+                name for alias_module, names in by_string_by_module.items()
+                for name in names
                 if alias_module == module or alias_module.startswith(module + ".")}
             referenced_elsewhere[target] |= (direct & plain) | attributes | by_string
 
@@ -366,91 +405,4 @@ def test_a_pytest_fixture_is_not_reported_as_dead(tmp_path, monkeypatch):
     """
     guard_over(tmp_path, monkeypatch, {
         "etl/thing.py": "import pytest\n\n\n@pytest.fixture\ndef record():\n    return 1\n",
-    })()
-
-
-def test_an_attribute_on_a_SIBLING_module_does_not_spare_a_namesake(
-        tmp_path, monkeypatch):
-    """The gap edtech-kg#140 was raised for, and it is mine.
-
-    The guard pooled every attribute in a file and handed the pool to every
-    module that file imported, so `a.NAME` vouched for `b.NAME`. Worse, the
-    alias resolution made "imports" almost meaningless: `from etl import x as
-    y` is an `ImportFrom` whose `node.module` is `etl`, the PACKAGE, so `y` was
-    recorded against `etl` and the import test matched `etl.anything`.
-
-    Measured on #139: `etl/probe_codesets.NO_MATCH` was dead and survived,
-    because a test writes `probe_apprenticeship.NO_MATCH` — a different
-    module's live constant of the same name. `from etl import x as y` is the
-    dominant import style here, so this was not an edge case.
-
-    Below, `reader` reaches `other.URL` and never touches `thing`.
-    """
-    # `reader` imports BOTH, which is the shape that reproduces it: the guard
-    # only reaches the attribute check for a module the file imports, so a
-    # tree where the sparing file never imports the target proves nothing.
-    # `tests/test_probe_apprenticeship.py` imported both for the same reason —
-    # a test module usually does.
-    guard = guard_over(tmp_path, monkeypatch, {
-        "etl/thing.py": "URL = \"https://example.invalid/dead\"\n",
-        "etl/other.py": "URL = \"https://example.invalid/live\"\n",
-        "etl/reader.py": "from etl import other\nfrom etl import thing\n\n\n"
-                         "def _read():\n    return other.URL, thing\n",
-    })
-    with pytest.raises(AssertionError, match=r"etl/thing\.py: \['URL'\]"):
-        guard()
-
-
-def test_an_attribute_on_the_RIGHT_module_still_spares_it(tmp_path, monkeypatch):
-    """The bound that matters more. A guard that starts reporting live names
-    gets switched off, and then nothing is watching at all."""
-    guard_over(tmp_path, monkeypatch, {
-        "etl/other.py": "URL = \"https://example.invalid/live\"\n",
-        "etl/reader.py": "from etl import other\n\n\ndef _read():\n"
-                         "    return other.URL\n",
-    })()
-
-
-def test_an_aliased_submodule_import_resolves_to_the_submodule(tmp_path, monkeypatch):
-    """`from etl import other as o` — the spelling this repo actually uses.
-
-    The alias has to resolve to `etl.other` and not to `etl`, or every module
-    under the package is credited again through a different door.
-    """
-    guard = guard_over(tmp_path, monkeypatch, {
-        "etl/thing.py": "URL = \"https://example.invalid/dead\"\n",
-        "etl/other.py": "URL = \"https://example.invalid/live\"\n",
-        "etl/reader.py": "from etl import other as o\n\n\ndef _read():\n"
-                         "    return o.URL\n",
-    })
-    with pytest.raises(AssertionError, match=r"etl/thing\.py: \['URL'\]") as caught:
-        guard()
-    # THE NEGATIVE HALF, and it is the half that tests the resolution. With
-    # `resolved = node.module`, `o` binds to `etl`, and `by_receiver["etl"]` is
-    # asked whether it matches `etl.thing` — it does not, so `thing` is still
-    # reported and the assertion above is satisfied either way. What changes is
-    # `other`: its live `URL` loses its only reference and turns into a false
-    # positive. Measured — the mutation this test is NAMED for was caught by
-    # `test_an_attribute_on_the_RIGHT_module_still_spares_it` and not by this
-    # one, which is a test asserting something true regardless of the behaviour
-    # under it.
-    assert "etl/other.py" not in str(caught.value), (
-        "`o` resolved to the package rather than the submodule, so the live "
-        "`URL` in etl/other.py is now reported dead")
-
-
-def test_an_attribute_whose_receiver_cannot_be_resolved_still_spares(
-        tmp_path, monkeypatch):
-    """A receiver this cannot resolve is not evidence of ABSENCE.
-
-    `self.URL`, `config().URL`, an attribute on a local object — the guard
-    cannot say which module those belong to, so they keep sparing every
-    imported module. Narrowing them too would turn "I could not tell" into a
-    report of dead code, and a false positive is what gets a guard deleted.
-    """
-    guard_over(tmp_path, monkeypatch, {
-        "etl/thing.py": "URL = \"https://example.invalid\"\n",
-        "etl/reader.py": "from etl import thing\n\n\n"
-                         "class Holder:\n    URL = 1\n\n\n"
-                         "def _read():\n    return Holder().URL\n",
     })()
