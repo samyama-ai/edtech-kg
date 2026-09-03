@@ -167,23 +167,24 @@ CREATE INDEX ON :Completion(year);
 // Pathway — a published route through courses, keyed on the URL of the page
 // that publishes it, for exactly the reason Course is.
 //
-// This moved out of tier 2. It was declared here keyed on `ctid`, CTDL's
+// This moved out of tier 2. It was declared keyed on `ctid`, CTDL's
 // identifier, because the Credential Registry was the only publisher in view —
 // 98 pathways against 47,861 courses, which is why it was modelled and left
-// empty. But a school district publishes pathways too, as pages: PWCS publishes
-// 38, sixteen CTE career pathways and twenty-two specialty programs, each with
-// its course list in a typed field. Those are loadable today and are loaded.
+// empty. A school district publishes pathways too, as pages: 42 load from
+// PWCS, and none carries a ctid, so that key would have given all 42 a null
+// value — which 1.1.0 accepts in silence, since a constraint here declares the
+// key and does not enforce it.
 //
-// A district pathway has no ctid. Keeping the ctid key would have given all 38
-// nodes a null value for the declared key — which 1.1.0 accepts silently, since
-// a constraint here declares the key and does not enforce it. That is the exact
-// failure this file warns about two hundred lines further up, and it would have
-// shipped.
-//
-// The Registry's own pathways are still NOT loaded, and when they are they need
-// either a distinct label or a composite key carrying the publisher — the shape
-// already used for Level (`id = "<body>|<code>"`). Raised as #85 rather than
-// decided here on one publisher's evidence.
+// #85 asked what the second publisher then needs. Measured, not argued: all 98
+// Registry pathways read — `ctid` fits 98/98, `subjectWebpage` leaves 20 nulls
+// AND merges 7 onto 4 shared pages. Neither publisher's key fits both, so
+// `Pathway.id = "<space>|<identifier>"`, space one of "url" or "ctid" — the
+// shape AwardingBody, Level and Competency use, but PARSED FROM THE LEFT, the
+// opposite of Level, because here the LEADING component is the one free of "|"
+// and a URL is not; Level's `rpartition` would recover the wrong parts.
+// The constraint still names `url` and moves to `id` when a loader first
+// writes one — Registry work, blocked on #56; declaring it now would declare a
+// key no loader writes. Reasoning: docs/sources/pathway-identity.md.
 CREATE CONSTRAINT ON (pw:Pathway) ASSERT pw.url IS UNIQUE;
 
 // =============================================================================
