@@ -24,9 +24,19 @@ import os
 import pytest
 
 from etl import probe_engine_capability as probe
-from tests.test_schema_engine import SAMYAMA_URL, query, require_engine
+from etl.engine import Engine
+from tests.test_schema_engine import SAMYAMA_URL, require_engine
 
 RECORD = json.loads(probe.RECORD.read_text(encoding="utf-8"))
+
+
+def test_the_record_says_which_graph_it_measured():
+    """`/api/query` selects with `graph`, and the probe used to send `tenant` —
+    so it measured whatever the default is while its docstring said otherwise.
+    On this build nothing isolates (edtech-kg#149), which makes naming the
+    field correctly more important rather than less: the record has to say what
+    it claims to be about."""
+    assert RECORD.get("graph"), "the record does not name the graph it measured"
 
 #: What the repo believes, and why each matters. The value is what the record
 #: must hold; a mismatch means either the engine changed or a document is about
@@ -40,12 +50,46 @@ BELIEVED = {
     "isolated_courses": 463,
     # The defects.
     "repeated_variable_across_var_length": 240,   # should be 0
-    "in_over_a_node_list": 0,                     # should be > 0
+    "in_over_a_node_list_from_a_separate_match": 0,        # should be > 0
+    "not_in_over_a_node_list_from_a_separate_match": 0,    # should be very large
+    "in_over_a_node_list_unwound_from_the_path": 863,      # correct, the contrast
     "bare_single_node_map_absent_url": 791,       # should be 0
     "relationship_pattern_map_absent_url": 0,     # correct, and the contrast
     "not_in_list_unparenthesised": 0,             # should be 791
     "not_in_list_parenthesised": 791,             # correct, and the contrast
 }
+
+
+def test_the_node_list_defect_is_only_the_separate_match_shape():
+    """Both halves, because the first version of this recorded neither.
+
+    It measured one query that dropped `x` before the WHERE and recorded the
+    scoping result as evidence that "`IN` over a list of nodes matches
+    nothing". Carried through properly, the operator works — 863. What is
+    broken is `x` from an INDEPENDENT `MATCH`, where the test matches nothing
+    in either direction rather than refusing, and that is the shape Q68 needs.
+    """
+    got = RECORD["constructs"]
+    assert got["in_over_a_node_list_from_a_separate_match"]["value"] == 0
+    assert got["not_in_over_a_node_list_from_a_separate_match"]["value"] == 0, (
+        "both directions must be 0 — a query matching nothing either way is "
+        "the finding; one of them working would make Q68 answerable")
+    assert got["in_over_a_node_list_unwound_from_the_path"]["value"] > 0, (
+        "the operator works when the list is unwound from the path, and "
+        "recording only the broken shape overstates the defect")
+
+
+def test_a_bare_aggregate_returns_one_row_of_null_not_no_rows():
+    """The construct whose recorded SHAPE carries the finding.
+
+    `{"value": None}` and a missing key are indistinguishable under
+    `got.get("value")`, so the belief table cannot express this one — which is
+    why it gets its own test. It is the reason `records != []` is not an
+    emptiness check, and that cost a review round.
+    """
+    got = RECORD["constructs"]["aggregate_over_an_absent_label"]
+    assert "value" in got, f"recorded as {got} — the one row was lost"
+    assert got["value"] is None, got
 
 
 def test_the_record_holds_every_construct_the_probe_runs():
@@ -100,8 +144,9 @@ def test_the_record_agrees_with_a_live_engine():
     loaded district on every machine.
     """
     require_engine()
-    held = query(SAMYAMA_URL, "MATCH (c:Course) RETURN count(c) AS n")
-    courses = (held.get("records") or [[0]])[0][0] if "error" not in held else 0
+    counted = probe.ask(Engine(SAMYAMA_URL, RECORD["graph"]),
+                        "MATCH (c:Course) RETURN count(c) AS n")
+    courses = (counted.get("records") or [[0]])[0][0] if "error" not in counted else 0
     if not courses:
         message = (f"the graph at {SAMYAMA_URL} holds no Course nodes, so a "
                    f"predicate inside a WHERE is never evaluated and this "
@@ -110,9 +155,14 @@ def test_the_record_agrees_with_a_live_engine():
             pytest.fail(f"{message} — SAMYAMA_REQUIRE_DATA=1 forbids skipping this")
         pytest.skip(message)
 
+    # THE SAME CLIENT and the same graph the record names. This counted
+    # courses through one helper and ran the constructs through another that
+    # sent a different selector key — so a drift report could have been two
+    # graphs disagreeing rather than the engine changing.
+    engine = Engine(SAMYAMA_URL, RECORD["graph"])
     drifted = []
     for name, cypher, _ in probe.CONSTRUCTS:
-        live = probe.rows(probe.ask(SAMYAMA_URL, cypher))
+        live = probe.rows(probe.ask(engine, cypher))
         recorded = {k: v for k, v in RECORD["constructs"][name].items()
                     if k in ("value", "rows", "error")}
         if live.get("error") and recorded.get("error"):

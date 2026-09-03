@@ -42,11 +42,13 @@ import sys
 import urllib.error
 import urllib.request
 
+from etl.engine import Engine, Refused
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "engine-capability-measured.json"
 
 DEFAULT_URL = os.environ.get("SAMYAMA_URL", "http://localhost:8080")
-TENANT = "edtech"
+GRAPH = "edtech"
 
 RECORD_NOTE = (
     "One measured run against a loaded district, committed so the prose in "
@@ -63,23 +65,42 @@ class NoData(RuntimeError):
     """An engine answered and holds no district, so half of this proves nothing."""
 
 
-def ask(url: str, cypher: str) -> dict:
-    """One statement, with the engine's refusal kept rather than raised.
+def ask(engine: Engine, cypher: str) -> dict:
+    """One statement, through the repo's own client.
 
-    A construct that ERRORS is a measurement too — `{year: latest}` is a parse
-    error and that is the fact worth recording, so an error is returned as a
-    result and not as an exception.
+    THREE things this used to get wrong by writing its own request, and all
+    three are already solved in `etl/engine.py`:
+
+    - It sent `{"tenant": …}`. `/api/query` takes `graph`, which is what
+      `etl/engine.py`, `demo/demo.py` and the README all use — so the probe
+      was selecting nothing and measuring whatever the default is. On this
+      build no key isolates anything (edtech-kg#149), but a probe that names
+      the wrong field cannot be evidence either way.
+    - It flattened a transport failure into `{"error": …}`, so a dying
+      engine's 500 would be committed as the recorded fact for a construct.
+      `Engine.run` retries transient 5xx and RAISES when it finally fails,
+      which keeps a refusal and a failure apart. That distinction was
+      consolidated once already, with a comment saying three copies existed;
+      this was the fourth.
+    - It had no retry at all.
+
+    An engine REFUSAL — a parse error — comes back in a 200 body as
+    `{"error": …}` and is returned, because a construct the engine refuses is
+    a measurement and one of the four defects here is exactly that.
     """
     try:
-        with urllib.request.urlopen(urllib.request.Request(
-                url + "/api/query", method="POST",
-                data=json.dumps({"tenant": TENANT, "query": cypher}).encode(),
-                headers={"Content-Type": "application/json"}), timeout=120) as answer:
-            return json.loads(answer.read())
-    except urllib.error.HTTPError as refused:
-        return {"error": refused.read().decode(errors="replace")[:300]}
-    except (urllib.error.URLError, TimeoutError, OSError) as unreachable:
-        raise Unreachable(f"{url} is not answering: {unreachable}") from unreachable
+        return engine.run(cypher)
+    except Refused as refused:
+        if refused.code < 500:
+            # The ENGINE rejected the statement. That is a measurement — one of
+            # the constructs here is a parse error and recording it is the
+            # point. A parse error arrives as 400, not as a 200 body.
+            return {"error": str(refused).split("\n", 1)[-1][:300]}
+        raise Unreachable(
+            f"{engine.url} returned {refused.code} on `{cypher[:60]}` after "
+            f"retries — a dying engine, not a fact about the construct") from refused
+    except RuntimeError as failed:
+        raise Unreachable(f"{engine.url} failed on `{cypher[:60]}`: {failed}") from failed
 
 
 def rows(answer: dict):
@@ -125,12 +146,26 @@ CONSTRUCTS = [
      "Q71. Should be 0 — no course requires itself. The engine does not bind a "
      "repeated variable across a variable-length pattern, so it matches every "
      "edge instead."),
-    ("in_over_a_node_list",
-     "MATCH p = (:Course)-[:REQUIRES*]->(:Course) "
-     "WITH p, nodes(p) AS ns UNWIND ns AS x WITH p WHERE x IN nodes(p) "
-     "RETURN count(p) AS n",
-     "Q68. `IN` over a list of NODES matches nothing either way rather than "
-     "refusing."),
+    ("in_over_a_node_list_from_a_separate_match",
+     "MATCH p = (:Course)-[:REQUIRES*2..]->(:Course) MATCH (x:Course) "
+     "WITH p, x WHERE x IN nodes(p) RETURN count(*) AS n",
+     "Q68's shape. Should be > 0 — some course is on some path. `x` comes from "
+     "its own MATCH, and against a node list from elsewhere the test matches "
+     "NOTHING."),
+    ("not_in_over_a_node_list_from_a_separate_match",
+     "MATCH p = (:Course)-[:REQUIRES*2..]->(:Course) MATCH (x:Course) "
+     "WITH p, x WHERE NOT (x IN nodes(p)) RETURN count(*) AS n",
+     "The negation of the above. Should be very large. Also 0 — which is the "
+     "finding: it matches nothing EITHER WAY rather than refusing, so Q68 "
+     "answers \"there are no articulation points\" on a graph that has them."),
+    ("in_over_a_node_list_unwound_from_the_path",
+     "MATCH p = (:Course)-[:REQUIRES*]->(:Course) WITH p, nodes(p) AS ns "
+     "UNWIND ns AS x WITH p, x WHERE x IN nodes(p) RETURN count(p) AS n",
+     "The CONTRAST, and the reason the two above are recorded separately. "
+     "Unwound from the path itself the same operator works. An earlier version "
+     "of this probe measured only this shape, dropped `x` before the WHERE and "
+     "recorded the scoping result as evidence about membership — which is the "
+     "unchallengeable figure this probe exists against."),
     ("bare_single_node_map_absent_url",
      'MATCH (c:Course {url: "https://catalog.pwcs.edu/no/such-course"}) '
      "RETURN count(c) AS n",
@@ -160,9 +195,18 @@ CONSTRUCTS = [
 ]
 
 
-def probe(url: str = DEFAULT_URL, quiet: bool = False) -> dict:
+def probe(url: str = DEFAULT_URL, graph: str = GRAPH, quiet: bool = False) -> dict:
     """Run every construct and report what the engine did with it."""
-    held = ask(url, "MATCH (c:Course) RETURN count(c) AS n")
+    engine = Engine(url, graph)
+
+    # The reachability check FIRST, and it raises. The previous shape ran a
+    # ping at the END and returned `{}` when it failed — and `main()` read that
+    # as success, wrote a record holding only `_` and `retrieved_at`, printed
+    # "wrote …" and exited 0. The artefact this whole probe exists to make
+    # trustworthy was overwritten with nothing, and the next test run died on a
+    # KeyError. A path that writes no measurement must not exit 0.
+    version = engine_version(url)
+    held = ask(engine, "MATCH (c:Course) RETURN count(c) AS n")
     if "error" in held:
         raise Unreachable(f"{url} answered but refused a count: {held['error']}")
     courses = (held.get("records") or [[0]])[0][0]
@@ -176,37 +220,43 @@ def probe(url: str = DEFAULT_URL, quiet: bool = False) -> dict:
     measured = {}
     for name, cypher, why in CONSTRUCTS:
         measured[name] = {"cypher": " ".join(cypher.split()), "why": why,
-                          **rows(ask(url, cypher))}
+                          **rows(ask(engine, cypher))}
         if not quiet:
             got = measured[name]
             shown = got.get("error", got.get("value", got.get("rows")))
             print(f"  {name:38} {shown}")
-    # The engine's own version, NOT the url it was reached at. A committed
-    # `http://localhost:8200` churns on every machine and says nothing; the
-    # version is the thing a reader needs to know these were measured against.
-    # It is not a build identifier — two builds report 1.7.0 and behave
-    # differently — so it is recorded as what the engine claims, not as proof.
-    status = ask(url, "RETURN 1 AS ok")
-    version = "unknown"
+    return {"engine_version_reported": version, "graph": graph,
+            "constructs": measured}
+
+
+def engine_version(url: str) -> str:
+    """What the engine calls itself — NOT a build identifier.
+
+    Recorded instead of the url, which is `http://localhost:8200` on one
+    machine and something else on the next and says nothing either way. Two
+    builds report 1.7.0 and answer the same query differently, so this is what
+    the engine claims and not proof of anything. `README.md` pins the image at
+    1.1.0 and the running engine reports 1.7.0 — the tag is not the version,
+    which is worth knowing before treating either as reproducible.
+    """
     try:
-        with urllib.request.urlopen(url + "/api/status", timeout=30) as answer:
-            version = json.loads(answer.read()).get("version", "unknown")
+        with urllib.request.urlopen(url.rstrip("/") + "/api/status", timeout=30) as answer:
+            return json.loads(answer.read()).get("version", "unknown")
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        pass
-    return {"engine_version_reported": version, "courses": courses,
-            "constructs": measured} if "error" not in status else {}
+        return "unknown"
 
 
 def main(argv: list[str] | None = None) -> int:
     summary = (__doc__ or "").splitlines()
     parser = argparse.ArgumentParser(description=summary[0] if summary else None)
     parser.add_argument("--url", default=DEFAULT_URL, help="Engine base URL.")
+    parser.add_argument("--graph", default=GRAPH, help="Graph to measure.")
     parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
     parser.add_argument("--record", action="store_true",
                         help=f"Write {RECORD.name} from this run.")
     args = parser.parse_args(argv)
     try:
-        result = probe(args.url, quiet=args.json or args.record)
+        result = probe(args.url, args.graph, quiet=args.json or args.record)
     except NoData as empty:
         print(f"\nrefused: {empty}", file=sys.stderr)
         return 1

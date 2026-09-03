@@ -2,7 +2,7 @@
   "_": "One measured run against a loaded district, committed so the prose in benchmarks/questions/*.cypher and docs/questions.md can be checked without an engine. Refresh with `python -m etl.probe_engine_capability --record`.",
   "retrieved_at": "2026-09-03",
   "engine_version_reported": "1.7.0",
-  "courses": 791,
+  "graph": "edtech",
   "constructs": {
     "requires_edges": {
       "cypher": "MATCH (:Course)-[r:REQUIRES]->(:Course) RETURN count(r) AS n",
@@ -39,10 +39,20 @@
       "why": "Q71. Should be 0 \u2014 no course requires itself. The engine does not bind a repeated variable across a variable-length pattern, so it matches every edge instead.",
       "value": 240
     },
-    "in_over_a_node_list": {
-      "cypher": "MATCH p = (:Course)-[:REQUIRES*]->(:Course) WITH p, nodes(p) AS ns UNWIND ns AS x WITH p WHERE x IN nodes(p) RETURN count(p) AS n",
-      "why": "Q68. `IN` over a list of NODES matches nothing either way rather than refusing.",
+    "in_over_a_node_list_from_a_separate_match": {
+      "cypher": "MATCH p = (:Course)-[:REQUIRES*2..]->(:Course) MATCH (x:Course) WITH p, x WHERE x IN nodes(p) RETURN count(*) AS n",
+      "why": "Q68's shape. Should be > 0 \u2014 some course is on some path. `x` comes from its own MATCH, and against a node list from elsewhere the test matches NOTHING.",
       "value": 0
+    },
+    "not_in_over_a_node_list_from_a_separate_match": {
+      "cypher": "MATCH p = (:Course)-[:REQUIRES*2..]->(:Course) MATCH (x:Course) WITH p, x WHERE NOT (x IN nodes(p)) RETURN count(*) AS n",
+      "why": "The negation of the above. Should be very large. Also 0 \u2014 which is the finding: it matches nothing EITHER WAY rather than refusing, so Q68 answers \"there are no articulation points\" on a graph that has them.",
+      "value": 0
+    },
+    "in_over_a_node_list_unwound_from_the_path": {
+      "cypher": "MATCH p = (:Course)-[:REQUIRES*]->(:Course) WITH p, nodes(p) AS ns UNWIND ns AS x WITH p, x WHERE x IN nodes(p) RETURN count(p) AS n",
+      "why": "The CONTRAST, and the reason the two above are recorded separately. Unwound from the path itself the same operator works. An earlier version of this probe measured only this shape, dropped `x` before the WHERE and recorded the scoping result as evidence about membership \u2014 which is the unchallengeable figure this probe exists against.",
+      "value": 863
     },
     "bare_single_node_map_absent_url": {
       "cypher": "MATCH (c:Course {url: \"https://catalog.pwcs.edu/no/such-course\"}) RETURN count(c) AS n",

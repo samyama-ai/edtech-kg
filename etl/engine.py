@@ -54,6 +54,23 @@ IMAGE_DIGEST = ("sha256:458895059c24b8b809f7e9fa42b62a16734254b0cc4"
 ENGINE_VERSION = "1.7.0"
 
 
+class Refused(RuntimeError):
+    """The engine answered and rejected the statement — a 4xx.
+
+    A SUBCLASS of RuntimeError, so every `except RuntimeError` around this
+    client keeps working. It exists because a refusal and a transport failure
+    are different facts and were indistinguishable: both arrived as
+    `RuntimeError(f"{code} on: …")`, so a caller wanting to record "the engine
+    rejects this construct" could not tell it from "the engine is dying".
+    `etl/probe_engine_capability.py` needs exactly that line, and the
+    alternative was a fourth copy of this request code.
+    """
+
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class Engine:
     def __init__(self, url: str, graph: str = "default") -> None:
         self.url = url.rstrip("/")
@@ -95,7 +112,8 @@ class Engine:
                     self.retries += 1
                     time.sleep(2 ** attempt)
                     continue
-                raise RuntimeError(f"{exc.code} on: {query[:160]}\n{body}") from exc
+                raise Refused(exc.code,
+                              f"{exc.code} on: {query[:160]}\n{body}") from exc
             except (urllib.error.URLError, OSError, TimeoutError,
                     json.JSONDecodeError) as exc:
                 if attempt < attempts - 1:
