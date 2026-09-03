@@ -440,3 +440,27 @@ def test_two_loaders_in_one_module_do_not_share_their_properties():
     found = {label: props for label, _, props in upserts(module)}
     assert found == {"Alpha": {"name"}, "Beta": {"colour", "extra"}}, found
 
+
+def test_the_properties_dict_is_found_when_passed_by_keyword():
+    """`upsert`'s fifth parameter is `props`, and this looked for `properties`.
+
+    So the keyword branch was dead for the only spelling a caller could write —
+    and worse than dead: `props=` left the properties as None, the call was
+    skipped entirely, and the LABEL AND KEY went with it. `Course.name` would
+    read as undeclared and every query naming it reported as reaching past the
+    schema, which is the failure moving off the regex was meant to remove.
+
+    No test exercised the keyword path at all, which is why the mismatch
+    survived being written.
+    """
+    import ast
+
+    from tests.schema_properties import PROPS_ARG, upserts
+
+    assert PROPS_ARG == "props", "read off the signature, not restated here"
+    module = ast.parse(
+        "def one(engine):\n"
+        "    built = {'name': 1}\n"
+        f"    upsert(engine, 'Alpha', 'url', 'u', {PROPS_ARG}=built)\n")
+    assert {label: props for label, _, props in upserts(module)} == {"Alpha": {"name"}}
+

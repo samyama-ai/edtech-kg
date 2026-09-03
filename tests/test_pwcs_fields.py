@@ -64,12 +64,11 @@ def test_a_field_stops_at_the_next_one_and_does_not_swallow_its_markup():
     characters, and those were the only descriptions holding a double quote.
     """
     found = probe.parse_course(COURSE_PAGE, "https://catalog.pwcs.edu/x/y")
-    for leak in ("<div", "<span", "class=", "field__item", "Credits", "1"):
-        if leak in ("1",):
-            assert not found["description"].endswith("1"), "the credits field leaked in"
-            continue
+    for leak in ("<div", "<span", "class=", "field__item", "Credits", "Grades"):
         assert leak not in found["description"], f"{leak!r} leaked into the description"
-    assert "Grades" not in found["description"]
+    # The credits VALUE, which is a bare `1` and cannot be searched for the way
+    # the markers above can — it would match any digit in the description.
+    assert not found["description"].endswith("1"), "the credits field leaked in"
 
 
 def test_a_page_with_neither_field_reports_absence_not_emptiness():

@@ -28,8 +28,11 @@ that hold the block to its sources.
 from __future__ import annotations
 
 import ast
+import inspect
 import pathlib
 import re
+
+from etl.engine import upsert
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "schema" / "edtech_kg.cypher"
@@ -70,6 +73,13 @@ def declared() -> dict[str, set[str]]:
     return found
 
 
+#: `upsert`'s parameter names, READ OFF THE FUNCTION rather than restated. A
+#: rename there is exactly the ordinary refactor this parser is supposed to
+#: survive, and hardcoding the names is how it stopped surviving one.
+_PARAMS = inspect.getfullargspec(upsert).args
+LABEL_ARG, KEY_ARG, PROPS_ARG = _PARAMS[1], _PARAMS[2], _PARAMS[4]
+
+
 def upserts(tree: ast.AST) -> list[tuple[str, str, set[str]]]:
     """Every `upsert(engine, "Label", "key", …, {…})` and the properties it writes.
 
@@ -102,10 +112,18 @@ def upserts(tree: ast.AST) -> list[tuple[str, str, set[str]]]:
         called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
         if called != "upsert":
             continue
-        label = supplied[1] if supplied[1] is not None else by_name.get("label")
-        key = supplied[2] if supplied[2] is not None else by_name.get("key")
+        # The names come from `etl.engine.upsert`'s own signature, not from a
+        # guess. This looked for `properties=` and the parameter is `props=` —
+        # so the keyword branch was dead for the only spelling a caller could
+        # write, and worse than dead: `props=` left `properties` as None, the
+        # call was skipped entirely, and the LABEL AND KEY went with it.
+        # `Course.name` then reads as undeclared and every query naming it is
+        # reported as reaching past the schema — the failure this rewrite
+        # exists to remove, one identifier over.
+        label = supplied[1] if supplied[1] is not None else by_name.get(LABEL_ARG)
+        key = supplied[2] if supplied[2] is not None else by_name.get(KEY_ARG)
         properties = (supplied[4] if supplied[4] is not None
-                      else by_name.get("properties"))
+                      else by_name.get(PROPS_ARG))
         if properties is None or not all(
                 isinstance(a, ast.Constant) and isinstance(a.value, str)
                 for a in (label, key) if a is not None):

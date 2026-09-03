@@ -30,6 +30,11 @@ def text_of(markup: str) -> str:
 
 # A named field's contents — edtech-kg#137.
 #
+# `(?![\w-])` and not `\b`, which holds between a letter and a hyphen — so
+# asking for `grades` also matched a field named `field-grades-taught`. This is
+# the same guard `FIELD_ITEM` carries below for the same reason, and the two
+# readers should not disagree about what a name boundary is.
+#
 # Anchored PAST the opening tag, or the capture starts inside the class
 # attribute and the extracted text begins
 # `field--type-text-long field--label-hidden field__item">`.
@@ -60,7 +65,7 @@ def text_of(markup: str) -> str:
 # `{n,m}` quantifier anywhere in it raises `KeyError` — naming the field makes
 # that visible rather than surprising. Compiled once per field name below,
 # because it is applied to 791 pages twice each.
-FIELD = (r'field--name-field-{name}\b[^>]*>'
+FIELD = (r'field--name-field-{name}(?![\w-])[^>]*>'
          r'(.*?)(?=<div class="field\b|<span class="field\b|'
          r'</article>|<footer|\Z)')
 
