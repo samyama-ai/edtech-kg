@@ -24,10 +24,27 @@ import os
 import pytest
 
 from etl import probe_engine_capability as probe
-from etl.engine import Engine
+from etl.engine import ENGINE_VERSION, Engine
 from tests.test_schema_engine import SAMYAMA_URL, require_engine
 
 RECORD = json.loads(probe.RECORD.read_text(encoding="utf-8"))
+
+
+def test_the_record_was_measured_against_the_pinned_build():
+    """Every other figure in this repo describes one build.
+
+    A record taken from a different engine passes every other check here and
+    quietly means something else — the drift this probe exists to remove,
+    arriving through the probe.
+    """
+    assert RECORD["engine_version_reported"] == ENGINE_VERSION
+
+
+def test_the_records_note_is_the_one_the_probe_writes():
+    """`_` in the JSON and `RECORD_NOTE` in the module are one sentence stored
+    twice. Editing either alone leaves the other stale, which is the same class
+    of drift as every figure this file exists to hold."""
+    assert RECORD["_"] == probe.RECORD_NOTE
 
 
 def test_the_record_says_which_graph_it_measured():
@@ -173,3 +190,36 @@ def test_the_record_agrees_with_a_live_engine():
         f"the committed record no longer matches this engine: {drifted}. "
         f"Re-run `python -m etl.probe_engine_capability --record` and update "
         f"every document quoting the figures that moved.")
+
+
+def test_a_retried_code_is_never_recorded_as_a_fact_about_a_construct():
+    """`Engine` retries 429 and 5xx and then raises. One of those arriving
+    means the retries were exhausted — a dying or rate-limited engine — and
+    committing it as the recorded behaviour of a construct is the failure the
+    refusal/transport split exists to prevent.
+
+    `< 500` sent 429 down the measurement path, so a rate-limited run wrote
+    `{"error": "429 on: …"}` into the record as the fact.
+    """
+    from etl.engine import RETRIED, Refused
+
+    class Raising(Engine):
+        def __init__(self, error):
+            super().__init__("http://fake", "g")
+            self.error = error
+
+        def run(self, query, attempts=4):
+            raise self.error
+
+    for code in RETRIED:
+        with pytest.raises(probe.Unreachable, match="after retries"):
+            probe.ask(Raising(Refused(code, f"{code} on: X", detail="x")), "X")
+
+    # And the other side: a refusal the engine MEANT is recorded, in both
+    # shapes it arrives in — 400 from this build, 200-with-an-error-key
+    # documented by etl/engine.py. The message lands on opposite sides of the
+    # newline in the two, so the engine's own text is carried explicitly.
+    for refused in (Refused(400, "400 on: X\nParse error: bad", detail="Parse error: bad"),
+                    Refused(200, "Parse error: bad\n  on: X", detail="Parse error: bad")):
+        assert probe.ask(Raising(refused), "X") == {"error": "Parse error: bad"}
+

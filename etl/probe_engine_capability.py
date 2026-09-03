@@ -42,7 +42,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from etl.engine import Engine, Refused
+from etl.engine import ENGINE_VERSION, RETRIED, Engine, Refused
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "engine-capability-measured.json"
@@ -84,18 +84,29 @@ def ask(engine: Engine, cypher: str) -> dict:
       this was the fourth.
     - It had no retry at all.
 
-    An engine REFUSAL — a parse error — comes back in a 200 body as
-    `{"error": …}` and is returned, because a construct the engine refuses is
-    a measurement and one of the four defects here is exactly that.
+    An engine REFUSAL is returned rather than raised, because a construct the
+    engine rejects is a measurement and one of the defects here is exactly
+    that. It arrives in BOTH shapes — this build answers a parse error with
+    400, and `etl/engine.py` documents a 200 carrying an `error` key as well —
+    and `Engine` raises `Refused` for each, so neither aborts the run. The
+    earlier version handled only the 400 and its docstring claimed otherwise,
+    so a 200-shaped refusal would have killed the probe with a message blaming
+    the transport for a measurement.
     """
     try:
         return engine.run(cypher)
     except Refused as refused:
-        if refused.code < 500:
-            # The ENGINE rejected the statement. That is a measurement — one of
-            # the constructs here is a parse error and recording it is the
-            # point. A parse error arrives as 400, not as a 200 body.
-            return {"error": str(refused).split("\n", 1)[-1][:300]}
+        if refused.code not in RETRIED:
+            # `refused.detail`, not a split on the message. The 4xx and 200
+            # shapes put the engine's text on opposite sides of the newline, so
+            # splitting recovered the message from one and the query location
+            # from the other — measured: a 200-shaped refusal recorded
+            # `"  on: X"` as the fact about the construct.
+            return {"error": " ".join(refused.detail.split())[:300]}
+        # A RETRIED code arriving here means the retries were exhausted. `< 500`
+        # sent 429 down the measurement path, so a rate-limited engine wrote
+        # `{"error": "429 on: …"}` into the committed record as the fact about
+        # a construct — the exact failure this split exists to prevent.
         raise Unreachable(
             f"{engine.url} returned {refused.code} on `{cypher[:60]}` after "
             f"retries — a dying engine, not a fact about the construct") from refused
@@ -241,9 +252,25 @@ def engine_version(url: str) -> str:
     """
     try:
         with urllib.request.urlopen(url.rstrip("/") + "/api/status", timeout=30) as answer:
-            return json.loads(answer.read()).get("version", "unknown")
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        return "unknown"
+            reported = json.loads(answer.read()).get("version")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as gone:
+        raise Unreachable(f"{url}/api/status did not answer: {gone}") from gone
+    if reported and reported != ENGINE_VERSION:
+        # The pinned build is what every other figure in this repo was measured
+        # against — `tests/test_engine_version.py` asserts it. A record taken
+        # from a different engine would pass every check here and quietly mean
+        # something else, which is the drift this whole probe exists to remove.
+        raise Unreachable(
+            f"{url} reports {reported} and this repo pins {ENGINE_VERSION}. "
+            f"Recording against a different build would give figures the rest "
+            f"of the documents do not describe.")
+    if not reported:
+        # RAISED, not recorded as "unknown". The record's only provenance field
+        # silently becoming meaningless while `--record` prints "wrote …" and
+        # exits 0 is a weaker version of the empty-record rule this probe
+        # already has.
+        raise Unreachable(f"{url}/api/status reports no version")
+    return reported
 
 
 def main(argv: list[str] | None = None) -> int:
