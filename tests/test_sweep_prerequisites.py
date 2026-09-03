@@ -10,6 +10,7 @@ made it would be measuring the Registry's uptime.
 """
 
 import json
+import pathlib
 
 import pytest
 
@@ -136,6 +137,32 @@ def test_a_checkpoint_write_is_not_left_half_finished(isolated):
     sweep.save(progress, 5)
     assert json.loads((isolated / "progress.json").read_text())["pages"] == 5
     assert not (isolated / "progress.part").exists()
+
+
+def test_the_checkpoint_is_never_opened_for_writing_directly(isolated,
+                                                             monkeypatch):
+    """The property the test above does NOT establish.
+
+    Checking the end state passes just as happily for a non-atomic write —
+    which a mutation proved: replacing the move with
+    `CHECKPOINT.write_text(scratch.read_text())` left every assertion green.
+    The atomicity is in HOW the final file appears, so that is what is tested:
+    the checkpoint is produced by a rename, and nothing ever writes to its path.
+    """
+    real = pathlib.Path.write_text
+
+    def refuse_direct(self, *args, **kwargs):
+        if self == sweep.CHECKPOINT:
+            raise AssertionError(
+                "wrote the checkpoint in place; a kill here leaves a truncated "
+                "file and a resume reads half a JSON document")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "write_text", refuse_direct)
+    progress = sweep.Progress()
+    progress.add(1, [course()])
+    sweep.save(progress, 5)
+    assert json.loads(sweep.CHECKPOINT.read_text())["pages"] == 5
 
 
 # --- the refusals that keep a prefix from reading as a census ---------------
