@@ -12,6 +12,7 @@ import urllib.parse
 import pytest
 
 from etl import probe_registry as probe
+from etl import registry_courses as courses
 from etl import registry_read as read
 from tests.registry_stubs import course, headers_stub, paged, prereq, stub
 
@@ -365,7 +366,7 @@ def test_a_dict_without_an_id_is_not_a_reference(monkeypatch):
     assert probe.course_prerequisites(sample=50)["resolvable"] == 0
 
 
-@pytest.mark.parametrize("field", list(probe.RESOLVABLE))
+@pytest.mark.parametrize("field", list(courses.RESOLVABLE))
 def test_a_bare_string_target_is_not_a_reference(monkeypatch, field):
     """The mirror of test_a_bare_string_prerequisite_must_look_like_a_reference,
     on the branch that actually fires: every resolvable hit in the live sample
@@ -378,7 +379,7 @@ def test_a_bare_string_target_is_not_a_reference(monkeypatch, field):
     assert (r["stating_a_prerequisite"], r["resolvable"]) == (1, 0)
 
 
-@pytest.mark.parametrize("field", list(probe.RESOLVABLE))
+@pytest.mark.parametrize("field", list(courses.RESOLVABLE))
 def test_a_target_without_an_id_is_not_a_reference(monkeypatch, field):
     paged(monkeypatch, {1: [course(**{"ceterms:requires": [
         {"ceterms:name": {"en-US": "Prerequisites"},
@@ -387,7 +388,7 @@ def test_a_target_without_an_id_is_not_a_reference(monkeypatch, field):
     assert probe.course_prerequisites(sample=50)["resolvable"] == 0
 
 
-@pytest.mark.parametrize("field", list(probe.RESOLVABLE))
+@pytest.mark.parametrize("field", list(courses.RESOLVABLE))
 def test_a_target_with_an_id_still_resolves(monkeypatch, field):
     paged(monkeypatch, {1: [course(**{"ceterms:requires": [
         {"ceterms:name": {"en-US": "Prerequisites"},
@@ -408,4 +409,4 @@ def test_a_target_with_an_id_still_resolves(monkeypatch, field):
 def test_one_reference_test_governs_both_branches(value, expected):
     """Asserted directly, so the two call sites cannot drift apart again — the
     asymmetry this closes is the fourth of its kind in this PR."""
-    assert probe.is_reference(value) is expected
+    assert courses.is_reference(value) is expected

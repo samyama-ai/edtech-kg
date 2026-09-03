@@ -31,6 +31,8 @@ from datetime import datetime, timezone
 # Fetching, paging and sampling live in `registry_read` (#86). Imported rather
 # than duplicated: one place carries the User-Agent and one place decides which
 # pages are read.
+from etl.registry_courses import (classify, courses_in,
+                                 publisher_of)
 from etl.registry_read import (REGISTRY, MalformedSource, describe, get, parse,
                                sample_pages, total)
 
@@ -38,34 +40,8 @@ from etl.registry_read import (REGISTRY, MalformedSource, describe, get, parse,
 COMMUNITIES = ["ce-registry", "fdoe", "mytxlibrary", "learning-registry", "chaffeycollege"]
 TYPES = ["course", "credential", "learning_opportunity_profile", "pathway"]
 
-# Terms whose presence would mean a prerequisite is stated in a resolvable way.
-# A resolvable prerequisite points at something a learner completes. A
-# competency target is a different claim — it says what you must be able to do,
-# not which course you must have taken — so it is deliberately not here. The
-# page argues about the Course -> Course edge and this list must match it.
-RESOLVABLE = ("ceterms:targetLearningOpportunity", "ceterms:targetCredential")
-
 MAX_EXAMPLES = 6     # enough to check the "free text" claim, not to reproduce the sample
 EXAMPLE_CHARS = 90   # a prerequisite string is short; this is a display bound
-
-
-def is_reference(value) -> bool:
-    """Does this point at something, or is it prose?
-
-    One test, called from both branches. They had drifted apart: the typed
-    `ceterms:prerequisite` branch required an @id or a URI-shaped string while
-    the `ceterms:requires` branch accepted any truthy value — and since every
-    resolvable hit in the sample arrives through `requires`, the strict test was
-    on the path that never fires and the loose one on the path that does.
-
-    A publisher writing `ceterms:targetLearningOpportunity: "PSYC101"` — free
-    text in the target field, which is the behaviour this whole page documents —
-    would otherwise have counted as a resolved edge, moving the one figure the
-    module exists to produce on the strength of a string.
-    """
-    if isinstance(value, dict):
-        return bool(value.get("@id"))
-    return isinstance(value, str) and value.strip().lower().startswith(("http", "ce-"))
 
 
 def registry_totals() -> dict:
@@ -136,27 +112,6 @@ def course_prerequisites(sample: int = 600) -> dict:
     sample that turns out to be three publishers is a fact about those three,
     and the reader should be able to see that without asking.
     """
-    def text(v):
-        """A CTDL language map, which is a dict, a bare string, or a list of
-        either. A list-valued map used to read as empty, which silently turned a
-        stated prerequisite into a course with none."""
-        if isinstance(v, list):
-            return " ".join(text(i) for i in v)
-        if isinstance(v, dict):
-            value = v.get("en-US") or v.get("en") or next(iter(v.values()), "")
-            return text(value)
-        # Anything else — a number, a bool — becomes a string rather than being
-        # handed to .lower() as-is.
-        return v if isinstance(v, str) else ("" if v is None else str(v))
-
-    def as_list(v):
-        """`ceterms:requires` is a list when a course has several conditions and
-        a bare object when it has one. Assuming the list raised AttributeError
-        on the single-condition form."""
-        if v is None:
-            return []
-        return v if isinstance(v, list) else [v]
-
     population = total("/ce-registry/course/search")
     planned, size = sample_pages(sample, population)
     read: list[int] = []
@@ -178,57 +133,19 @@ def course_prerequisites(sample: int = 600) -> dict:
         for envelope in page_body:
             if courses >= sample:
                 break
-            if not isinstance(envelope, dict):
-                continue        # the list shape is checked; its elements are not
-            resource = envelope.get("decoded_resource") or {}
-            for node in (resource.get("@graph") or [resource]):
-                # Checked per course, not per envelope: one @graph can carry
-                # many Course nodes and used to push the count past the cap.
+            # One question, one implementation. `registry_courses.classify` is
+            # what the #58 full sweep also calls, so the sample it replaces and
+            # the sweep replacing it cannot answer differently.
+            for node in courses_in(envelope):
                 if courses >= sample:
-                    break
-                if not isinstance(node, dict) or "Course" not in str(node.get("@type", "")):
-                    continue
+                    break               # per COURSE: one @graph can hold many
                 courses += 1
-                publishers.add(str(envelope.get("published_by")
-                                   or envelope.get("owned_by") or "unknown"))
-                # Per COURSE, not per condition. Without these flags a course
-                # carrying "Prerequisites" and "Prerequisite (recommended)"
-                # incremented the count twice, so the figure counted profiles
-                # while the documents read it as a share of courses.
-                states = resolves = empty = False
-
-                typed = node.get("ceterms:prerequisite")
-                if typed:
-                    # Present but empty is not a reference. Counting the key
-                    # alone would credit the Registry with resolvable edges it
-                    # does not publish — the opposite of this probe's finding.
-                    states = True
-                    resolves = any(is_reference(v) for v in as_list(typed))
-
-                for condition in as_list(node.get("ceterms:requires")):
-                    if not isinstance(condition, dict):
-                        continue
-                    if "prereq" not in text(condition.get("ceterms:name")).lower():
-                        continue
-                    # The same test the typed branch applies, not a weaker one.
-                    if any(is_reference(v) for k in RESOLVABLE
-                           for v in as_list(condition.get(k))):
-                        states = resolves = True
-                        continue
-                    described = text(condition.get("ceterms:description")).strip()
-                    # "Prerequisites: None" is a statement that there are none.
-                    # An absent or empty description says nothing at all. Neither
-                    # is free text naming a course, and counting either inflates
-                    # the rate the documents quote.
-                    if described and described.lower() not in ("none", "n/a", "na", "-"):
-                        states = True
-                        prose.append(described[:EXAMPLE_CHARS])
-                    else:
-                        empty = True
-
-                named += states
-                resolvable += resolves
-                stated_but_empty += empty and not states
+                publishers.add(publisher_of(envelope))
+                said = classify(node)
+                named += said["states"]
+                resolvable += said["resolves"]
+                stated_but_empty += said["empty"]
+                prose += [line[:EXAMPLE_CHARS] for line in said["prose"]]
     if not courses:
         raise ValueError("no course records returned — refusing to report a rate over zero")
     # Described AFTER the walk, from the pages actually fetched. Describing the
