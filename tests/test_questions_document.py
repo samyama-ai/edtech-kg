@@ -108,14 +108,14 @@ def test_no_question_carries_an_orphaned_fragment():
 #: the document holds six. Nobody typed nine from a measurement — it was
 #: carried from an earlier draft and restated, which is how every stale figure
 #: in this repo has arrived.
-#: Five are BLOCKED — ❌, no query. Q62 is CAVEATED — ⚠️, and its own text says
+#: Five are BLOCKED and have no query. Q62 and Q77 are CAVEATED. Q62's text says
 #: "held at a caveat rather than blocked outright, because the narrowed reading
 #: is the one a student asks and it is fully answered". Split, and the marks
 #: asserted, because the first version of this called all six blocked while
 #: Q62 said otherwise — the exact defect this file is correcting, reintroduced
 #: in the correction. Citation alone cannot tell them apart.
 TURNING_ON_THE_MISSING_JOIN = {
-    "Q62": "caveat", "Q75": "no", "Q81": "no",
+    "Q62": "caveat", "Q77": "caveat", "Q75": "no", "Q81": "no",
     "Q83": "no", "Q89": "no", "Q90": "no",
 }
 
@@ -231,9 +231,18 @@ def test_the_cluster_row_and_the_join_section_describe_the_same_split():
         f"blocked questions — it should not appear there")
 
     section = document.split("## The missing academic join", 1)[1].split("\n## ", 1)[0]
-    assert "subset" in section and "compound" in section, (
-        "the section no longer explains how its six relate to the row's nine, "
-        "and a reader comparing the two gets no answer")
+    # NOT "subset" any more. #143 moved Q77 into this finding and it is ⚠️, so
+    # it is not in the cluster row at all — the two sets OVERLAP on the five
+    # blocked ones rather than one containing the other. The word changed
+    # because the relationship did.
+    assert "overlaps" in section and "compound" in section, (
+        "the section no longer explains how its seven relate to the row's "
+        "nine, and a reader comparing the two gets no answer")
+    caveated = [q for q, mark in TURNING_ON_THE_MISSING_JOIN.items() if mark != "no"]
+    assert all(re.search(rf"\b{q}\b", section) for q in caveated), (
+        f"{caveated} are caveated members of this finding and the section has "
+        f"to name them — they are the ones a reader would otherwise count as "
+        f"unanswerable")
 
 
 def test_the_mark_key_does_not_claim_every_gap_is_a_data_gap():

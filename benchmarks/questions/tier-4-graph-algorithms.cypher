@@ -45,6 +45,10 @@ WHERE target.url = "https://catalog.pwcs.edu/science-standard/chemistry-1"
 RETURN DISTINCT closed.url, closed.name;
 
 // Q62. What is the shortest route from where I am now to this programme?
+//   SUBSTITUTES: course to course, not course to programme.
+//     There is no academic edge from a Course to a Programme (#66), so
+//     "to this programme" cannot be walked. The narrowed reading is the
+//     one a student asks and it is fully answered.
 // Course to course, which is what "route" means inside a catalogue. See the
 // note on Q75: there is no academic edge from a district course to a
 // post-secondary programme, so "to this programme" cannot be walked — and the
@@ -223,6 +227,10 @@ RETURN entry.url, entry.name, count(DISTINCT d) AS opens
 ORDER BY opens DESC LIMIT 10;
 
 // Q77. Is this programme reachable from this school's course offering at all?
+//   SUBSTITUTES: whether the school teaches the chain a course sits on,
+//     not whether a programme is reachable. The COURSE side only, for the
+//     reason in Q75 — the route to a Programme runs through Place, which
+//     is geography.
 // Answered as the COURSE side only, for the reason in Q75: the only route from
 // a course to a programme runs through Place, which is geography. What is
 // answerable is whether the school teaches the chain a course sits on.

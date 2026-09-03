@@ -164,12 +164,41 @@ def test_the_prose_totals_agree_with_the_counted_ones():
 
     # Read the spelled-out number out of the prose rather than keeping a map of
     # the numbers the document currently says.
-    headline = re.search(r"\*\*(\w+(?:-\w+)?) answerable", text)
-    assert headline, "the headline sentence changed shape"
-    assert spelled(headline.group(1)) == totals["✅"]
+    # BOTH HALVES. This read `**<word> answerable` and compared it to the ✅
+    # count alone — while the key calls ⚠️ "answerable, with a caveat that must
+    # travel with the answer". One figure could not be right about both, and
+    # #143 moved 7 questions from ✅ to ⚠️, which is exactly when the ambiguity
+    # starts to matter: 58 and 77 are both defensible answers to "how many are
+    # answerable" and the document has to say which it means.
+    outright = re.search(r"\*\*(\w+(?:-\w+)?) answered outright", text)
+    assert outright, "the headline sentence no longer states the ✅ count"
+    assert spelled(outright.group(1)) == totals["✅"]
+
+    caveated = re.search(r"and (\w+(?:-\w+)?) with a caveat", text)
+    assert caveated, "the headline sentence no longer states the ⚠️ count"
+    assert spelled(caveated.group(1)) == totals["⚠️"]
+
+    both = re.search(r"(\w+(?:-\w+)?)\s*\n?answerable in all", text)
+    assert both, "the headline sentence no longer states the two together"
+    assert spelled(both.group(1)) == totals["✅"] + totals["⚠️"]
 
     blocked = re.search(r"\*\*(\w+(?:-\w+)?) blocked\*\*", text)
     assert blocked, "the blocked sentence changed shape"
     assert spelled(blocked.group(1)) == totals["❌"]
 
-    assert f"serve the {totals['✅']}" in text
+    # The schema has to serve everything answerable, caveated included.
+    assert f"serve the {totals['✅'] + totals['⚠️']}" in text
+
+    # THE TIER-4 CLAUSE, in the same sentence and the same reading. It said
+    # "thirteen of the twenty tier-4 questions among them" while "them" was the
+    # seventy-seven — switching from ✅+⚠️ to ✅ alone inside the sentence that
+    # argues a figure has to say which reading it means. Nothing read this
+    # clause, so nothing caught it.
+    tier_four = re.search(r"and ([\w-]+) of the ([\w-]+) tier-4", text)
+    assert tier_four, "the headline no longer states a tier-4 share"
+    tier = counted()["4 — graph algorithms"]
+    among = tier["✅"] + tier["⚠️"]
+    assert spelled(tier_four.group(1)) == among, (
+        f"the headline says {tier_four.group(1)!r} of the tier-4 questions are "
+        f"among the answerable and {among} are — ✅ plus ⚠️, the same reading "
+        f"the sentence uses for its own total.")

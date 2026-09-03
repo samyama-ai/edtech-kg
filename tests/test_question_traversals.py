@@ -399,3 +399,84 @@ def test_a_declared_key_matched_inline_is_not_a_gap():
     from tests.schema_properties import undeclared
 
     assert undeclared('MATCH (c:Course {url: "https://x/y"}) RETURN c.name') == set()
+
+
+SUBSTITUTES = re.compile(r"^//\s+SUBSTITUTES: (.+)$", re.M)
+
+
+def substituting() -> dict[str, str]:
+    """Every question whose query answers something narrower than it asks."""
+    found = {}
+    for path in files():
+        for block in statement_blocks(path):
+            label = re.search(r"^// (Q\d+)\.", block, re.M)
+            note = SUBSTITUTES.search(block)
+            if label and note:
+                found[label.group(1)] = note.group(1)
+    return found
+
+
+def test_a_query_that_substitutes_is_marked_with_a_caveat():
+    """ONE RULE, applied everywhere — edtech-kg#143.
+
+    `docs/questions.md` defines ⚠️ as "answerable, with a caveat that must
+    travel with the answer". Q62 was demoted for answering course-to-course
+    where the question says course-to-programme. Seven other queries did the
+    same thing and stayed ✅, each stating its substitution in its own prose at
+    length — which is what made it clear they were the same case.
+
+    The annotation is the mechanism rather than the prose, for the reason
+    `NEEDS:` is: matching words like "only" and "instead" over comments was
+    tried while scoping this and returns mostly noise. A query that substitutes
+    says so in one line, and that line is what this reads.
+    """
+    from tests.questions_document import marks
+
+    status = marks()
+    wrong = {q: status[q] for q in substituting() if status[q] != "caveat"}
+    assert not wrong, (
+        f"{wrong} carry a `SUBSTITUTES:` line and are not ⚠️. A query that "
+        f"answers a narrower question than its prose asks is answerable with "
+        f"a caveat, which is what the key says ⚠️ means.")
+
+
+def test_the_substitution_says_what_it_answers_instead():
+    """A bare `SUBSTITUTES:` is a warning with nothing in it. Each names the
+    thing actually answered, so a reader can decide whether it is the answer
+    they wanted."""
+    thin = {q: note for q, note in substituting().items() if len(note.split()) < 4}
+    assert not thin, f"these say they substitute without saying what for: {thin}"
+
+
+def test_every_caveated_question_with_a_query_says_why_in_place():
+    """The other direction, and the rule is "say why" rather than "substitute".
+
+    The first version of this demanded a `SUBSTITUTES:` line on every ⚠️ with a
+    query, and eleven failed. They are not all substitutions: measured, Q17 and
+    Q18 are ⚠️ because no loader fills `EarningsRecord`, and the tier-5 four
+    carry a `[caveat:]` saying the MEASURE is not what the question means.
+    Three different reasons, and only one of them is a query answering
+    something narrower.
+
+    So each of the three annotations counts, and the requirement is that a ⚠️
+    with a query carries one of them — a caveat a reader has to infer from
+    prose is the thing this repo keeps finding.
+    """
+    from tests.questions_document import marks
+
+    answered_by = {q for path in files() for q in answered(path)}
+    said = set(substituting())
+    for path in files():
+        for block in statement_blocks(path):
+            label = re.search(r"^// (Q\d+)\.", block, re.M)
+            if label and (re.search(r"^//\s+\[caveat:", block, re.M)
+                          or NEEDS.search(block)):
+                said.add(label.group(1))
+
+    silent = sorted({q for q, mark in marks().items()
+                     if mark == "caveat" and q in answered_by} - said,
+                    key=lambda q: int(q[1:]))
+    assert not silent, (
+        f"{silent} are ⚠️ with a query and say nothing in the file about why — "
+        f"no `SUBSTITUTES:`, no `[caveat:]`, no `NEEDS:`. The mark is in "
+        f"docs/questions.md and the reason has to be where the query is.")

@@ -7,6 +7,8 @@
 // and the isolated count and the linked count are the two halves of it.
 
 // Q95. What does the prerequisite graph look like — how many components?
+//   SUBSTITUTES: an isolated count and a linked count, not components.
+//     There is no component algorithm on this engine.
 // COMPONENTS without a component algorithm: a course outside every chain is
 // its own component, and the rest form connected groups. This reports the
 // isolated count and the linked count, which is the shape of the answer the
@@ -35,6 +37,8 @@ MATCH (:Programme)-[:PREPARES_FOR]->(o:Occupation)
 RETURN o.soc_code, count(*) AS degree ORDER BY degree DESC LIMIT 20;
 
 // Q98. Are there communities of programmes that share occupations?
+//   SUBSTITUTES: pairs of programmes sharing an occupation — the INPUT to
+//     clustering, not the clustering. No community detection here.
 // COMMUNITY DETECTION has no procedure on this engine, so this reports the
 // relation the algorithm would cluster over: pairs of programmes sharing an
 // occupation, and how many they share. That is the input to clustering rather
@@ -45,6 +49,8 @@ RETURN a.cip_code, b.cip_code, count(o) AS shared
 ORDER BY shared DESC LIMIT 20;
 
 // Q99. Which nodes are most central to the whole graph?
+//   SUBSTITUTES: degree, not centrality. No centrality procedure, and Q74
+//     answers the betweenness reading of the same word.
 // Degree over the prerequisite graph, both directions, which is what "central"
 // reduces to without a centrality procedure. Q74 answers the betweenness
 // reading of the same word.
@@ -82,6 +88,9 @@ RETURN pw.kind, count(DISTINCT c) AS chained_courses
 ORDER BY chained_courses DESC;
 
 // Q102. If we added one course to this district, which would increase reachability most?
+//   SUBSTITUTES: Q76's ranking of entry points by what they open. A
+//     counterfactual is not measurable against a graph that does not
+//     contain it, so this is the closest thing rather than the thing.
 // THIS IS Q76'S QUERY, and saying so is the point. A counterfactual is not
 // measurable against a graph that does not contain the counterfactual, so the
 // closest thing is where the graph is thinnest — the entry points with the

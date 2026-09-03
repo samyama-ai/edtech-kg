@@ -14,6 +14,9 @@
 // a change actually BREAKS is the second half, and where the graph cannot
 // answer it the query says which half it answers.
 // Q43. The CIP-SOC crosswalk is revised. Which programmes change what they lead to?
+//   SUBSTITUTES: what a programme reaches NOW, not what changes.
+//     Comparing two crosswalk revisions needs both loaded and only one is,
+//     so the comparison is a diff of two runs rather than a traversal.
 //   NEEDS: Programme.name
 //   The direct blast radius: what a programme currently reaches. Comparing
 //   two revisions needs both loaded, and only one is — so this is the "before"
@@ -141,6 +144,8 @@ RETURN renamed.url, renamed.name, count(dependant) AS inbound_links;
 
 // Q60. The crosswalk gains a mapping. Which occupations become newly reachable
 // from this institution?
+//   SUBSTITUTES: what is reachable NOW, not what is newly reachable.
+//     "Newly" is a comparison against a previous revision; one is loaded.
 //   NEEDS: Occupation.name
 //   Reachable NOW. "Newly" is a comparison against a previous revision, and
 //   only one is loaded — so this answers the after half, and the newness is a

@@ -54,9 +54,16 @@ def test_the_schema_doc_agrees_with_the_questions_it_claims_to_serve():
     """`docs/schema.md` says "nineteen of the twenty tier-4 questions" — a
     hand-written number about a different document, which is the class of claim
     this repo has had to correct three times."""
+    # ANSWERABLE IS ✅ PLUS ⚠️, which is what the key in questions.md says: a
+    # caveat that must travel with the answer is still an answer. This counted
+    # ✅ alone while `REQUIRES_EXEMPLARS` below already admitted ⚠️ "because a
+    # caveated answer is still an answer" — two guards over one word,
+    # disagreeing. #143 made it visible by moving Q77 from ✅ to ⚠️: the schema
+    # doc's own exemplars, shortest path and reachability, are Q62 and Q77 and
+    # were then both outside the number they illustrate.
     block = section(QUESTIONS.read_text(), "## Tier 4", "## Tier 5")
     questions = re.split(r"\*\*Q\d+", block)[1:]
-    answerable = sum(1 for q in questions if "✅" in q)
+    answerable = sum(1 for q in questions if "✅" in q or "⚠️" in q)
 
     # Read the document's own words and compare integers. Predicting how it
     # will spell a number wedges the test: with a digits fallback, a count
