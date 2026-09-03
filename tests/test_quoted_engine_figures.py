@@ -18,8 +18,9 @@ figure nobody can locate is a figure nobody is checking.
 
 Not every number near these is an engine figure. `229 of 791` is prerequisite
 coverage from `probe_pwcs`, `781 of 791` is grade levels from #137, and `960`
-is catalogue pages — none is measured by `probe_engine_capability` and none is
-claimed here.
+is catalogue pages. None is measured by `probe_engine_capability`, so the sweep
+below passes over them on the only test that matters — whether the probe
+records that value — rather than on a hand-maintained list of names.
 """
 
 from __future__ import annotations
@@ -34,6 +35,22 @@ from etl import probe_engine_capability as probe
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = json.loads(probe.RECORD.read_text(encoding="utf-8"))
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def measured_values() -> set[str]:
+    """Every integer the probe recorded, as a string, above a floor.
+
+    The floor drops one- and two-digit values. A recorded `0` or `4` collides
+    with a section number, a year fragment and a table column on almost every
+    line, so including them would make the sweep report noise until somebody
+    turned it off — a worse outcome than a narrower sweep that holds.
+    """
+    return {str(got["value"]) for got in RECORD["constructs"].values()
+            if isinstance(got.get("value"), int) and got["value"] > 9}
 
 #: `(file, construct, pattern)`. The pattern captures the figure the prose
 #: states; the construct names what the probe measured it as.
@@ -57,7 +74,8 @@ QUOTATIONS = [
      "repeated_variable_across_var_length",
      r"REQUIRES\*1\.\.1\]->\(c\) +RETURN count\(p\) +-> +(\d+)"),
     ("benchmarks/questions/tier-4-graph-algorithms.cypher",
-     "not_in_list_unparenthesised", r"returns (\d+) of 791 courses where"),
+     "not_in_list_unparenthesised",
+     r"returns (\d+) of \d+ courses where"),
     ("benchmarks/questions/tier-4-graph-algorithms.cypher",
      "not_in_list_parenthesised",
      r"`NOT \(c\.url IN \[a, b\]\)` returns (\d+)"),
@@ -82,8 +100,8 @@ QUOTATIONS = [
      r"so the (\d+) resolvable edges and the"),
 
     # Found by the sweep below on its first run, which is the argument for
-    # having it: anchoring seventeen sentences proved seventeen and said
-    # nothing about the eighteenth.
+    # having it: anchoring a list of sentences proves that list and says
+    # nothing about the next one somebody adds.
     ("benchmarks/questions/tier-4-graph-algorithms.cypher",
      "chains_any_length", r"and the other (\d+) where there are none"),
     ("docs/questions.md", "courses",
@@ -91,7 +109,7 @@ QUOTATIONS = [
     ("docs/questions.md", "courses",
      r"How many courses does this district publish\? ✅ — \*\*(\d+)\*\*"),
     ("docs/questions.md", "courses",
-     r"list a prerequisite at all\? ✅ — 229 of (\d+)"),
+     r"list a prerequisite at all\? ✅ — \d+ of (\d+)"),
 ]
 
 
@@ -127,47 +145,85 @@ def test_every_construct_the_documents_quote_is_in_the_record():
     assert not unknown, f"quoted but never measured: {unknown}"
 
 
-#: Numbers in these files that look like engine figures and are NOT — each
-#: measured by something else, and named so the sweep below can tell "checked"
-#: from "not an engine figure at all". Anything not here and not quoted above
-#: is a figure nobody is holding.
-NOT_ENGINE_FIGURES = {
-    "229": "courses listing a prerequisite — probe_pwcs, and\n"
-           "docs/sources/course-prerequisites.md",
-    "781": "courses carrying grade levels — edtech-kg#137",
-    "783": "courses carrying a description — edtech-kg#137",
-    "960": "catalogue pages in the sitemap — probe_pwcs",
-    "463": "isolated courses — quoted only as the correction to 431,\n"
-           "in prose that is about the correction",
-    "431": "the WRONG figure, quoted as wrong",
-}
+#: Figures that ARE values the probe measured, appear in a swept file, and are
+#: nevertheless measured by something else — a coincidence of value, not a
+#: quotation. Each maps to what actually produced it.
+#:
+#: It is EMPTY, and that is the finding. It held six entries and every one was
+#: inert: five were not recorded values at all, so the sweep's first clause
+#: already skipped them, and the sixth — 463, `isolated_courses` — was a
+#: recorded value appearing nowhere. That one was not merely useless. Naming a
+#: recorded value here switches the sweep off for it PERMANENTLY, and 463 is
+#: the figure in this repo with a documented history of being wrong in prose:
+#: 431 was typed into two files and the graph said 463. The sweep was blind to
+#: exactly the number it was written for.
+#:
+#: `test_no_exemption_is_dead` keeps this honest. An entry that changes nothing
+#: is a comment that lies, and this one lied towards a false all-clear.
+NOT_ENGINE_FIGURES: dict[str, str] = {}
 
 
-@pytest.mark.parametrize("path", sorted({p for p, _, _ in QUOTATIONS}))
+def swept_files() -> list[str]:
+    return sorted({path for path, _, _ in QUOTATIONS})
+
+
+def patterns_for(path: str) -> list[str]:
+    """This file's patterns, and only this file's.
+
+    Testing every pattern against every file silently exempts a line in
+    `questions.md` that happens to match a tier-4 pattern — a hole that widens
+    with each quotation added, and only in the direction of passing.
+    """
+    return [pattern for quoted, _, pattern in QUOTATIONS if quoted == path]
+
+
+def test_no_exemption_is_dead():
+    """An exemption must both name a measured value and appear somewhere.
+
+    Neither condition held for any of the six entries this dict shipped with.
+    A dead exemption reads as a considered decision and is not one; a dead
+    exemption on a RECORDED value is worse, because it turns the sweep off for
+    that figure while looking like documentation.
+    """
+    values = measured_values()
+    seen = "\n".join(read(path) for path in swept_files())
+    dead = [f"{number} ({why}) — "
+            + ("not a value the probe measures"
+               if number not in values else "appears in no swept file")
+            for number, why in NOT_ENGINE_FIGURES.items()
+            if number not in values or not re.search(rf"\b{number}\b", seen)]
+    assert not dead, (
+        "these exemptions change nothing and should be deleted:\n  "
+        + "\n  ".join(dead))
+
+
+@pytest.mark.parametrize("path", swept_files())
 def test_no_engine_figure_in_these_files_goes_unchecked(path):
-    """The sweep. Anchoring seventeen sentences proves those seventeen; it says
-    nothing about the eighteenth somebody adds next week.
+    """The sweep. Anchoring a list of sentences proves that list; it says
+    nothing about the one somebody adds next week.
+
+    The count is deliberately not written here. A file arguing that figures
+    must come from a measurement is a poor place to hand-type one, and this
+    docstring said "seventeen" while QUOTATIONS held twenty.
 
     Every number in these files matching a value the probe measured must be
     either quoted above — and therefore checked — or named as something else.
     That is the difference between "these figures are held" and "some figures
     are held".
     """
-    values = {str(got["value"]) for got in RECORD["constructs"].values()
-              if isinstance(got.get("value"), int) and got["value"] > 9}
-    checked = "\n".join(
-        stated(path, pattern)[1]
-        for quoted, _, pattern in QUOTATIONS if quoted == path)
-
-    text = (ROOT / path).read_text(encoding="utf-8")
+    values = measured_values()
+    mine = patterns_for(path)
     loose = []
-    for number, line in ((n, line) for line in text.splitlines()
+    for number, line in ((n, line) for line in read(path).splitlines()
                          for n in re.findall(r"\b\d{2,4}\b", line)):
         if number not in values or number in NOT_ENGINE_FIGURES:
             continue
-        if number in checked and line.strip()[:40] in checked:
-            continue
-        if any(re.search(pattern, line) for _, _, pattern in QUOTATIONS):
+        # A line one of THIS file's patterns matches is already checked by the
+        # parametrised test above. An earlier version also tried a prefix
+        # comparison against the matched fragments, which almost never fired —
+        # a fragment rarely starts at column 0 — so it read as load-bearing
+        # while this line did all the work.
+        if any(re.search(pattern, line) for pattern in mine):
             continue
         loose.append(f"{number} in: {line.strip()[:76]}")
 
