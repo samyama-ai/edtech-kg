@@ -106,3 +106,44 @@ def classify(url: str, markup: str) -> str | None:
     if PATHWAY_FIELD_PRESENT.search(markup):
         return "pathway"
     return level(url)
+
+
+#: The path segments the catalogue uses to say what a pathway IS. These are
+#: the district's own words, taken from the URL hierarchy it publishes, not a
+#: vocabulary invented here.
+PATHWAY_KINDS = {"career-pathways": "career pathway",
+                 "specialty-programs": "specialty program"}
+
+
+def kind_of(url: str) -> str | None:
+    """What the catalogue SAYS this pathway is, or None where it says nothing.
+
+    This was `"career pathway" if "career-pathways" in url else "specialty
+    program"`, and the `else` is the defect (#156). "specialty program" was
+    not a classification, it was a residue — everything that was not a career
+    pathway, whatever it actually was.
+
+    Measured over the 42 loaded pathways: 16 pages state `career-pathways`,
+    25 state `specialty-programs`, and **one states neither** — Virtual Prince
+    William, which is a virtual school and is neither a career pathway nor a
+    specialty program. It was being written as a specialty program, which is a
+    fact the district does not publish.
+
+    One wrong label is small. The `else` is not: it answers for every page the
+    catalogue has not published yet, confidently, and the count stays
+    plausible whatever arrives. Ask what a number would report in a case the
+    current data does not contain — this one reports "specialty program".
+
+    So `None` where the source is silent, and the loader omits the property
+    rather than writing a value nobody published. An absent key is visible to
+    any query that asks for it; a wrong one is not.
+
+    Substring matching would be looser than the evidence: a page named
+    `.../welding-career-pathways-overview.html` would match `career-pathways`
+    without the catalogue having placed it in that section. The segment is
+    what the district publishes, so the segment is what is read.
+    """
+    found = {PATHWAY_KINDS[s] for s in segments(url) if s in PATHWAY_KINDS}
+    # Two markers is the district contradicting itself, and picking one would
+    # hide that. No page does this today; it is refused rather than resolved.
+    return found.pop() if len(found) == 1 else None

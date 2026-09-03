@@ -45,6 +45,7 @@ import time
 from etl.cypher_script import apply_schema
 from etl.engine import Engine, Unquotable, lit, upsert
 from etl.pwcs_edges import pathway_edges, prerequisite_pairs
+from etl.pwcs_pages import kind_of
 from etl.pwcs_source import read, requirement_id, segments
 from etl import probe_pwcs as source
 
@@ -140,12 +141,22 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     say(f"    with grade levels   {graded:>5,}")
 
     say(f"  pathways   {len(data['pathways']):>5,}")
+    kinds: dict[str, int] = {}
+    unstated = 0
     for record in data["pathways"]:
-        kind = ("career pathway" if "career-pathways" in record["url"]
-                else "specialty program")
-        upsert(engine, "Pathway", "url", record["url"],
-               {"name": record["title"], "kind": kind,
-                "district": DISTRICT, "source": CATALOGUE})
+        properties = {"name": record["title"], "district": DISTRICT,
+                      "source": CATALOGUE}
+        kind = kind_of(record["url"])
+        if kind is None:
+            # Written as ABSENT rather than defaulted. See kind_of.
+            unstated += 1
+        else:
+            properties["kind"] = kind
+            kinds[kind] = kinds.get(kind, 0) + 1
+        upsert(engine, "Pathway", "url", record["url"], properties)
+    for kind, count in sorted(kinds.items()):
+        say(f"    {kind:<18} {count:>5,}")
+    say(f"    {'kind unstated':<18} {unstated:>5,}")
 
     # Course -> Subject, from the catalogue's own URL hierarchy. The parent
     # path is the subject page; a course whose parent is not published is left
