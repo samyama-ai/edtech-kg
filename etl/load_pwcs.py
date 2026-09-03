@@ -121,8 +121,10 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
         # OMITTED rather than written empty when a course has neither. Writing
         # "" would make `c.description IS NOT NULL` true for every course and
         # turn a real absence into a measured presence — and absence is common
-        # here: measured, every course page carries a description and only 478
-        # of 791 carry grades.
+        # here: measured over the 791 courses `read()` classifies as courses,
+        # 783 carry a description and 781 carry grade levels — so 8 and 10
+        # publish neither. An earlier figure of 478 was counted over raw cache
+        # FILES, which include subject and pathway pages.
         properties = {"name": record["title"], "district": DISTRICT,
                       "source": CATALOGUE}
         if record.get("description"):

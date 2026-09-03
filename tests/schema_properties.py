@@ -88,17 +88,32 @@ def upserts(tree: ast.AST) -> list[tuple[str, str, set[str]]]:
     """
     found = []
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and len(node.args) >= 5):
+        if not isinstance(node, ast.Call):
+            continue
+        # KEYWORDS TOO. Requiring five positional arguments meant
+        # `upsert(engine, "X", "k", v, properties=props)` registered nothing —
+        # not even the label and key — and the point of moving off the regex
+        # was to stop breaking on an ordinary rewrite. A keyword argument is
+        # one.
+        supplied = list(node.args) + [None] * 5
+        by_name = {kw.arg: kw.value for kw in node.keywords}
+        if len(node.args) < 5 and not by_name:
             continue
         called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
         if called != "upsert":
             continue
-        label, key = node.args[1], node.args[2]
-        if not all(isinstance(a, ast.Constant) and isinstance(a.value, str)
-                   for a in (label, key)):
+        label = supplied[1] if supplied[1] is not None else by_name.get("label")
+        key = supplied[2] if supplied[2] is not None else by_name.get("key")
+        properties = (supplied[4] if supplied[4] is not None
+                      else by_name.get("properties"))
+        if properties is None or not all(
+                isinstance(a, ast.Constant) and isinstance(a.value, str)
+                for a in (label, key) if a is not None):
+            continue
+        if label is None or key is None:
             continue
         found.append((label.value, key.value,
-                      property_names(scope_of(tree, node), node.args[4])))
+                      property_names(scope_of(tree, node), properties)))
     return found
 
 
@@ -136,6 +151,11 @@ def property_names(tree: ast.AST, argument: ast.AST) -> set[str]:
 
     names: set[str] = set()
     for node in ast.walk(tree):
+        # `properties = properties` recurses without bound. Contrived, and one
+        # line to refuse.
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Name)
+                and node.value.id == argument.id):
+            continue
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 # `properties = {...}`

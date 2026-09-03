@@ -41,12 +41,33 @@ def text_of(markup: str) -> str:
 # `<div class="field...` as text. The engine caught it rather than the parser:
 # `lit()` refuses a string holding both quote characters, and those were the
 # only descriptions that held a double quote at all.
+#
+# `<footer` TOO, which `PREREQ_BLOCK` in `etl/probe_pwcs.py` already carries
+# for the same reason its own comment gives — reading a field out of flattened
+# page text "would run it into the footer and turn the school's street address
+# into a course name". A description that is the LAST field on a page with no
+# `</article>` fell through to the end of the document and took the address and
+# the nav with it. Measured before the fix; the earlier tests all placed a
+# sibling field after the description and never reached the case.
+#
+# A `field__label` is STRIPPED, not stopped at. `field\b` does not match it —
+# `_` is a word character, so there is no boundary — and on the standard Drupal
+# labelled shape the label sits inside the wrapper, so the description came out
+# as "Description Real text". Ending the capture there instead returns nothing,
+# which is worse; `field_items` already defends against label placement and
+# this is the same variation on the other reader.
 # `{name}` by KEYWORD, not `{}`. This is a `.format` template, so a future
 # `{n,m}` quantifier anywhere in it raises `KeyError` — naming the field makes
 # that visible rather than surprising. Compiled once per field name below,
 # because it is applied to 791 pages twice each.
 FIELD = (r'field--name-field-{name}\b[^>]*>'
-         r'(.*?)(?=<div class="field\b|<span class="field\b|</article>|$)')
+         r'(.*?)(?=<div class="field\b|<span class="field\b|'
+         r'</article>|<footer|\Z)')
+
+#: The field's own label, which is chrome and not content. REMOVED from the
+#: capture rather than used to end it: on the labelled shape the label sits
+#: immediately inside the wrapper, so stopping there captures nothing at all.
+FIELD_LABEL = re.compile(r'<(div|span) class="field__label[^>]*>.*?</\1>', re.S)
 # `field__item` and NOT `field__items`. `[^>]*` absorbed the `s"` of the
 # container class, so the wrapper matched first and its capture ran to the
 # first `</div>` inside it. On this template that is the first real item, so
@@ -58,8 +79,14 @@ FIELD_ITEM = re.compile(r'field__item(?![\w-])[^>]*>(.*?)</div>', re.S)
 
 @functools.lru_cache(maxsize=None)
 def field_pattern(name: str) -> re.Pattern:
-    """One compiled matcher per field name, like every other regex here."""
-    return re.compile(FIELD.format(name=name), re.S)
+    """One compiled matcher per field name, like every other regex here.
+
+    `name` is escaped. Every caller passes a literal, so this is not
+    exploitable — but it is interpolated into a pattern built by `.format`,
+    and the two together are how a field name with a `.` or a `-` in it
+    quietly starts matching something else.
+    """
+    return re.compile(FIELD.format(name=re.escape(name)), re.S)
 
 
 def field_text(markup: str, name: str) -> str | None:
@@ -67,7 +94,7 @@ def field_text(markup: str, name: str) -> str | None:
     found = field_pattern(name).search(markup)
     if not found:
         return None
-    return " ".join(text_of(found.group(1)).split()) or None
+    return " ".join(text_of(FIELD_LABEL.sub(" ", found.group(1))).split()) or None
 
 
 def field_items(markup: str, name: str) -> list[str]:
