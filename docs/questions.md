@@ -267,18 +267,11 @@ matching it.** That row names nine and its reason is compound. Four of the nine
 graduation requirements, accreditation and dual enrolment, tagged #41 and #42
 in their own blocks. The other five are the blocked ones here, where a source
 exists and the SCHEMA has no edge to hold it. Q62 and Q77 are in neither the
-row nor the blocked count, because the row lists blocked questions and both are
+row nor the ❌ count, because the row lists blocked questions and both are
 answered with a caveat.
 
 Nine and seven are both right, about different populations: nine is the
 cluster, seven is this finding, and five questions are in both.
-
-<!-- Contributor note, not for readers. This section avoids two things the
-     document's parsers read as structure: the status glyphs, counted per
-     question to catch one carrying two, and a bold run opening `**Q` followed
-     by a number, which declares a question. Prose using either made the tally
-     read 103 questions and twenty-six blocked. edtech-kg#146 is the fix, and
-     this note goes with it. -->
 
 It had no section of its own until now: it lived inside Q75's prose and half a
 table cell, which is not where a reader meets a finding this size.

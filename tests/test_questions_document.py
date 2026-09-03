@@ -254,3 +254,91 @@ def test_the_mark_key_does_not_claim_every_gap_is_a_data_gap():
     key = [line for line in document.splitlines() if line.startswith("| ❌ |")]
     assert len(key) == 1, f"the key row for ❌ is {key}"
     assert "the reason is on the question" in key[0]
+
+
+def prose_that_looks_like_structure() -> str:
+    """A paragraph using both things the parsers read as structure.
+
+    Written out here rather than described, because the point of edtech-kg#146
+    is that a writer should be able to put this in the document and have
+    nothing change.
+    """
+    return ("\n\n## A narrative section\n\n"
+            "**Q62 is caveated, not blocked** — it is ⚠️ rather than ❌, and "
+            "Q75 is ✅ nowhere in this sentence.\n")
+
+
+def test_prose_in_a_narrative_section_changes_no_count(tmp_path, monkeypatch):
+    """The point of edtech-kg#146.
+
+    Both parsers read the whole file, so a bold run opening `**Q` plus a number
+    declared a question and every status glyph was counted — measured, writing
+    "**Q62 is caveated, not blocked**" made the tally read 103 questions and
+    gave tier 6 nine, and "neither the row nor the ❌ count" made tier 6 report
+    nine marks for eight questions. Both happened in one afternoon, in the same
+    section, and were worked around by telling the writer which characters to
+    avoid.
+
+    The document is for readers. Its prose should not be shaped around a
+    parser, and this is what says so.
+    """
+    from tests import questions_document
+    from tests import test_questions as counting
+
+    real = QUESTIONS.read_text(encoding="utf-8")
+    before = (marks(), counting.counted())
+
+    edited = tmp_path / "questions.md"
+    edited.write_text(real + prose_that_looks_like_structure(), encoding="utf-8")
+    monkeypatch.setattr(questions_document, "QUESTIONS", edited)
+    monkeypatch.setattr(counting, "DOC", edited)
+
+    assert (marks(), counting.counted()) == before, (
+        "a narrative paragraph moved a count — the parsers are reading prose "
+        "as structure again")
+
+
+def test_a_question_added_to_a_TIER_is_still_seen(tmp_path, monkeypatch):
+    """The other bound, and the one that matters more.
+
+    Narrowing to the tier sections could have narrowed too far — a parser that
+    stops seeing questions is worse than one that sees too many, because the
+    ratchet in `test_question_traversals.py` goes quiet rather than loud.
+    """
+    from tests import questions_document
+
+    real = QUESTIONS.read_text(encoding="utf-8")
+    marker = "**Q102."
+    assert marker in real
+    added = real.replace(marker, "**Q103.** A new whole-graph question? ✅\n\n" + marker, 1)
+    edited = tmp_path / "questions.md"
+    edited.write_text(added, encoding="utf-8")
+    monkeypatch.setattr(questions_document, "QUESTIONS", edited)
+
+    assert "Q103" in marks(), "a question inside a tier section went unread"
+
+
+def test_nothing_slices_the_document_by_hand_any_more():
+    """Five parsers each had their own idea of where the questions are.
+
+    Narrowing two of them left a third reading `## Tier 1` to
+    `## The competency gap` — the span that includes the narrative between —
+    and a ❌ written in that prose made Q102 read as blocked. The fix looked
+    complete and had left a third copy of the bug, then a fourth and a fifth.
+
+    One reader, `questions_document.tiers`, and this is what keeps it one.
+    """
+    import pathlib
+
+    here = pathlib.Path(__file__).resolve().parent
+    offenders = []
+    for path in sorted(here.glob("*.py")):
+        if path.name == "questions_document.py" or path.name == __name__.split(".")[-1] + ".py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        for slicing in re.findall(r'split\("## Tier[^\n]*', text):
+            offenders.append(f"{path.name}: {slicing[:60]}")
+    assert not offenders, (
+        f"these slice the document by hand instead of using "
+        f"`questions_document.tiers()`: {offenders}")
+

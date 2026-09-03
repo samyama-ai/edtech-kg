@@ -8,6 +8,7 @@ lying about itself.
 import re
 from pathlib import Path
 
+from tests.questions_document import blocks, marks, tiers
 from tests.spelling import spelled
 
 import pytest
@@ -20,11 +21,16 @@ TIERS = ["1 — lookup", "2 — one hop", "3 — change impact",
 
 def counted() -> dict:
     """Count questions and status marks per tier, from the questions themselves."""
-    body = DOC.read_text().split("## Tier 1")[1].split("## The competency gap")[0]
+    # THE TIER SECTIONS, from the shared reader — edtech-kg#146. This sliced
+    # from `## Tier 1` to `## The competency gap`, which includes
+    # `## The missing academic join`; that narrative landed inside tier 6, and
+    # a `❌` written in its prose made the tier report nine marks for eight
+    # questions. Both parsers over this document now read the same sections.
+    sections = tiers()
     out = {}
     # strict: a seventh tier added without updating TIERS is a loud failure,
     # not a silent under-count that only surfaces in the total row.
-    for name, block in zip(TIERS, re.split(r"\n## Tier ", body), strict=True):
+    for name, block in zip(TIERS, sections.values(), strict=True):
         marks = dict.fromkeys(MARKS, 0)
         questions = re.split(r"\*\*Q\d+", block)[1:]
         for question in questions:
@@ -94,18 +100,19 @@ def test_the_total_row_matches_the_tiers():
 
 
 def test_question_numbers_are_unique_and_unbroken():
-    """Scoped to the tier bodies. Scanning the whole document would break on a
-    prose cross-reference written as **Q61** outside a tier — and the range
-    assertion alone implies both sortedness and uniqueness."""
-    body = DOC.read_text().split("## Tier 1")[1].split("## The competency gap")[0]
-    numbers = [int(n) for n in re.findall(r"\*\*Q(\d+)", body)]
+    """Scoped to the tier bodies, through the shared reader — a prose
+    cross-reference written as `**Q61**` outside a tier would otherwise break
+    it, and the range assertion alone implies both sortedness and
+    uniqueness."""
+    numbers = [int(n) for body in tiers().values()
+               for n in re.findall(r"\*\*Q(\d+)", body)]
     assert numbers == list(range(1, len(numbers) + 1))
 
 
 def test_no_tier_four_question_is_left_without_its_graph_operation():
     """Tier 4 is the argument for a graph. A question there that does not name
     the operation it needs cannot be designed against."""
-    block = DOC.read_text().split("## Tier 4")[1].split("## Tier 5")[0]
+    block = tiers()["Tier 4 — graph algorithms"]
     # Named operations only. "sources" and "boundaries" were in this list and
     # are ordinary prose words, so Q79 ("chains cross subject boundaries")
     # satisfied it without naming an operation at all — the assertion was
@@ -126,8 +133,7 @@ def test_the_competency_gap_names_the_questions_it_blocks():
     """"Six questions above are blocked on the same thing" was three — a
     hand-counted figure in a document whose central argument is that it no
     longer contains any."""
-    body = DOC.read_text().split("## Tier 1")[1].split("## The competency gap")[0]
-    naming = [int(n) for n, text in zip(*[iter(re.split(r"\*\*Q(\d+)", body)[1:])] * 2)
+    naming = [int(q[1:]) for q, text in blocks().items()
               if "competency" in text.lower()]
     section = DOC.read_text().split("## The competency gap")[1]
     claimed = spelled(re.search(r"^(\w+(?:-\w+)?) questions", section.strip()).group(1))
@@ -139,9 +145,13 @@ def test_the_competency_gap_names_the_questions_it_blocks():
 def test_every_blocked_question_belongs_to_a_named_cluster():
     """"Fourteen blocked, and they cluster" — four of them fell outside the
     four clusters named, so the sentence was true of ten of the fourteen."""
-    body = DOC.read_text().split("## Tier 1")[1].split("## The competency gap")[0]
-    blocked = {int(n) for n, text in zip(*[iter(re.split(r"\*\*Q(\d+)", body)[1:])] * 2)
-               if "❌" in text.split("**Q")[0]}
+    # THE SHARED READER — edtech-kg#146. This carried a THIRD ad-hoc slice over
+    # the same document, from `## Tier 1` to `## The competency gap`, which
+    # includes the narrative between them. A ❌ written in that prose made Q102
+    # read as blocked. Two parsers were narrowed to the tier sections and this
+    # one was not, which is how the fix would have looked complete and left a
+    # third copy of the bug.
+    blocked = {int(q[1:]) for q, mark in marks().items() if mark == "no"}
     # The COUNT is what this test checks, so it must not be in the anchor that
     # finds the section. Splitting on "in five clusters" made adding a sixth
     # raise IndexError from the split rather than fail an assertion — a test
