@@ -230,7 +230,7 @@ def test_a_missing_token_is_named_rather_than_a_traceback(monkeypatch):
 # --------------------------------------------------------------------------
 
 def test_a_pr_number_comes_from_the_merge_form_not_the_first_hash(monkeypatch):
-    """The defect: `#(\d+)` took the first `#N` in the line, and this repo's
+    r"""The defect: `#(\d+)` took the first `#N` in the line, and this repo's
     titles reference issues in prose constantly — this probe's own docstring
     says `edtech-kg#26`. The first such title would have attributed another
     PR's review rounds to it, silently, and the table would still look right.

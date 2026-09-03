@@ -1,4 +1,4 @@
-"""What a query can actually reach, and what the schema merely names.
+r"""What a query can actually reach, and what the schema merely names.
 
 Two different questions, and conflating them is what this module got wrong.
 
