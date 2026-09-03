@@ -83,8 +83,11 @@ def classify(url: str, markup: str) -> str | None:
 
     Depth is the catalogue's own structure and it holds for 956 of 960 pages.
     It does not hold for four, which publish the pathway course-table field at
-    COURSE depth — two specialty programmes, International Baccalaureate and
-    Virtual Prince William. Classified by depth they loaded as `Course`, their
+    COURSE depth: three under `/specialty-programs/` — the Center for
+    Biotechnology and Engineering, the IT Center for Applied Sciences, and
+    International Baccalaureate — and Virtual Prince William, which the
+    catalogue places under NEITHER section and which `kind_of` therefore leaves
+    unclassified (#156). Classified by depth they loaded as `Course`, their
     course tables were never read, and 172 published rows never became edges
     (#87). Nothing failed: the loader and the engine agreed about a set that
     was already short.
@@ -106,3 +109,59 @@ def classify(url: str, markup: str) -> str | None:
     if PATHWAY_FIELD_PRESENT.search(markup):
         return "pathway"
     return level(url)
+
+
+#: The path segments the catalogue uses to say what a pathway IS. These are
+#: the district's own words, taken from the URL hierarchy it publishes, not a
+#: vocabulary invented here.
+PATHWAY_KINDS = {"career-pathways": "career pathway",
+                 "specialty-programs": "specialty program"}
+
+
+def markers_in(url: str) -> set[str]:
+    """Every kind the catalogue's path states for this page — usually one.
+
+    Separate from `kind_of` so that "the catalogue says nothing" and "the
+    catalogue says two contradictory things" are distinguishable. `kind_of`
+    returns None for both, correctly, and a caller that reports them as one
+    number would show a contradiction as silence.
+    """
+    return {PATHWAY_KINDS[part] for part in segments(url)
+            if part in PATHWAY_KINDS}
+
+
+def kind_of(url: str) -> str | None:
+    """What the catalogue SAYS this pathway is, or None where it says nothing.
+
+    This was `"career pathway" if "career-pathways" in url else "specialty
+    program"`, and the `else` is the defect (#156). "specialty program" was
+    not a classification, it was a residue — everything that was not a career
+    pathway, whatever it actually was.
+
+    Measured over the 42 loaded pathways: 16 pages state `career-pathways`,
+    25 state `specialty-programs`, and **one states neither** — Virtual Prince
+    William, which is a virtual school and is neither a career pathway nor a
+    specialty program. It was being written as a specialty program, which is a
+    fact the district does not publish.
+
+    One wrong label is small. The `else` is not: it answers for every page the
+    catalogue has not published yet, confidently, and the count stays
+    plausible whatever arrives. Ask what a number would report in a case the
+    current data does not contain — this one reports "specialty program".
+
+    So `None` where the source is silent, and the loader omits the property
+    rather than writing a value nobody published. An absent key is visible to
+    any query that asks for it; a wrong one is not.
+
+    Substring matching would be looser than the evidence: a page named
+    `.../welding-career-pathways-overview.html` would match `career-pathways`
+    without the catalogue having placed it in that section. The segment is
+    what the district publishes, so the segment is what is read.
+    """
+    found = markers_in(url)
+    # Two markers is the district contradicting itself, and picking one would
+    # hide that. No page does this today; it is refused rather than resolved.
+    # `markers_in` is what lets a caller tell that case from silence — through
+    # this function they are both None, and a district contradicting itself
+    # must not read the same as a district saying nothing.
+    return found.pop() if len(found) == 1 else None

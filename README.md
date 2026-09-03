@@ -91,7 +91,7 @@ data, nothing that is not already on the internet.
 | `Course` | 791 | one published course page |
 | `Requirement` | 138 | a stated condition that is **not** a course reference |
 | `Subject` | 127 | the catalogue's own grouping |
-| `Pathway` | 42 | 16 CTE career pathways, 26 specialty programs |
+| `Pathway` | 42 | 16 career pathways, 25 specialty programs, and one the catalogue places under neither — `kind` is omitted rather than guessed (#156) |
 
 | Edge | Count | |
 |---|---:|---|

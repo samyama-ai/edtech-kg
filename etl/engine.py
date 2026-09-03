@@ -204,6 +204,20 @@ def upsert(engine: Engine, label: str, key: str, value: str, props: dict) -> Non
     course leaves the old name in the graph with nothing to show for it. A
     separate MATCH … SET always refreshes, which is what a re-runnable loader
     has to do.
+
+    **THIS CANNOT UNWRITE A PROPERTY.** It SETs the properties given and never
+    REMOVEs, so a node already carrying a key keeps it once a later run stops
+    passing it. That matters whenever a fix REMOVES a property rather than
+    changing one: the new behaviour is invisible on any graph that already
+    holds the old value, and nothing errors.
+
+    Measured on 1.1.0, and no loader change fixes it. `REMOVE n.p` parses,
+    matches the node and reports success while changing nothing — `REMOVE n.p
+    RETURN n.p` returns the value it has just claimed to remove — and `SET n.p
+    = null` behaves the same. Deleting the node does not help either: one
+    re-created with the same key comes back carrying the property
+    (edtech-kg#163). So "this property is absent" is a claim about a graph that
+    has never held it, not about one that has been re-loaded.
     """
     identifier(label)
     identifier(key)
