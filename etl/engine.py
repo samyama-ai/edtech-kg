@@ -54,6 +54,37 @@ IMAGE_DIGEST = ("sha256:458895059c24b8b809f7e9fa42b62a16734254b0cc4"
 ENGINE_VERSION = "1.7.0"
 
 
+#: Codes worth another go. Named rather than inline because a caller deciding
+#: whether a `Refused` is a MEASUREMENT or a dying engine needs the same list:
+#: one of these arriving means the retries were exhausted, which is a transport
+#: failure however it is spelled.
+RETRIED = (429, 500, 502, 503, 504)
+
+
+class Refused(RuntimeError):
+    """The engine answered and rejected the statement — a 4xx.
+
+    A SUBCLASS of RuntimeError, so every `except RuntimeError` around this
+    client keeps working. It exists because a refusal and a transport failure
+    are different facts and were indistinguishable: both arrived as
+    `RuntimeError(f"{code} on: …")`, so a caller wanting to record "the engine
+    rejects this construct" could not tell it from "the engine is dying".
+    `etl/probe_engine_capability.py` needs exactly that line, and the
+    alternative was a fourth copy of this request code.
+    """
+
+    def __init__(self, code: int, message: str, detail: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+        # WHAT THE ENGINE SAID, kept apart from the sentence built around it.
+        # The two refusal shapes put it on opposite sides of the newline — a
+        # 4xx is `"{code} on: {query}\n{body}"` and a 200 is
+        # `"{error}\n  on: {query}"` — so a caller splitting on the newline to
+        # recover it gets the message from one and the query location from the
+        # other. `etl/probe_engine_capability.py` records this verbatim.
+        self.detail = detail or message
+
+
 class Engine:
     def __init__(self, url: str, graph: str = "default") -> None:
         self.url = url.rstrip("/")
@@ -91,11 +122,12 @@ class Engine:
                     body = "(the error body could not be read)"
                 # 4xx will fail identically every time; retrying only delays
                 # the report. Transient 5xx are worth another go.
-                if exc.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
+                if exc.code in RETRIED and attempt < attempts - 1:
                     self.retries += 1
                     time.sleep(2 ** attempt)
                     continue
-                raise RuntimeError(f"{exc.code} on: {query[:160]}\n{body}") from exc
+                raise Refused(exc.code, f"{exc.code} on: {query[:160]}\n{body}",
+                              detail=body) from exc
             except (urllib.error.URLError, OSError, TimeoutError,
                     json.JSONDecodeError) as exc:
                 if attempt < attempts - 1:
@@ -111,7 +143,14 @@ class Engine:
             raise RuntimeError(f"the engine answered with {type(result).__name__}, "
                                f"not an object\n  on: {query[:160]}")
         if "error" in result:
-            raise RuntimeError(f"{result['error']}\n  on: {query[:160]}")
+            # `Refused` with the 200 it arrived as. The engine answered and
+            # rejected the STATEMENT, which is the same fact a 4xx carries and
+            # was raised as a bare RuntimeError — indistinguishable from a
+            # transport failure to any caller that wants to record "this
+            # construct is refused". Still a RuntimeError by inheritance, so
+            # every existing handler is unchanged.
+            raise Refused(200, f"{result['error']}\n  on: {query[:160]}",
+                          detail=str(result["error"]))
         self.statements += 1
         return result
 
