@@ -276,6 +276,14 @@ NAMED_ATTRIBUTES = {
 }
 
 
+#: The two of the ten a loader actually writes — edtech-kg#137.
+#: `etl/load_pwcs.py` extracts both from the course page: 783 of 791 courses
+#: carry a description and 781 carry grade levels. The other eight are still
+#: named-only, because nothing loads Occupation, Programme, Institution,
+#: School, District or Completion at all.
+LOADED = {"Course.description", "Course.grade_levels"}
+
+
 def entries_of(marker: str = "PROPERTIES") -> dict[str, tuple[str, ...]]:
     from tests.schema_properties import block
 
@@ -312,10 +320,13 @@ def test_naming_an_attribute_does_not_make_it_reachable():
         assert prop in named.get(label, set()), f"{name} is not in the block"
         if prop not in reachable.get(label, set()):
             still_unreachable.append(name)
-    assert sorted(still_unreachable) == sorted(NAMED_ATTRIBUTES), (
-        f"{sorted(set(NAMED_ATTRIBUTES) - set(still_unreachable))} became "
-        f"reachable — a loader now writes them, so their `NEEDS:` lines are "
-        f"stale and should come off the queries that carry them")
+    assert sorted(still_unreachable) == sorted(set(NAMED_ATTRIBUTES) - LOADED), (
+        f"the schema names ten attributes; {sorted(LOADED)} are written by a "
+        f"loader and the rest are not. "
+        f"{sorted(set(NAMED_ATTRIBUTES) - set(still_unreachable) - LOADED)} "
+        f"became reachable — their `NEEDS:` lines are stale and should come "
+        f"off the queries that carry them, and "
+        f"{sorted(LOADED & set(still_unreachable))} stopped being written.")
 
 
 def test_only_the_four_loaded_labels_carry_anything_beyond_a_key():

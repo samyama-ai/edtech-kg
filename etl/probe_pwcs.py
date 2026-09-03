@@ -31,7 +31,6 @@ No third-party dependency, as with the other probes.
 from __future__ import annotations
 
 import argparse
-import html
 import json
 import re
 import sys
@@ -44,6 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from etl.identity import USER_AGENT
+from etl.pwcs_fields import field_items, field_text, text_of
 from etl.pwcs_pages import classify, level
 
 SITEMAP = "https://catalog.pwcs.edu/sitemap.xml"
@@ -88,10 +88,6 @@ PREREQ_FIELD_PRESENT = re.compile(r'field--name-field-prerequisite-courses')
 
 class MalformedSource(Exception):
     """Reachable, but not the page we asked for."""
-
-
-def text_of(markup: str) -> str:
-    return html.unescape(re.sub(r"<[^>]+>", " ", markup))
 
 
 def cached_path(url: str):
@@ -178,6 +174,15 @@ def parse_course(markup: str, url: str) -> dict | None:
         "field_present_no_links": bool(PREREQ_FIELD_PRESENT.search(markup)) and not links,
         "requirements_text": (" ".join(text_of(requirement.group(1)).split())
                               if requirement else None),
+        # edtech-kg#137. The catalogue publishes both and no loader read them,
+        # so `Q9` and `Q14` reached for properties that were never written and
+        # returned null on a loaded district. `None` and `[]` for absent, which
+        # is a real state: measured over the 791 courses `read()` classifies as
+        # courses, 783 carry a description and 781 carry grade levels. An
+        # earlier figure of 478 here was counted over raw cache FILES, which
+        # include subject and pathway pages.
+        "description": field_text(markup, "description"),
+        "grade_levels": field_items(markup, "grades"),
     }
 
 

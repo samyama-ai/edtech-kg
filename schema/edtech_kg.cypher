@@ -468,12 +468,13 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 //   Course.grade_levels    <- catalog.pwcs.edu, field--name-field-grades
 // END PROPERTIES
 //
-// `Course.description` and `Course.grade_levels` sit here with the rest and
-// not in a block of their own. An earlier revision separated them on the
-// grounds that `Course` HAS a loader which omits them, while the other eight
-// labels have no loader at all — which is the weaker position, not the
-// stronger one. edtech-kg#137 tracks the two `load_pwcs.py` could extract
-// today.
+// TWO OF THE TEN ARE NOW WRITTEN. `etl/load_pwcs.py` extracts
+// `Course.description` and `Course.grade_levels` from the course page
+// (edtech-kg#137): 783 of 791 courses carry a description, 781 carry grades.
+// Q9 and Q14 lost their `NEEDS:` lines, which is the point of the annotation —
+// it comes off when a loader lands, not when someone remembers. The other
+// eight stay named-only, and not because `Course` is special: nothing loads
+// Occupation, Programme, Institution, School, District or Completion at all.
 //
 // NOT declared, and each for its own reason:
 //

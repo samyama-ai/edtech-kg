@@ -27,8 +27,12 @@ that hold the block to its sources.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import pathlib
 import re
+
+from etl.engine import upsert
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "schema" / "edtech_kg.cypher"
@@ -59,14 +63,130 @@ def declared() -> dict[str, set[str]]:
     # no loader whatsoever. Adding it made every query naming one of those look
     # served while returning null. See the module docstring.
     for source in sorted((ROOT / "etl").glob("*.py")):
-        text = source.read_text(encoding="utf-8")
-        for match in re.finditer(
-                r'upsert\(\s*engine,\s*"(\w+)",\s*"(\w+)",[^,]+,\s*\{(.*?)\}',
-                text, re.S):
-            label, key, body = match.groups()
+        try:
+            tree = ast.parse(source.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for label, key, props in upserts(tree):
             found.setdefault(label, set()).add(key)
-            found[label] |= set(re.findall(r'"(\w+)":', body))
+            found[label] |= props
     return found
+
+
+#: `upsert`'s parameter names, READ OFF THE FUNCTION rather than restated. A
+#: rename there is exactly the ordinary refactor this parser is supposed to
+#: survive, and hardcoding the names is how it stopped surviving one.
+_PARAMS = inspect.getfullargspec(upsert).args
+LABEL_ARG, KEY_ARG, PROPS_ARG = _PARAMS[1], _PARAMS[2], _PARAMS[4]
+
+
+def upserts(tree: ast.AST) -> list[tuple[str, str, set[str]]]:
+    """Every `upsert(engine, "Label", "key", …, {…})` and the properties it writes.
+
+    AST, not a regex over source text. The regex required a DICT LITERAL as the
+    fifth argument — `upsert(…, {"name": …})` — and a loader that builds its
+    properties first, which is ordinary when some of them are conditional,
+    matched nothing. `Course.name` then read as undeclared and every query
+    naming it was reported as reaching past the schema. A parser that breaks on
+    a refactor while its subject is unchanged is the brittle-source-coupling
+    this repo keeps finding, in the module that decides what "declared" means.
+
+    A dict passed by NAME is followed: keys from the literal it was assigned,
+    plus any `properties["x"] = …` written afterwards. That is the shape a
+    conditional property takes, and the point of reading it is that an
+    optional property is still a written one.
+    """
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        # KEYWORDS TOO. Requiring five positional arguments meant
+        # `upsert(engine, "X", "k", v, properties=props)` registered nothing —
+        # not even the label and key — and the point of moving off the regex
+        # was to stop breaking on an ordinary rewrite. A keyword argument is
+        # one.
+        supplied = list(node.args) + [None] * 5
+        by_name = {kw.arg: kw.value for kw in node.keywords}
+        if len(node.args) < 5 and not by_name:
+            continue
+        called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if called != "upsert":
+            continue
+        # The names come from `etl.engine.upsert`'s own signature, not from a
+        # guess. This looked for `properties=` and the parameter is `props=` —
+        # so the keyword branch was dead for the only spelling a caller could
+        # write, and worse than dead: `props=` left `properties` as None, the
+        # call was skipped entirely, and the LABEL AND KEY went with it.
+        # `Course.name` then reads as undeclared and every query naming it is
+        # reported as reaching past the schema — the failure this rewrite
+        # exists to remove, one identifier over.
+        label = supplied[1] if supplied[1] is not None else by_name.get(LABEL_ARG)
+        key = supplied[2] if supplied[2] is not None else by_name.get(KEY_ARG)
+        properties = (supplied[4] if supplied[4] is not None
+                      else by_name.get(PROPS_ARG))
+        if properties is None or not all(
+                isinstance(a, ast.Constant) and isinstance(a.value, str)
+                for a in (label, key) if a is not None):
+            continue
+        if label is None or key is None:
+            continue
+        found.append((label.value, key.value,
+                      property_names(scope_of(tree, node), properties)))
+    return found
+
+
+def scope_of(tree: ast.AST, call: ast.Call) -> ast.AST:
+    """The innermost function containing `call`, or the module.
+
+    A dict passed by name is resolved WITHIN this, not across the file. Walking
+    the module meant every assignment to a matching name anywhere contributed
+    keys: two loaders in one module each building their own `properties` would
+    merge into both labels, and `declared()` would report properties as written
+    that no upsert for that label writes. A query would then lose its `NEEDS:`
+    line and answer null on a loaded district — the failure this module exists
+    to prevent, arriving through the parser meant to prevent it.
+    """
+    innermost = tree
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(child is call for child in ast.walk(node)):
+            # The innermost wins: a nested function is inside its parent's
+            # walk too, and the nearer scope is the one that binds.
+            if innermost is tree or any(child is node
+                                        for child in ast.walk(innermost)):
+                innermost = node
+    return innermost
+
+
+def property_names(tree: ast.AST, argument: ast.AST) -> set[str]:
+    """The string keys of a dict argument, literal or built under a name."""
+    if isinstance(argument, ast.Dict):
+        return {k.value for k in argument.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+    if not isinstance(argument, ast.Name):
+        return set()
+
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        # `properties = properties` recurses without bound. Contrived, and one
+        # line to refuse.
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Name)
+                and node.value.id == argument.id):
+            continue
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                # `properties = {...}`
+                if isinstance(target, ast.Name) and target.id == argument.id:
+                    names |= property_names(tree, node.value)
+                # `properties["description"] = ...`
+                if (isinstance(target, ast.Subscript)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == argument.id
+                        and isinstance(target.slice, ast.Constant)
+                        and isinstance(target.slice.value, str)):
+                    names.add(target.slice.value)
+    return names
 
 
 def named_in_schema() -> dict[str, set[str]]:

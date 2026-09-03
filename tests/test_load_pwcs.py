@@ -364,3 +364,103 @@ def test_a_node_left_without_its_properties_is_reported():
     problems = loader.verify(Counts(), loaded)
     assert any("carry the key and no `name`" in p for p in problems), problems
     assert any("3 node(s)" in p for p in problems), problems
+
+
+def loaded_course(**record) -> str:
+    """The Cypher `load()` writes for one course, through the real upsert.
+
+    Defaults for the keys the rest of `load()` reads, so a test about two
+    properties does not have to restate the whole record shape.
+    """
+    record = {"url": "https://catalog.pwcs.edu/x/course", "title": "Course",
+              "prerequisite_links": [], "requirements_text": None,
+              "description": None, "grade_levels": [], **record}
+    engine = Recorder()
+    loader.load(engine, {"published": set(), "subjects": [], "pathways": [],
+                         "courses": [record]}, quiet=True)
+    return "\n".join(engine.sent)
+
+
+def test_a_course_is_written_with_its_description_and_grade_levels():
+    """DRIVEN THROUGH `load()`, not read off the source.
+
+    `tests/schema_properties.declared` reads the loader's AST to decide what a
+    label carries, which is what tells a query it may reach for a property
+    without a `NEEDS:` line. That is a statement about the source, so a loader
+    that stops WRITING while the assignment stays in the file — behind a
+    disabled branch, say — leaves the annotation off and the query answering
+    null again. Measured: that mutation passed everything else.
+    """
+    written = loaded_course(url="https://catalog.pwcs.edu/x/course-1",
+                            title="Course 1", description="A description.",
+                            grade_levels=["10", "11"])
+    assert "n.description = 'A description.'" in written, written
+    # JOINED as the catalogue prints them. The engine's property values are
+    # scalars, so a list cannot be written and the join is the representation.
+    assert "n.grade_levels = '10, 11'" in written, written
+
+
+def test_a_course_without_them_is_written_without_the_properties():
+    """Absence is real — 8 of 791 courses publish no description and 10 no
+    grades. Writing `""` would make `c.description IS NOT NULL` true for every
+    course and turn a measured absence into a measured presence."""
+    written = loaded_course(url="https://catalog.pwcs.edu/x/course-2",
+                            title="Course 2")
+    assert "n.description" not in written
+    assert "n.grade_levels" not in written
+    assert "n.name = 'Course 2'" in written, written
+
+
+def test_two_loaders_in_one_module_do_not_share_their_properties():
+    """`property_names` resolved a dict passed by name across the whole MODULE.
+
+    Every assignment to a matching name anywhere in the file contributed keys,
+    so two labels each building their own `properties` merged into both — and
+    `declared()` would report properties as written that no upsert for that
+    label writes. A query then loses its `NEEDS:` line and answers null on a
+    loaded district, which is the failure `schema_properties` exists to
+    prevent, arriving through the parser meant to prevent it.
+
+    Nothing in `etl/` does this today. That is why it needs a test rather than
+    a reader noticing.
+    """
+    import ast
+
+    from tests.schema_properties import upserts
+
+    module = ast.parse(
+        "def one(engine):\n"
+        "    properties = {'name': 1}\n"
+        "    upsert(engine, 'Alpha', 'url', 'u', properties)\n"
+        "\n"
+        "def two(engine):\n"
+        "    properties = {'colour': 1}\n"
+        "    properties['extra'] = 2\n"
+        "    upsert(engine, 'Beta', 'url', 'u', properties)\n")
+    found = {label: props for label, _, props in upserts(module)}
+    assert found == {"Alpha": {"name"}, "Beta": {"colour", "extra"}}, found
+
+
+def test_the_properties_dict_is_found_when_passed_by_keyword():
+    """`upsert`'s fifth parameter is `props`, and this looked for `properties`.
+
+    So the keyword branch was dead for the only spelling a caller could write —
+    and worse than dead: `props=` left the properties as None, the call was
+    skipped entirely, and the LABEL AND KEY went with it. `Course.name` would
+    read as undeclared and every query naming it reported as reaching past the
+    schema, which is the failure moving off the regex was meant to remove.
+
+    No test exercised the keyword path at all, which is why the mismatch
+    survived being written.
+    """
+    import ast
+
+    from tests.schema_properties import PROPS_ARG, upserts
+
+    assert PROPS_ARG == "props", "read off the signature, not restated here"
+    module = ast.parse(
+        "def one(engine):\n"
+        "    built = {'name': 1}\n"
+        f"    upsert(engine, 'Alpha', 'url', 'u', {PROPS_ARG}=built)\n")
+    assert {label: props for label, _, props in upserts(module)} == {"Alpha": {"name"}}
+

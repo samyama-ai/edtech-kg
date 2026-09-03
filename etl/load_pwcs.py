@@ -111,9 +111,33 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
                {"name": record["title"], "district": DISTRICT, "source": CATALOGUE})
 
     say(f"  courses    {len(data['courses']):>5,}")
+    described = graded = 0
     for record in data["courses"]:
-        upsert(engine, "Course", "url", record["url"],
-               {"name": record["title"], "district": DISTRICT, "source": CATALOGUE})
+        # edtech-kg#137. The catalogue publishes both and nothing read them, so
+        # `Q9` and `Q14` reached for properties no loader wrote and returned
+        # null against a loaded district — the "parses, returns null, looks
+        # like an answer" failure the schema's own PROPERTIES block describes.
+        #
+        # OMITTED rather than written empty when a course has neither. Writing
+        # "" would make `c.description IS NOT NULL` true for every course and
+        # turn a real absence into a measured presence — and absence is common
+        # here: measured over the 791 courses `read()` classifies as courses,
+        # 783 carry a description and 781 carry grade levels — so 8 and 10
+        # publish neither. An earlier figure of 478 was counted over raw cache
+        # FILES, which include subject and pathway pages.
+        properties = {"name": record["title"], "district": DISTRICT,
+                      "source": CATALOGUE}
+        if record.get("description"):
+            properties["description"] = record["description"]
+            described += 1
+        if record.get("grade_levels"):
+            # JOINED, not a list. The engine's property values are scalars, and
+            # this is how the catalogue prints them — "10, 11, 12".
+            properties["grade_levels"] = ", ".join(record["grade_levels"])
+            graded += 1
+        upsert(engine, "Course", "url", record["url"], properties)
+    say(f"    with a description  {described:>5,}")
+    say(f"    with grade levels   {graded:>5,}")
 
     say(f"  pathways   {len(data['pathways']):>5,}")
     for record in data["pathways"]:
