@@ -99,12 +99,6 @@ def test_the_vocabulary_is_the_districts_words_not_ours():
                              "specialty-programs": "specialty program"}
 
 
-def test_every_kind_written_is_one_the_vocabulary_names():
-    """No third value can appear without being declared here first."""
-    assert set(PATHWAY_KINDS.values()) == {"career pathway",
-                                           "specialty program"}
-
-
 def loaded_pathway(url: str, title: str = "A Pathway") -> str:
     """The Cypher `load()` writes for one pathway, through the real upsert.
 
@@ -141,12 +135,30 @@ def test_an_unstated_kind_is_omitted_from_the_write_entirely():
     assert "specialty program" not in written
 
 
+def counted(printed: str) -> dict[str, int]:
+    """The figures off the loader's own output lines.
+
+    Parsed rather than substring-matched. `printed.count("1") >= 3` was the
+    first version and it counts the CHARACTER `1` anywhere in stdout — subject
+    counts, course counts, any number containing a one. It would pass with all
+    three pathways miscounted, while carrying the claim that the printed counts
+    are the written counts.
+    """
+    figures = {}
+    for line in printed.splitlines():
+        for label in ("career pathway", "specialty program", "kind unstated",
+                      "kind contradictory"):
+            if line.strip().startswith(label):
+                figures[label] = int(line.strip()[len(label):].replace(",", ""))
+    return figures
+
+
 def test_the_loader_counts_what_it_wrote_including_the_unstated(capsys):
     """The counts printed are the counts written, not the counts planned.
 
-    A loader that reports a split it did not write is the same defect one
-    level up — and this repo has hit it before, with `pages_read` reporting
-    the pages PLANNED.
+    A loader reporting a split it did not write is the same defect one level
+    up, and this repo has hit it before — `pages_read` reported the pages
+    PLANNED, and a document quoted a reach the run never had.
     """
     engine = Recorder()
     loader.load(engine, {"published": set(), "subjects": [], "courses": [],
@@ -159,7 +171,42 @@ def test_the_loader_counts_what_it_wrote_including_the_unstated(capsys):
                               "title": "Three", "courses": [], "dangling": []}]},
                 quiet=False)
     printed = capsys.readouterr().out
-    assert "career pathway" in printed and "specialty program" in printed
-    assert "kind unstated" in printed
-    # One of each, and the unstated one counted rather than quietly dropped.
-    assert printed.count("1") >= 3, printed
+
+    assert counted(printed) == {"career pathway": 1, "specialty program": 1,
+                                "kind unstated": 1}, printed
+    # And what was printed is what was sent — the two records of one fact.
+    written = "\n".join(engine.sent)
+    assert written.count("career pathway") == 1
+    assert written.count("specialty program") == 1
+
+
+def test_the_counts_are_read_off_the_lines_and_not_from_stray_digits():
+    """`counted` is load-bearing, so it is tested rather than trusted.
+
+    A parser that returned {} would make the assertion above compare {} to a
+    dict and fail loudly — but one that matched the wrong line would not.
+    """
+    printed = ("  courses      791\n"
+               "  pathways      42\n"
+               "    career pathway        16\n"
+               "    specialty program     25\n"
+               "    kind unstated          1\n")
+    assert counted(printed) == {"career pathway": 16, "specialty program": 25,
+                                "kind unstated": 1}
+
+
+def test_a_page_naming_two_sections_is_counted_apart_from_silence(capsys):
+    """A district contradicting itself must not read as a district saying
+    nothing. Both leave `kind` absent; they are not the same fact."""
+    engine = Recorder()
+    loader.load(engine, {"published": set(), "subjects": [], "courses": [],
+                         "pathways": [
+                             {"url": CATALOGUE
+                              + "/career-pathways/specialty-programs/x.html",
+                              "title": "Both", "courses": [], "dangling": []},
+                             {"url": CATALOGUE + "/nowhere/z.html",
+                              "title": "Neither", "courses": [],
+                              "dangling": []}]},
+                quiet=False)
+    figures = counted(capsys.readouterr().out)
+    assert figures == {"kind unstated": 1, "kind contradictory": 1}

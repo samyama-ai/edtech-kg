@@ -45,7 +45,7 @@ import time
 from etl.cypher_script import apply_schema
 from etl.engine import Engine, Unquotable, lit, upsert
 from etl.pwcs_edges import pathway_edges, prerequisite_pairs
-from etl.pwcs_pages import kind_of
+from etl.pwcs_pages import markers_in
 from etl.pwcs_source import read, requirement_id, segments
 from etl import probe_pwcs as source
 
@@ -141,22 +141,32 @@ def load(engine: Engine, data: dict, quiet: bool = False) -> dict:
     say(f"    with grade levels   {graded:>5,}")
 
     say(f"  pathways   {len(data['pathways']):>5,}")
+    # `kind` is OMITTED where the catalogue states none, rather than defaulted
+    # (#156). **On a re-loaded graph the omission has no effect** — `upsert`
+    # cannot unwrite a property and 1.1.0 offers no way to, so the corrected
+    # split appears on a fresh engine only. The measurement is on `upsert`.
     kinds: dict[str, int] = {}
-    unstated = 0
+    unstated = contradictory = 0
     for record in data["pathways"]:
         properties = {"name": record["title"], "district": DISTRICT,
                       "source": CATALOGUE}
-        kind = kind_of(record["url"])
-        if kind is None:
-            # Written as ABSENT rather than defaulted. See kind_of.
-            unstated += 1
-        else:
+        stated = markers_in(record["url"])
+        if len(stated) == 1:
+            kind = stated.pop()
             properties["kind"] = kind
             kinds[kind] = kinds.get(kind, 0) + 1
+        elif stated:
+            # Reported apart from silence: both leave `kind` absent, and a
+            # district contradicting itself is not a district saying nothing.
+            contradictory += 1
+        else:
+            unstated += 1
         upsert(engine, "Pathway", "url", record["url"], properties)
     for kind, count in sorted(kinds.items()):
         say(f"    {kind:<18} {count:>5,}")
     say(f"    {'kind unstated':<18} {unstated:>5,}")
+    if contradictory:   # two sections named for one page
+        say(f"    {'kind contradictory':<18} {contradictory:>5,}")
 
     # Course -> Subject, from the catalogue's own URL hierarchy. The parent
     # path is the subject page; a course whose parent is not published is left

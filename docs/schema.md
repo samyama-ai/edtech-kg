@@ -31,7 +31,7 @@ source holds, not what any graph contains.
 | `District` | `leaid` | A school district, CCD | 19,714 |
 | `Subject` | `url` | The catalogue's own grouping of courses | **127** subject pages (the same depth split; #74) |
 | `Requirement` | `id` (sha1) | A stated condition that is **not** a course reference | **138 stated conditions**. The key is `sha1("<page URL>\|<normalised text>")`, so a page stating two conditions is two nodes — 138 is one each today, which is a fact about the catalogue and not about the key. All 138 sit on course pages; `HAS_REQUIREMENT` accepts a pathway too, and none states one |
-| `Pathway` | `url` | A published route through courses — a CTE career pathway or specialty program | **42** — 36 under `/career-and-technical-education-cte/` and 6 elsewhere: three specialty programs, the Governor's School, JROTC, and Virtual Prince William. Counted from the loaded urls, not from the section names |
+| `Pathway` | `url` | A published route through courses. `kind` carries the section the catalogue places it in — career pathway or specialty program — and is **absent** where it places it in neither (#156) | **42** — 36 under `/career-and-technical-education-cte/` and 6 elsewhere: three specialty programs, the Governor's School, JROTC, and Virtual Prince William. Counted from the loaded urls, not from the section names |
 | `Completion` | `id` (sha1) | One institution × programme × award level × **demographic** × year. Not a graduate — a demographic cell | **9,026,310** rows, which is 300,877 IPEDS rows × 30 demographic columns. The awards they describe are **10,620,172** (#43) |
 
 **`Pathway` moved here from tier 2**, and its key changed from `ctid` to `url`.

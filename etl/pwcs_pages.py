@@ -83,8 +83,11 @@ def classify(url: str, markup: str) -> str | None:
 
     Depth is the catalogue's own structure and it holds for 956 of 960 pages.
     It does not hold for four, which publish the pathway course-table field at
-    COURSE depth — two specialty programmes, International Baccalaureate and
-    Virtual Prince William. Classified by depth they loaded as `Course`, their
+    COURSE depth: three under `/specialty-programs/` — the Center for
+    Biotechnology and Engineering, the IT Center for Applied Sciences, and
+    International Baccalaureate — and Virtual Prince William, which the
+    catalogue places under NEITHER section and which `kind_of` therefore leaves
+    unclassified (#156). Classified by depth they loaded as `Course`, their
     course tables were never read, and 172 published rows never became edges
     (#87). Nothing failed: the loader and the engine agreed about a set that
     was already short.
@@ -115,6 +118,18 @@ PATHWAY_KINDS = {"career-pathways": "career pathway",
                  "specialty-programs": "specialty program"}
 
 
+def markers_in(url: str) -> set[str]:
+    """Every kind the catalogue's path states for this page — usually one.
+
+    Separate from `kind_of` so that "the catalogue says nothing" and "the
+    catalogue says two contradictory things" are distinguishable. `kind_of`
+    returns None for both, correctly, and a caller that reports them as one
+    number would show a contradiction as silence.
+    """
+    return {PATHWAY_KINDS[part] for part in segments(url)
+            if part in PATHWAY_KINDS}
+
+
 def kind_of(url: str) -> str | None:
     """What the catalogue SAYS this pathway is, or None where it says nothing.
 
@@ -143,7 +158,10 @@ def kind_of(url: str) -> str | None:
     without the catalogue having placed it in that section. The segment is
     what the district publishes, so the segment is what is read.
     """
-    found = {PATHWAY_KINDS[s] for s in segments(url) if s in PATHWAY_KINDS}
+    found = markers_in(url)
     # Two markers is the district contradicting itself, and picking one would
     # hide that. No page does this today; it is refused rather than resolved.
+    # `markers_in` is what lets a caller tell that case from silence — through
+    # this function they are both None, and a district contradicting itself
+    # must not read the same as a district saying nothing.
     return found.pop() if len(found) == 1 else None
