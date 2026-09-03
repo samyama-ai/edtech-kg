@@ -190,7 +190,12 @@ def test_the_counts_are_read_off_the_lines_and_not_from_stray_digits():
                "  pathways      42\n"
                "    career pathway        16\n"
                "    specialty program     25\n"
-               "    kind unstated          1\n")
+               "    kind unstated          1\n"
+               # A note that MENTIONS a label rather than reporting it. This is
+               # why the match is anchored at the start of the line: `label in
+               # line` reads this as a figure, and the loader prints prose
+               # beside its counts constantly.
+               "  a page with no kind unstated in the catalogue is skipped\n")
     assert counted(printed) == {"career pathway": 16, "specialty program": 25,
                                 "kind unstated": 1}
 
