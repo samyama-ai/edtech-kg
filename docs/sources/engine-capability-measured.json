@@ -1,0 +1,78 @@
+{
+  "_": "One measured run against a loaded district, committed so the prose in benchmarks/questions/*.cypher and docs/questions.md can be checked without an engine. Refresh with `python -m etl.probe_engine_capability --record`.",
+  "retrieved_at": "2026-09-03",
+  "engine_version_reported": "1.7.0",
+  "courses": 791,
+  "constructs": {
+    "requires_edges": {
+      "cypher": "MATCH (:Course)-[r:REQUIRES]->(:Course) RETURN count(r) AS n",
+      "why": "The prerequisite edges a loaded district holds. Quoted in tier 4 as 240.",
+      "value": 240
+    },
+    "courses": {
+      "cypher": "MATCH (c:Course) RETURN count(c) AS n",
+      "why": "The district's courses. Quoted as 791 in five places.",
+      "value": 791
+    },
+    "chains_any_length": {
+      "cypher": "MATCH p = (:Course)-[:REQUIRES*]->(:Course) RETURN count(p) AS n",
+      "why": "Every prerequisite path. This is the 359 Q71 reported as cycles.",
+      "value": 359
+    },
+    "chains_length_two_or_more": {
+      "cypher": "MATCH p = (:Course)-[:REQUIRES*2..]->(:Course) RETURN count(p) AS n",
+      "why": "Paths long enough to have a cut vertex. Quoted in tier 4 and in Q68's note as 119 \u2014 a DIFFERENT figure from the one above, and named separately because reading them as one is how 119 and 359 end up in the same paragraph meaning the same thing.",
+      "value": 119
+    },
+    "deepest_chain": {
+      "cypher": "MATCH p = (:Course)-[:REQUIRES*]->(:Course) RETURN max(length(p)) AS n",
+      "why": "Q66's answer, and a bare aggregate \u2014 one row on any graph.",
+      "value": 4
+    },
+    "isolated_courses": {
+      "cypher": "MATCH (c:Course) WHERE NOT EXISTS { MATCH (c)-[:REQUIRES]->(:Course) } AND NOT EXISTS { MATCH (:Course)-[:REQUIRES]->(c) } RETURN count(c) AS n",
+      "why": "Q67's answer. Typed as 431 in two files; the graph said 463.",
+      "value": 463
+    },
+    "repeated_variable_across_var_length": {
+      "cypher": "MATCH p = (c:Course)-[:REQUIRES*1..1]->(c) RETURN count(p) AS n",
+      "why": "Q71. Should be 0 \u2014 no course requires itself. The engine does not bind a repeated variable across a variable-length pattern, so it matches every edge instead.",
+      "value": 240
+    },
+    "in_over_a_node_list": {
+      "cypher": "MATCH p = (:Course)-[:REQUIRES*]->(:Course) WITH p, nodes(p) AS ns UNWIND ns AS x WITH p WHERE x IN nodes(p) RETURN count(p) AS n",
+      "why": "Q68. `IN` over a list of NODES matches nothing either way rather than refusing.",
+      "value": 0
+    },
+    "bare_single_node_map_absent_url": {
+      "cypher": "MATCH (c:Course {url: \"https://catalog.pwcs.edu/no/such-course\"}) RETURN count(c) AS n",
+      "why": "Should be 0. A bare single-node match does not apply its inline property map, so this counts the whole label.",
+      "value": 791
+    },
+    "relationship_pattern_map_absent_url": {
+      "cypher": "MATCH (:Course)-[:REQUIRES]->(c:Course {url: \"https://catalog.pwcs.edu/no/such\"}) RETURN count(*) AS n",
+      "why": "Should be 0, and IS \u2014 the same syntax inside a relationship pattern filters correctly. The contrast is the finding.",
+      "value": 0
+    },
+    "not_in_list_unparenthesised": {
+      "cypher": "MATCH (c:Course) WHERE NOT c.url IN [\"a\", \"b\"] RETURN count(c) AS n",
+      "why": "Should be every course. Without parentheses the membership test is not negated.",
+      "value": 0
+    },
+    "not_in_list_parenthesised": {
+      "cypher": "MATCH (c:Course) WHERE NOT (c.url IN [\"a\", \"b\"]) RETURN count(c) AS n",
+      "why": "The same question written correctly, for the contrast.",
+      "value": 791
+    },
+    "bound_variable_in_property_map": {
+      "cypher": "MATCH (c:Course) WITH max(1) AS k MATCH (d:Course {district: k}) RETURN count(d) AS n",
+      "why": "A bound variable inside a property map is a parse error, not a match.",
+      "error": "{\"error\":\"Parse error: --> 1:62\\n |\\n1 | MATCH (c:Course) WITH max(1) AS k MATCH (d:Course {district: k}) RETURN count(d"
+    },
+    "aggregate_over_an_absent_label": {
+      "cypher": "MATCH p = (:NoSuchLabel)-[:REQUIRES*]->(:NoSuchLabel) RETURN max(length(p)) AS n",
+      "why": "One row of null on a graph holding none of the label \u2014 which is why `records != []` is not an emptiness check.",
+      "value": null
+    }
+  }
+}
