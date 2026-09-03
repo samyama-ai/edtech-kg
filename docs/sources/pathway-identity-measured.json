@@ -1,0 +1,38 @@
+{
+  "_": "Measured by `python -m etl.probe_pathway_identity`. A census of every published pathway, not a sample.",
+  "retrieved_at": "2026-09-03",
+  "pathways": 98,
+  "candidates": {
+    "ceterms:ctid": {
+      "records": 98,
+      "present": 98,
+      "absent": 0,
+      "distinct": 98,
+      "collides": 0,
+      "shared_values": 0,
+      "usable_as_key": true
+    },
+    "ceterms:subjectWebpage": {
+      "records": 98,
+      "present": 78,
+      "absent": 20,
+      "distinct": 71,
+      "collides": 7,
+      "shared_values": 4,
+      "usable_as_key": false
+    }
+  },
+  "webpage_hosts": {
+    "distinct": 21,
+    "top": {
+      "www.hccs.edu": 22,
+      "chaffey.badgr.com": 17,
+      "ce.pima.edu": 7,
+      "catalog.forsythtech.edu": 6,
+      "www.wgu.edu": 3,
+      "www.credly.com": 3,
+      "docs.google.com": 3,
+      "spcc.edu": 2
+    }
+  }
+}

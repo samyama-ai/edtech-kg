@@ -77,3 +77,21 @@ def course(**extra):
 def prereq(description="PSYC101"):
     return {"ceterms:requires": [{"ceterms:name": {"en-US": "Prerequisites"},
                                   "ceterms:description": {"en-US": description}}]}
+
+
+def pathway(name="A Pathway", ctid="ce-1", webpage=None, **extra):
+    """One Registry record wrapping one `ceterms:Pathway`.
+
+    The `@graph` carries a `ceterms:PathwayComponent` alongside it, always,
+    because that is the shape the Registry actually publishes and because a
+    probe that took the first node instead of filtering on `@type` would read
+    the component and pass every test built on a one-node graph.
+    """
+    node = {"@type": "ceterms:Pathway", "ceterms:ctid": ctid,
+            "ceterms:name": {"en-US": name}, **extra}
+    if webpage is not None:
+        node["ceterms:subjectWebpage"] = webpage
+    return {"decoded_resource": {"@graph": [
+        {"@type": "ceterms:PathwayComponent", "ceterms:name": "a component"},
+        node]}}
+
