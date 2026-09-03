@@ -20,7 +20,9 @@ whatever arrives.
 
 import pytest
 
+from etl import load_pwcs as loader
 from etl.pwcs_pages import PATHWAY_KINDS, kind_of
+from tests.test_load_pwcs import Recorder
 
 CATALOGUE = "https://catalog.pwcs.edu"
 
@@ -101,3 +103,63 @@ def test_every_kind_written_is_one_the_vocabulary_names():
     """No third value can appear without being declared here first."""
     assert set(PATHWAY_KINDS.values()) == {"career pathway",
                                            "specialty program"}
+
+
+def loaded_pathway(url: str, title: str = "A Pathway") -> str:
+    """The Cypher `load()` writes for one pathway, through the real upsert.
+
+    Driven through `load()` rather than asserted on `kind_of`, because the
+    helper being right does not make the LOADER right — a mutation putting
+    `kind or "specialty program"` back at the call site left every test about
+    `kind_of` green. The claim is about what reaches the graph, so the test
+    has to read what reaches the graph.
+    """
+    engine = Recorder()
+    loader.load(engine, {"published": set(), "subjects": [], "courses": [],
+                         "pathways": [{"url": url, "title": title,
+                                       "courses": [], "dangling": []}]},
+                quiet=True)
+    return "\n".join(engine.sent)
+
+
+def test_a_stated_kind_reaches_the_graph():
+    written = loaded_pathway(CATALOGUE + "/x/career-pathways/health.html")
+    assert "career pathway" in written
+
+
+def test_an_unstated_kind_is_omitted_from_the_write_entirely():
+    """Not written as null, not written as a default — ABSENT.
+
+    This is the assertion the mutation `properties["kind"] = kind or
+    "specialty program"` has to fail, and the one that was missing.
+    """
+    written = loaded_pathway(
+        CATALOGUE + "/virtual-prince-william/virtual-prince-william-info.html")
+    assert "Pathway" in written, "the pathway itself must still be written"
+    assert "kind" not in written, (
+        "the loader wrote a kind the catalogue does not publish:\n" + written)
+    assert "specialty program" not in written
+
+
+def test_the_loader_counts_what_it_wrote_including_the_unstated(capsys):
+    """The counts printed are the counts written, not the counts planned.
+
+    A loader that reports a split it did not write is the same defect one
+    level up — and this repo has hit it before, with `pages_read` reporting
+    the pages PLANNED.
+    """
+    engine = Recorder()
+    loader.load(engine, {"published": set(), "subjects": [], "courses": [],
+                         "pathways": [
+                             {"url": CATALOGUE + "/a/career-pathways/x.html",
+                              "title": "One", "courses": [], "dangling": []},
+                             {"url": CATALOGUE + "/b/specialty-programs/y.html",
+                              "title": "Two", "courses": [], "dangling": []},
+                             {"url": CATALOGUE + "/nowhere/z.html",
+                              "title": "Three", "courses": [], "dangling": []}]},
+                quiet=False)
+    printed = capsys.readouterr().out
+    assert "career pathway" in printed and "specialty program" in printed
+    assert "kind unstated" in printed
+    # One of each, and the unstated one counted rather than quietly dropped.
+    assert printed.count("1") >= 3, printed
