@@ -1,0 +1,146 @@
+name: Runner diagnostic
+
+# TEMPORARY. Delete this file once #109 is answered.
+#
+# CI in this repo has never produced a successful run — 86 runs, zero
+# successes, every one failing in 6–15 seconds at `actions/setup-python@v5`,
+# one step after checkout. The `Tests` step has never executed, so the red tick
+# has never been a statement about this repo's tests. `samyama-graph` fails
+# identically with a Rust toolchain and no Python action at all, which points
+# at the runner rather than at any workflow.
+#
+# This answers one question before anyone writes a fix: CAN THE RUNNER REACH
+# THE NETWORK AT ALL? If it cannot, no change in this repo turns the tick
+# green — `pip install pytest` and `docker run …samyama-graph:1.1.0` both need
+# outbound access too, so dropping `setup-python` would move the failure two
+# steps later and no further.
+#
+# TWO DESIGN CHOICES, both deliberate:
+#
+#   * NO ACTIONS. Not even `actions/checkout`. Fetching an action is the thing
+#     that fails, so a diagnostic built on one cannot report why. Every step
+#     below is plain shell against whatever the runner already has.
+#   * NOTHING FAILS THE JOB. `continue-on-error` on every step, and `|| true`
+#     inside them, so one run maps the whole surface instead of stopping at the
+#     first thing that is broken. A diagnostic that halts at step one tells you
+#     what you already knew.
+#
+# It does not run on push or pull_request on purpose — it is triggered by hand
+# and produces a report, not a gate.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Who and where
+        continue-on-error: true
+        run: |
+          echo "== identity"
+          uname -a || true
+          cat /etc/os-release 2>/dev/null | head -4 || true
+          echo "user: $(whoami 2>/dev/null) home: $HOME pwd: $PWD"
+          echo "runner: ${RUNNER_OS:-unset} / ${RUNNER_ARCH:-unset}"
+          echo "disk:"; df -h / 2>/dev/null | tail -1 || true
+
+      - name: What is installed
+        continue-on-error: true
+        run: |
+          echo "== toolchain already present (nothing is fetched here)"
+          for c in python3 python pip3 pip curl wget git docker node; do
+            p=$(command -v "$c" 2>/dev/null) \
+              && echo "  $c -> $p  $("$c" --version 2>&1 | head -1)" \
+              || echo "  $c -> ABSENT"
+          done
+
+      - name: Can it resolve names
+        continue-on-error: true
+        run: |
+          echo "== DNS"
+          # Which tool did the resolving is stated, because "NO RESOLUTION" from
+          # a missing `getent` reads as a blocked network and is not one. A
+          # diagnostic that misdiagnoses is worse than no diagnostic.
+          if command -v getent >/dev/null 2>&1; then
+            resolver=getent
+          elif command -v python3 >/dev/null 2>&1; then
+            resolver=python3
+          else
+            resolver=none
+          fi
+          echo "  resolver: $resolver"
+          if [ "$resolver" = none ]; then
+            echo "  NOT TESTED — no getent and no python3 on this runner"
+          else
+            for h in pypi.org files.pythonhosted.org public.ecr.aws github.com git.samyama.ai; do
+              if [ "$resolver" = getent ]; then
+                out=$(getent hosts "$h" 2>/dev/null | head -1)
+              else
+                out=$(python3 -c "import socket,sys; print(socket.gethostbyname(sys.argv[1]))" "$h" 2>/dev/null)
+              fi
+              [ -n "$out" ] && echo "  $h -> $out" || echo "  $h -> NO RESOLUTION"
+            done
+          fi
+
+      - name: Can it reach anything over HTTPS
+        continue-on-error: true
+        run: |
+          echo "== outbound HTTPS (10s each, headers only)"
+          for u in https://pypi.org/simple/ \
+                   https://files.pythonhosted.org/ \
+                   https://public.ecr.aws/ \
+                   https://github.com/ \
+                   https://api.github.com/ \
+                   https://git.samyama.ai/; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$u" 2>/dev/null)
+            echo "  ${code:-no-response}  $u"
+          done
+
+      - name: Can it fetch an action the way the runner would
+        continue-on-error: true
+        run: |
+          echo "== the exact fetch that fails in ci.yml"
+          # The runner downloads an action as a tarball from the API. If this
+          # is blocked, `actions/setup-python@v5` cannot resolve and the run
+          # dies one step after checkout, which is what 86 runs have done.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+                 https://api.github.com/repos/actions/setup-python/tarball/v5 2>/dev/null)
+          echo "  ${code:-no-response}  actions/setup-python@v5 tarball"
+
+      - name: Is pip usable
+        continue-on-error: true
+        run: |
+          echo "== pip against the index"
+          python3 -m pip --version 2>&1 | head -1 || echo "  no pip module"
+          timeout 60 python3 -m pip download --no-deps --dest /tmp/pipprobe pytest 2>&1 \
+            | tail -3 || echo "  pip download did not complete"
+
+      - name: Is docker usable
+        continue-on-error: true
+        run: |
+          echo "== docker"
+          docker version 2>&1 | head -6 || echo "  no docker client"
+          docker info 2>&1 | grep -iE "server version|storage driver|cgroup" || true
+          echo "-- can it pull the pinned engine?"
+          timeout 120 docker pull public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0 2>&1 \
+            | tail -4 || echo "  pull did not complete"
+
+      - name: Verdict
+        continue-on-error: true
+        run: |
+          echo "== what to record on #109"
+          echo "Read the steps above in order. The question is not 'did the job"
+          echo "pass' — every step is tolerant and the job always passes. It is:"
+          echo
+          echo "  * did DNS resolve?"
+          echo "  * did any HTTPS request return a code at all?"
+          echo "  * did the setup-python tarball fetch return 200?"
+          echo "  * did pip reach the index, and docker reach the registry?"
+          echo
+          echo "If DNS and HTTPS both fail, this is a runner/network matter and"
+          echo "no change in this repo can turn the tick green. If they succeed"
+          echo "and only the action tarball fails, the fix is repo-side."
