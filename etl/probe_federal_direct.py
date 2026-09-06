@@ -34,6 +34,7 @@ import urllib.request
 import zipfile
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "federal-direct-measured.json"
@@ -222,9 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     if args.record:
         RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(
-            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                       ensure_ascii=False) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     # `if`, not `elif`: a caller asking for both got silence on the sibling
     # probes until that was fixed.

@@ -52,6 +52,7 @@ import sys
 
 from etl.registry_read import (REGISTRY, HttpStatus, MalformedSource, get,
                                parse, total)
+from etl.provenance import write_record
 
 #: The whole population fits in two pages, so this probe SAMPLES NOTHING. Every
 #: figure below is a census, and the honesty caveat the other Registry probes
@@ -230,10 +231,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.record:
         RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(json.dumps(
-            {"_": RECORD_NOTE,
-             "retrieved_at": datetime.date.today().isoformat(),
-             **result}, indent=2) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE,
+                              "retrieved_at": datetime.date.today().isoformat(),
+                              **result})
         print(f"wrote {RECORD.relative_to(RECORD.parent.parent.parent)}")
     elif args.json:
         print(json.dumps(result, indent=2))

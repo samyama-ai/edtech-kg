@@ -43,6 +43,7 @@ import urllib.error
 import urllib.request
 
 from etl.engine import ENGINE_VERSION, RETRIED, Engine, Refused
+from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "engine-capability-measured.json"
@@ -295,10 +296,9 @@ def main(argv: list[str] | None = None) -> int:
         # `_` first and written by the writer, not left in the file for a
         # refresh to preserve by accident — the shape the licence record uses.
         RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(json.dumps(
-            {"_": RECORD_NOTE,
-             "retrieved_at": datetime.date.today().isoformat(),
-             **result}, indent=2) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE,
+                              "retrieved_at": datetime.date.today().isoformat(),
+                              **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     elif args.json:
         print(json.dumps(result, indent=2))

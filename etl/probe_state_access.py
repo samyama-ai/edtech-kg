@@ -18,6 +18,7 @@ import json
 import pathlib
 
 from etl.state_access import recommendation, survey
+from etl.provenance import write_record
 
 RECORD = pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources" / \
     "state-access-measured.json"
@@ -54,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     result = probe(quiet=args.json or args.record)
     if args.record:
-        RECORD.write_text(json.dumps(result, indent=2) + "\n")
+        write_record(RECORD, result)
         print(f"wrote docs/sources/{RECORD.name}")
     elif args.json:
         print(json.dumps(result, indent=2))
