@@ -35,7 +35,14 @@ import re
 from etl.engine import upsert
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "schema" / "edtech_kg.cypher"
+SCHEMA_FILES = (ROOT / "schema" / "edtech_kg.cypher",
+                ROOT / "schema" / "edtech_kg_tier2.cypher")
+SCHEMA = SCHEMA_FILES[0]
+
+
+def schema_text() -> str:
+    """Both tiers (#157). Reading SCHEMA alone sees tier 1 only."""
+    return "\n".join(f.read_text(encoding="utf-8") for f in SCHEMA_FILES)
 
 
 def declared() -> dict[str, set[str]]:
@@ -53,7 +60,7 @@ def declared() -> dict[str, set[str]]:
     `Occupation.name` was undeclared while every source publishes it.
     """
     found: dict[str, set[str]] = {}
-    schema = SCHEMA.read_text(encoding="utf-8")
+    schema = schema_text()
     for var, label, prop in re.findall(
             r"CREATE CONSTRAINT ON \((\w+):(\w+)\) ASSERT \1\.(\w+)", schema):
         found.setdefault(label, set()).add(prop)
@@ -215,7 +222,7 @@ def block(name: str = "PROPERTIES") -> str:
     the end marker starts at the opening one, so the two do not read each
     other however they are ordered in the file.
     """
-    schema = SCHEMA.read_text(encoding="utf-8")
+    schema = schema_text()
     opening, closing = f"// {name}\n", f"// END {name}"
     # A MESSAGE, not `ValueError: substring not found` from `str.index`, which
     # names neither the marker nor the file and sends the reader nowhere.

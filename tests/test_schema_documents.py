@@ -17,7 +17,7 @@ engine are in `tests/test_schema_engine.py`.
 import re
 
 from tests.schema_source import (QUESTIONS, SCHEMA, SCHEMA_DOC, edges,
-                                 first_column, labels, section)
+                                 first_column, labels, section, schema_text)
 from tests.questions_document import marks
 from tests.spelling import spelled
 
@@ -95,18 +95,25 @@ def test_the_competency_gap_count_agrees_with_the_questions():
                if "competency" in parts[i + 1].lower()]
     # Anchored on the competency-gap sentence itself. A looser pattern matched
     # an unrelated "those questions was blocked" elsewhere on the page.
-    for path, pattern in ((SCHEMA_DOC, r"([\w-]+) questions?[^.]*?blocked on one thing"),
-                          (SCHEMA, r"competency gap — ([\w-]+) questions")):
-        stated = re.search(pattern, path.read_text().lower())
-        assert stated, f"{path.name} no longer states a competency-gap count"
+    # Read as TEXT, not as a path: the schema is two files since #157 and the
+    # competency-gap sentence sits in the tier-2 one. A (path, pattern) pair
+    # would have gone on passing while checking only tier 1 — the stale-figure
+    # class this test exists to catch, moved one file along.
+    for name, text, pattern in (
+            ("schema.md", SCHEMA_DOC.read_text(),
+             r"([\w-]+) questions?[^.]*?blocked on one thing"),
+            ("the schema", schema_text(),
+             r"competency gap — ([\w-]+) questions")):
+        stated = re.search(pattern, text.lower())
+        assert stated, f"{name} no longer states a competency-gap count"
         assert spelled(stated.group(1)) == len(blocked), (
-            f"{path.name} says {stated.group(1)!r}, but questions.md blocks "
+            f"{name} says {stated.group(1)!r}, but questions.md blocks "
             f"{len(blocked)}: {blocked}")
 
 
 def test_what_it_does_not_claim_is_written_down():
     """The house standard: limits stated before anyone finds them."""
-    for document in (SCHEMA.read_text(), SCHEMA_DOC.read_text()):
+    for document in (schema_text(), SCHEMA_DOC.read_text()):
         assert "does not claim" in document.lower()
 
 

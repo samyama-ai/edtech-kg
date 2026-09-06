@@ -19,7 +19,9 @@ import pytest
 from etl import load_pwcs as loader
 from etl.engine import Unquotable
 
-SCHEMA = Path(__file__).resolve().parents[1] / "schema" / "edtech_kg.cypher"
+_SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schema"
+SCHEMA_FILES = (_SCHEMA_DIR / "edtech_kg.cypher",
+                _SCHEMA_DIR / "edtech_kg_tier2.cypher")
 
 
 class Recorder:
@@ -79,7 +81,8 @@ def pairs_to_map(pairs, what: str) -> dict[str, str]:
 
 
 def declared_keys() -> dict[str, str]:
-    code = "\n".join(line.split("//")[0] for line in SCHEMA.read_text().splitlines())
+    code = "\n".join(line.split("//")[0] for f in SCHEMA_FILES
+                     for line in f.read_text().splitlines())
     declared = pairs_to_map(DECLARATION.findall(" ".join(code.split())), "the schema")
     assert declared, (
         "no constraints parsed out of the schema — a renamed file or a changed "

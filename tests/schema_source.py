@@ -14,7 +14,11 @@ from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = ROOT / "schema" / "edtech_kg.cypher"
+#: Tier 1 then tier 2 (#157). `schema_text()` is the only correct way to read
+#: "the schema"; a test reading SCHEMA alone sees tier 1 only.
+SCHEMA_FILES = (ROOT / "schema" / "edtech_kg.cypher",
+                ROOT / "schema" / "edtech_kg_tier2.cypher")
+SCHEMA = SCHEMA_FILES[0]
 
 
 @lru_cache(maxsize=1)
@@ -26,7 +30,7 @@ def schema_text() -> str:
     run read the same unchanging file dozens of times. Cached, because it is
     the same file for the life of the process and nothing here writes to it.
     """
-    return SCHEMA.read_text(encoding="utf-8")
+    return "\n".join(f.read_text(encoding="utf-8") for f in SCHEMA_FILES)
 SCHEMA_DOC = ROOT / "docs" / "schema.md"
 QUESTIONS = ROOT / "docs" / "questions.md"
 

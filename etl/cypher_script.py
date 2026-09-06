@@ -18,7 +18,25 @@ from pathlib import Path
 
 from etl.engine import Engine
 
-SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "edtech_kg.cypher"
+_SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schema"
+
+#: Tier 1 then tier 2, in that order. The schema is two files since #157 — the
+#: single file reached 499 of the 500-line review ceiling, and a file review
+#: skips whole is a poor place to keep every key in the graph. Order is not
+#: load-bearing (constraints are independent) but it is the order both files
+#: are written to be read in.
+SCHEMA_FILES = (_SCHEMA_DIR / "edtech_kg.cypher",
+                _SCHEMA_DIR / "edtech_kg_tier2.cypher")
+
+
+def schema_text() -> str:
+    """Both schema files, concatenated in tier order.
+
+    Anything applying or parsing "the schema" must use this rather than reading
+    SCHEMA, or tier 2 silently stops being applied — a failure that shows up as
+    a missing constraint nobody declared missing.
+    """
+    return "\n".join(f.read_text(encoding="utf-8") for f in SCHEMA_FILES)
 
 
 def strip_comment(line: str) -> str:
@@ -83,7 +101,10 @@ def apply_schema(engine: Engine, quiet: bool = False,
     this repo keeps finding: two things that should be one, with only one
     maintained.
     """
-    text = (schema or SCHEMA).read_text()
+    # Both tiers unless the caller names one file. Reading SCHEMA here would
+    # have applied tier 1 only, and every tier-2 constraint would have gone
+    # quietly undeclared — the load still succeeds, so nothing would say so.
+    text = schema.read_text() if schema else schema_text()
     statements = split_statements(
         "\n".join(strip_comment(line) for line in text.splitlines()))
     for statement in statements:

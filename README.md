@@ -125,9 +125,11 @@ Every figure below is printed by a probe in `etl/`. None is hand-typed.
 
 ## Schema
 
-`schema/edtech_kg.cypher` is the executable ontology. `tests/test_schema_cypher.py` runs
-every statement in it against a live engine, and executes the tier-4 traversals rather than
-asserting them.
+`schema/edtech_kg.cypher` and `schema/edtech_kg_tier2.cypher` are the executable ontology —
+tier 1 is what is populated from a measured source, tier 2 what is declared but not yet
+loaded. `tests/test_schema_cypher.py` runs every statement in **both** against a live engine,
+and executes the tier-4 traversals rather than asserting them. Anything applying "the schema"
+reads both; a reader that takes only tier 1 still loads cleanly, eight keys short.
 
 **Nothing is minted.** Every shape has a published name, and the verdict for each — adopt,
 align, or mint — is in [`docs/ontology-reuse.md`](docs/ontology-reuse.md), each linked to
@@ -179,7 +181,7 @@ preference, and the working is on the page.
 ```
 .github/      ci.yml — the suite on every push and PR, with a real engine
 etl/          probes (one per source) + load_pwcs.py
-schema/       edtech_kg.cypher — the executable ontology
+schema/       edtech_kg.cypher + edtech_kg_tier2.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
 docs/         scope, questions, schema, ontology-reuse, sources/
 benchmarks/   the traversals behind docs/questions.md — empty, see #22

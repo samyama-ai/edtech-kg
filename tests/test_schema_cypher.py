@@ -18,9 +18,10 @@ import re
 
 import pytest
 
+from etl.cypher_script import split_statements, strip_comment
 from tests.schema_source import (SCHEMA, WRAP_LIMIT, code, constraint_line,
                                  declarations, edges, first_column, labels,
-                                 section, statements)
+                                 section, statements, schema_text)
 
 
 def test_every_label_is_constrained_once():
@@ -122,20 +123,20 @@ def test_the_prerequisite_edge_is_present():
     """REQUIRES is what makes nineteen of the twenty tier-4 questions
     answerable. If it ever disappears, the graph argument goes with it."""
     assert "REQUIRES" in edges()
-    assert "(:Course)-[:REQUIRES]->(:Course)" in SCHEMA.read_text()
+    assert "(:Course)-[:REQUIRES]->(:Course)" in schema_text()
 
 
 def test_a_prose_condition_is_a_node_not_an_edge_to_a_course():
     """138 courses state a condition that names no course. Asserting it as a
     REQUIRES edge would invent a link the source does not make."""
     assert "Requirement" in labels()
-    assert "(:Course)-[:HAS_REQUIREMENT]->(:Requirement)" in SCHEMA.read_text()
+    assert "(:Course)-[:HAS_REQUIREMENT]->(:Requirement)" in schema_text()
 
 
 def test_the_schema_refuses_the_edges_the_sources_do_not_publish():
     """Two links this repo has explicitly declined to assert. A future edit
     adding either should have to delete this test and say why."""
-    text = SCHEMA.read_text()
+    text = schema_text()
     # Any Course -> Programme edge, not one spelling of it. The refusal is
     # that no public source links the two, so PREPARES_FOR or different
     # spacing would sail past a literal check.
@@ -162,7 +163,7 @@ def test_no_label_is_keyed_on_a_bare_path():
     resolves by path, which is correct inside one catalogue and only inside
     one — `/mathematics/algebra-1` is a path two districts can both publish.
     The host is what separates them, so the key keeps it."""
-    keyed = re.findall(r"ASSERT \w+\.(\w+) IS UNIQUE", SCHEMA.read_text())
+    keyed = re.findall(r"ASSERT \w+\.(\w+) IS UNIQUE", schema_text())
     assert "path" not in keyed, "a path key cannot distinguish two districts"
     assert "url" in keyed, "the page-keyed labels should key on the absolute URL"
 
@@ -179,7 +180,7 @@ def test_the_url_key_states_how_it_is_normalised():
     case-sensitive by spec and lower-casing it merges pages a server may
     distinguish.
     """
-    text = SCHEMA.read_text()
+    text = schema_text()
     marker = re.search(r"NORMALISATION.*?CREATE CONSTRAINT", text, re.S)
     assert marker, "the URL key states no normalisation rule"
     rule = marker.group().lower()
@@ -207,7 +208,7 @@ def test_a_dependent_key_is_at_least_as_specific_as_what_it_depends_on():
     """`Requirement.id` derived from the course *path* while `Course` is keyed
     on the absolute URL — the same collision this file argues against, one node
     removed. A dependent key cannot be less specific than its parent's."""
-    text = SCHEMA.read_text()
+    text = schema_text()
     assert 'sha1("<course URL>' in text, "Requirement still keys off a path"
     assert 'sha1("<course path>' not in text
 
@@ -216,7 +217,7 @@ def test_the_equivalence_edge_states_its_direction():
     """Directed and not symmetric: one body asserting an equivalence is a
     different fact from the other asserting the converse, and only one may
     exist. Unstated, a query would traverse one way and silently miss half."""
-    text = SCHEMA.read_text()
+    text = schema_text()
     assert "not symmetric" in text.lower()
     assert "traverse both" in text.lower()
 
@@ -246,7 +247,7 @@ def test_every_tier_two_key_says_how_it_is_composed():
     """`Requirement`, `Completion` and `Level` state their id formula; three
     tier-2 keys said only `id`. An unpopulated label whose key is undefined is
     a decision deferred without a record that it was deferred."""
-    lines = SCHEMA.read_text(encoding="utf-8").splitlines()
+    lines = schema_text().splitlines()
     for label in ("AwardingBody", "EarningsRecord", "Place"):
         # `constraint_line`, not a line-local substring, for the reason the
         # composite-key test below gives: a wrapped declaration is invisible
@@ -308,7 +309,7 @@ def test_every_composite_key_names_its_components():
     loader's key auditable, and it is asserted rather than left to whoever
     reads the comments.
     """
-    lines = SCHEMA.read_text(encoding="utf-8").splitlines()
+    lines = schema_text().splitlines()
 
     # Through `declarations()`, which collapses whitespace first. Selecting by
     # the line-local substring `f":{label})"` misses a declaration wrapped
@@ -377,6 +378,37 @@ def test_a_declaration_wrapped_wider_than_the_window_raises_rather_than_vanishin
     assert constraint_line("Absent", "CREATE INDEX ON :C(year);") is None
 
 
+def test_both_tiers_are_actually_read():
+    """Dropping tier 2 from the readers must fail loudly, not silently.
+
+    Measured: removing `edtech_kg_tier2.cypher` from `cypher_script.SCHEMA_FILES`
+    left every schema and loader test green — the load still succeeds with eight
+    fewer constraints declared, and nothing said so. A comment in that module
+    warned about exactly this and guarded nothing.
+
+    Asserted on the applied text rather than on the tuple, because the failure
+    that matters is a tier going unapplied, however that happens.
+    """
+    from etl import cypher_script
+
+    for name, text in (("tests", schema_text()),
+                       ("the loader", cypher_script.schema_text())):
+        assert "TIER 1 — uniqueness constraints" in text, (
+            f"{name} is not reading tier 1")
+        assert "TIER 2 — modelled, not yet populated" in text, (
+            f"{name} is not reading tier 2 — it declares eight keys, and a "
+            f"load without them succeeds silently")
+
+    applied = len(split_statements("\n".join(
+        strip_comment(line) for line in cypher_script.schema_text().splitlines())))
+    per_file = [len(split_statements("\n".join(
+        strip_comment(line) for line in f.read_text().splitlines())))
+        for f in cypher_script.SCHEMA_FILES]
+    assert applied == sum(per_file) and len(per_file) == 2, (
+        f"the loader applies {applied} statements from {len(per_file)} file(s); "
+        f"the schema is two files and every statement in both must be applied")
+
+
 def test_a_label_sits_under_the_tier_banner_it_belongs_to():
     """`Pathway` carried a comment reading "TIER 1" while the declaration sat
     physically under the `TIER 2 — modelled, not yet populated` banner. Both
@@ -386,7 +418,7 @@ def test_a_label_sits_under_the_tier_banner_it_belongs_to():
     Only the markdown doc was guarded, so nothing checked the cypher itself —
     which is the file that executes, and the one a loader author reads.
     """
-    text = SCHEMA.read_text()
+    text = schema_text()
     # Declarations, via `labels()` — not any mention of the label. Both tiers
     # name each other's labels in edge patterns, so a substring test reports
     # `(:Course)-[:DEVELOPS]->(:Competency)` as a Course declaration.

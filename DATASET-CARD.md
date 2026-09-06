@@ -44,7 +44,7 @@ source and **not loaded**.
 **Node and edge counts for the other sources are absent, not blank.** No loader
 has run for them. `Programme`, `Occupation`, `Institution`, `School`,
 `District`, `Completion`, `EarningsRecord` and `Place` are declared in
-`schema/edtech_kg.cypher` and hold nothing. A count of zero would read as a
+`schema/edtech_kg_tier2.cypher` and hold nothing. A count of zero would read as a
 measurement; there has been none.
 
 ## Licences, and what may be done with each
