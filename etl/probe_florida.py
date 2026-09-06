@@ -36,11 +36,10 @@ import json
 import pathlib
 import sys
 
-from etl.registry_read import (REGISTRY, HttpStatus, MalformedSource, get,
-                               parse, total)
+from etl.registry_read import (PER_PAGE, REGISTRY, HttpStatus, MalformedSource,
+                               describe, get, parse, sample_pages, total)
 
 COMMUNITY = "fdoe"
-PER_PAGE = 50
 
 #: Every resource type the Registry exposes as a search path. The list is long
 #: on purpose: a type omitted here lands in `unattributed`, which is loud,
@@ -65,53 +64,69 @@ RECORD_NOTE = ("Measured by `python -m etl.probe_florida`. The type breakdown "
                "unattributed; the field profile is a sample and says so.")
 
 
-def census() -> dict:
-    """Every record in the community, counted by type, and reconciled.
+class GatedType(RuntimeError):
+    """A search path answered with something that is not a number.
 
-    Raises rather than reporting a breakdown that does not add up. A partial
-    census read as a whole one is the failure `probe_registry.registry_totals`
-    already guards with its "unattributed" arithmetic; here the remainder must
-    be zero, because these fourteen paths are meant to be exhaustive.
+    Distinct from `HttpStatus` on purpose. `registry_read.total()` goes to some
+    length to keep "unreachable", "malformed" and "answered, but not with a
+    count" apart, and collapsing this into the unreachable branch printed a
+    gated resource type as an outage.
+    """
+
+
+def census() -> dict:
+    """Every record in the community, counted by type, and the remainder.
+
+    **Reports a nonzero remainder; it does not refuse one.** An earlier version
+    of this docstring said it raised, and that the remainder "must be zero" —
+    neither was true of the code, and `test_an_unexplained_remainder_is_
+    reported_not_hidden` asserts the opposite. In a repo whose thesis is not
+    stating a figure more confidently than it was measured, a docstring
+    claiming a guard that is not there is that same failure one level up.
+
+    Reporting is the better behaviour and is deliberate. A remainder means the
+    fourteen paths were not exhaustive, which is a fact about the Registry
+    worth carrying in the record rather than an error worth dying on — the run
+    still produces a usable census, and `report()` prints the remainder
+    differently when it is nonzero so it cannot be read as just another type.
+
+    What it *does* refuse is a path that answers with something other than a
+    number: that is a hole of unknown size, not a measured one.
     """
     whole = total(f"/{COMMUNITY}/search")
     if not isinstance(whole, int):
-        raise RuntimeError(
+        raise GatedType(
             f"the Registry did not report a total for {COMMUNITY}: {whole}")
     by_type = {}
     for kind in TYPES:
         counted = total(f"/{COMMUNITY}/{kind}/search")
         if not isinstance(counted, int):
-            raise RuntimeError(f"{COMMUNITY}/{kind} answered {counted!r}; "
-                               f"refusing to report a breakdown with a hole")
+            raise GatedType(f"{COMMUNITY}/{kind} answered {counted!r}; "
+                            f"refusing to report a breakdown with a hole")
         by_type[kind] = counted
     return {"records": whole, "by_type": by_type,
             "unattributed": whole - sum(by_type.values())}
 
 
-def spread(pages: int, wanted: int) -> list[int]:
-    """Pages at a fixed stride, not the first N.
+def profile(population: int, records_wanted: int = 8 * PER_PAGE) -> dict:
+    """Which fields the credentials carry, over a sample drawn at a stride.
 
-    Reading pages 1..N is a sample of whatever sorts first, which one
-    publisher's bulk upload can dominate — and `fdoe` has exactly that shape:
-    page 1 is one publisher and carries no `ceterms:requires` at all, while
-    later pages are another and carry it on every record. The stride is
-    deterministic, so the figure is reproducible.
+    The stride sampling is `registry_read.sample_pages`, not a local one. This
+    module had its own `spread()` doing the same job with the same argument
+    about one publisher's bulk upload dominating the head — a second sampler
+    that no other probe used, which is the drift #86 split that module to
+    prevent. `PER_PAGE` comes from there too: it is the source's number, so a
+    Registry change should need one edit rather than two.
+
+    The parameter is `records_wanted` and not `sample_pages`, which would have
+    shadowed the function it is passed to.
     """
-    if pages <= wanted:
-        return list(range(1, pages + 1))
-    stride = pages / wanted
-    return sorted({max(1, min(pages, round(1 + i * stride)))
-                   for i in range(wanted)})
-
-
-def profile(population: int, sample_pages: int = 8) -> dict:
-    """Which fields the credentials carry, over a sample drawn at a stride."""
-    pages = -(-population // PER_PAGE)
-    read = spread(pages, sample_pages)
+    read, size = sample_pages(records_wanted, population)
+    pages = max(1, -(-population // PER_PAGE))
     nodes = []
     for page in read:
         body = parse(get(f"{REGISTRY}/{COMMUNITY}/credential/search"
-                         f"?per_page={PER_PAGE}&page={page}"),
+                         f"?per_page={size}&page={page}"),
                      f"page {page} of the {COMMUNITY} credential search")
         if not isinstance(body, list):
             raise MalformedSource(
@@ -128,6 +143,7 @@ def profile(population: int, sample_pages: int = 8) -> dict:
         "sampled": len(nodes),
         "pages_read": read,
         "of_pages": pages,
+        "how_sampled": describe(read, size, population),
         "credential_types": dict(kinds.most_common()),
         "field_coverage": {field: sum(1 for n in nodes if n.get(field))
                            for field in FIELDS},
@@ -146,7 +162,15 @@ def report(result: dict) -> None:
     print(f"{COMMUNITY}: {result['records']:,} records\n")
     for kind, count in sorted(result["by_type"].items(), key=lambda kv: -kv[1]):
         print(f"  {kind:<30} {count:>7,}")
-    print(f"  {'unattributed':<30} {result['unattributed']:>7,}")
+    # A remainder is not one more type. Printed in the same format, after a
+    # descending sort, it read as the smallest category rather than as the
+    # census failing to close — the "loudness" existed only in the commentary.
+    left = result["unattributed"]
+    if left:
+        print(f"\n  !! {'unattributed':<27} {left:>7,}  "
+              f"— the fourteen paths did not account for every record")
+    else:
+        print(f"  {'unattributed':<30} {left:>7,}")
     got = result["profile"]
     print(f"\ncredential shape, sampled {got['sampled']} over "
           f"{len(got['pages_read'])} of {got['of_pages']} pages:")
@@ -176,6 +200,9 @@ def main(argv: list[str] | None = None) -> int:
     except MalformedSource as bad:
         print(f"\nsource malformed: {bad}", file=sys.stderr)
         return 3
+    except GatedType as gated:
+        print(f"\ngated or uncounted: {gated}", file=sys.stderr)
+        return 4
     except (HttpStatus, RuntimeError) as gone:
         print(f"\nsource unreachable: {gone}", file=sys.stderr)
         return 2

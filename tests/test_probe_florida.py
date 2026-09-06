@@ -18,6 +18,7 @@ import pathlib
 import pytest
 
 from etl import probe_florida as probe
+from etl import registry_read
 from etl.registry_read import MalformedSource
 from tests.registry_stubs import paged
 
@@ -81,19 +82,47 @@ def test_every_search_path_the_registry_exposes_is_asked_about():
 
 # --- the sample, and why the stride matters ---------------------------------
 
-@pytest.mark.parametrize("pages, wanted", [(205, 8), (100, 8), (9, 8), (3, 8)])
-def test_the_sample_spreads_across_the_whole_result_set(pages, wanted):
-    read = probe.spread(pages, wanted)
-    assert read == sorted(set(read)), "pages must be unique and ordered"
-    assert min(read) >= 1 and max(read) <= pages
-    if pages > wanted:
-        assert max(read) > pages // 2, (
-            "reading the head is a sample of whatever sorts first — fdoe's "
-            "page 1 is one publisher and carries none of ceterms:requires")
+def test_the_stride_sampler_is_the_shared_one_not_a_local_copy():
+    """This module had its own `spread()`, doing registry_read's job.
+
+    Two samplers making the same argument about one publisher's bulk upload is
+    the drift #86 split that module to prevent, and the stride itself is tested
+    in tests/test_registry_read.py — eight cases, against the function every
+    other probe uses. What belongs here is that this one still delegates.
+    """
+    assert probe.sample_pages is registry_read.sample_pages
+    # PER_PAGE must be the imported one, not a local of the same name — a copy
+    # means a Registry change needs two edits.
+    assert probe.PER_PAGE is registry_read.PER_PAGE
+    assert not hasattr(probe, "spread"), "a second stride sampler is back"
 
 
-def test_a_short_result_set_is_read_whole():
-    assert probe.spread(3, 8) == [1, 2, 3]
+def test_the_profile_actually_calls_the_shared_sampler(monkeypatch):
+    """Structure is not enough: a stride sampler defined INSIDE profile() is
+    invisible to `hasattr`, and the first version of the test above passed
+    happily with one reintroduced as a closure. Assert the call instead."""
+    called = {}
+
+    def spy(wanted, population):
+        called["args"] = (wanted, population)
+        return [1], 50
+
+    monkeypatch.setattr(probe, "sample_pages", spy)
+    envelope = {"decoded_resource": {"@graph": [
+        {"@type": "ceterms:Certificate", "ceterms:ctid": "a"}]}}
+    paged(monkeypatch, {1: [envelope]}, x_total=50)
+    probe.profile(population=50, records_wanted=400)
+    assert called["args"] == (400, 50), "profile must delegate the stride"
+
+
+def test_the_sample_says_how_it_was_taken(monkeypatch):
+    """`describe()` states how a completed walk was made; report() used to
+    hand-roll that line instead of asking the function that owns it."""
+    envelope = {"decoded_resource": {"@graph": [
+        {"@type": "ceterms:Certificate", "ceterms:ctid": "a"}]}}
+    paged(monkeypatch, {1: [envelope]}, x_total=50)
+    got = probe.profile(population=50, records_wanted=50)
+    assert got["how_sampled"], "the record must say how the sample was drawn"
 
 
 def test_the_profile_counts_nodes_not_envelopes(monkeypatch):
@@ -102,7 +131,7 @@ def test_the_profile_counts_nodes_not_envelopes(monkeypatch):
          "ceterms:instructionalProgramType": [{"ceterms:codedNotation": "51.0904"}]},
         {"@type": "ceterms:Certificate", "ceterms:ctid": "b"}]}}
     paged(monkeypatch, {1: [envelope]}, x_total=2)
-    got = probe.profile(population=2, sample_pages=1)
+    got = probe.profile(population=2, records_wanted=1)
     assert got["sampled"] == 2
     assert got["field_coverage"]["ceterms:instructionalProgramType"] == 1
 
@@ -115,20 +144,20 @@ def test_a_node_without_a_ctid_is_not_counted(monkeypatch):
         {"@type": "ceterms:Certificate", "ceterms:ctid": "a"},
         {"@type": "ceterms:Place", "ceterms:postalCode": "32955"}]}}
     paged(monkeypatch, {1: [envelope]}, x_total=1)
-    assert probe.profile(population=1, sample_pages=1)["sampled"] == 1
+    assert probe.profile(population=1, records_wanted=1)["sampled"] == 1
 
 
 def test_an_empty_result_set_refuses_rather_than_reporting_zero_coverage(
         monkeypatch):
     paged(monkeypatch, {1: []}, x_total=0)
     with pytest.raises(ValueError, match="refusing to report coverage"):
-        probe.profile(population=50, sample_pages=1)
+        probe.profile(population=50, records_wanted=1)
 
 
 def test_a_malformed_page_is_reported(monkeypatch):
     paged(monkeypatch, {1: {"error": "no"}}, x_total=50)
     with pytest.raises(MalformedSource, match="page 1"):
-        probe.profile(population=50, sample_pages=1)
+        probe.profile(population=50, records_wanted=1)
 
 
 # --- the record, and the finding it carries ---------------------------------
