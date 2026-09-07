@@ -72,9 +72,11 @@ one of the 130 tables**, not just C022:
 
 - **SOC-shaped codes (`nn-nnnn`): zero.**
 - CIP-shaped codes (`nn.nnnn`): 37 matches, **all false positives** — statute
-  references such as `TEC 12.1141(c)`, and text inside descriptions. Checked by
-  hand, table by table; the probe records where they are so the next reader does
-  not have to.
+  references such as `TEC 12.1141(c)`, and text inside descriptions. That
+  verdict is a reading, not something the probe decides: it records the matched
+  strings themselves alongside the counts, so the next reader can check the
+  reading rather than repeat it. `tests/test_texas_cte_doc.py` fails if this
+  page calls them statute references while the record holds no sample.
 
 So the hoped-for chain — course → cluster → occupation — has no second link and
 no third.

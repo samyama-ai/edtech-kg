@@ -29,27 +29,48 @@
   "code_shaped_matches": {
     "C061.csv": {
       "cip_shaped": 2,
-      "soc_shaped": 0
+      "soc_shaped": 0,
+      "samples": [
+        "89.1220"
+      ]
     },
     "C062.csv": {
       "cip_shaped": 27,
-      "soc_shaped": 0
+      "soc_shaped": 0,
+      "samples": [
+        "74.1021",
+        "89.1070"
+      ]
     },
     "C093.csv": {
       "cip_shaped": 2,
-      "soc_shaped": 0
+      "soc_shaped": 0,
+      "samples": [
+        "89.1207"
+      ]
     },
     "C165.csv": {
       "cip_shaped": 2,
-      "soc_shaped": 0
+      "soc_shaped": 0,
+      "samples": [
+        "37.0052",
+        "37.0081"
+      ]
     },
     "C215.csv": {
       "cip_shaped": 2,
-      "soc_shaped": 0
+      "soc_shaped": 0,
+      "samples": [
+        "12.1141",
+        "39.0548"
+      ]
     },
     "C221.csv": {
       "cip_shaped": 2,
-      "soc_shaped": 0
+      "soc_shaped": 0,
+      "samples": [
+        "89.1207"
+      ]
     }
   }
 }

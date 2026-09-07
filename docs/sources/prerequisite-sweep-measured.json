@@ -1,0 +1,31 @@
+{
+  "_": "Measured by `python -m etl.sweep_prerequisites`. A census of every published Registry course, not a sample. `complete` false means a prefix was read and no rate may be quoted.",
+  "retrieved_at": "2026-09-07",
+  "population_reported": 47862,
+  "pages_planned": 958,
+  "pages_in_population": 958,
+  "pages_read": 958,
+  "complete": true,
+  "elapsed_seconds": 3759.0,
+  "courses": 47862,
+  "stating_a_prerequisite": 10055,
+  "resolvable": 0,
+  "free_text_only": 10055,
+  "stated_but_empty": 11,
+  "using_the_typed_edge": 0,
+  "typed_edge_publishers": {},
+  "examples": [
+    "PSYC101",
+    "PHOT 109",
+    "Prerequisite: PHOT109, PHOT110, and PHOT205",
+    "PSYC101",
+    "PSYC 101",
+    "MATH 113, MATH 114 (Grade of C or better) (MATH 114 may be taken concurrently)",
+    "PSYC101, PSYC111 or Permission of Instructor",
+    "PSYC 101 and Proficiency on Math Placement Test",
+    "SOCA101",
+    "MUSC 131, Music Major",
+    "OPTC 101, OPTC 107, OPTC 112",
+    "OPTC 101, OPTC 112, OPTC 210, OPTC 217"
+  ]
+}

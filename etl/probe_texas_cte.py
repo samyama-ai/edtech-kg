@@ -27,6 +27,7 @@ import json
 import pathlib
 import re
 import sys
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -43,10 +44,16 @@ DOWNLOAD = ("https://tealprod.tea.state.tx.us/TWEDS/103/1131/2258/0"
             "/CodeTable/DownloadAll")
 COURSES = "C022.csv"
 
-#: The values the flag actually takes. Assuming "1" or "Y" — the obvious guess —
-#: counts zero CTE courses and reads as "the flag is empty", which is a wrong
-#: finding rather than a failed one.
-CTE_VALUES = ("H", "M")
+#: Any non-blank value counts. The obvious guess — "1" or "Y" — counts ZERO CTE
+#: courses and reads as "the flag is empty", which is a wrong finding rather
+#: than a failed one. But freezing the values this run happened to see, "H" and
+#: "M", has the same shape one version later: if TEA adds "E" for elementary,
+#: the histogram records it while the count silently drops it, and the doc's
+#: figure still reads as measured.
+#:
+#: So the count is "not blank" and `cte_flag_values` carries what the values
+#: actually were. A new value changes a number the doc quotes, which is a
+#: failure someone sees, rather than one it omits.
 
 
 def fetch(url: str = DOWNLOAD) -> bytes:
@@ -67,7 +74,7 @@ def measure(blob: bytes) -> dict:
     rows = list(csv.DictReader(io.StringIO(
         archive.read(COURSES).decode("utf-8-sig", "replace"))))
     flag = collections.Counter((r.get("CTE Course") or "").strip() for r in rows)
-    cte = [r for r in rows if (r.get("CTE Course") or "").strip() in CTE_VALUES]
+    cte = [r for r in rows if (r.get("CTE Course") or "").strip()]
 
     # The two columns the issue expected to carry the cluster.
     populated = {
@@ -83,7 +90,14 @@ def measure(blob: bytes) -> dict:
         cip = re.findall(r"\b\d{2}\.\d{4}\b", text)
         soc = re.findall(r"\b\d{2}-\d{4}\b", text)
         if cip or soc:
-            joins[name] = {"cip_shaped": len(cip), "soc_shaped": len(soc)}
+            # The matched strings, not just how many. "All 37 are statute
+            # references" is a verdict somebody reached by reading them, and a
+            # record holding only counts cannot be re-checked against it — the
+            # next reader has to redo the work the doc says they need not.
+            joins[name] = {
+                "cip_shaped": len(cip), "soc_shaped": len(soc),
+                "samples": sorted(set(cip + soc))[:5],
+            }
 
     return {
         "retrieved_at": datetime.date.today().isoformat(),
@@ -112,9 +126,14 @@ def report(result: dict) -> None:
         print(f"  {column:<21} {verdict}")
     print()
     if result["code_shaped_matches"]:
-        print("  code-shaped matches (checked by hand — statute refs, not codes):")
-        for name, counts in result["code_shaped_matches"].items():
-            print(f"    {name:<12} {counts}")
+        # States what was found, not what it means. The label used to read
+        # "checked by hand — statute refs, not codes", printed over whatever the
+        # current run had matched — so a future run surfacing a real CIP code
+        # would still have been labelled a false positive by the program.
+        print("  code-shaped matches (see the doc for what they are):")
+        for name, found in result["code_shaped_matches"].items():
+            print(f"    {name:<12} cip={found['cip_shaped']:<3} "
+                  f"soc={found['soc_shaped']:<3} e.g. {found['samples'][:3]}")
     else:
         print("  no CIP- or SOC-shaped codes anywhere in the download")
 
