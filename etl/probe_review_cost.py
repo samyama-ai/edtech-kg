@@ -183,7 +183,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
     if args.record:
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
         write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     if args.json:

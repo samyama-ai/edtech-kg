@@ -21,7 +21,13 @@ import pytest
 from etl.provenance import code_version, write_record
 
 ROOT = Path(__file__).resolve().parent.parent
-PROBES = sorted(p for p in (ROOT / "etl").glob("probe_*.py"))
+#: Every module that writes a record — not every module named `probe_*`.
+#: Globbing the prefix missed `registry_licence.py` and `sweep_prerequisites.py`,
+#: which write two of the twelve records in docs/sources/. So the guard against
+#: an unstamped record had a hole exactly where the two unstamped records were,
+#: and the PR claiming "every record" was true of ten. The `RECORD` skip below
+#: filters the modules that write nothing.
+WRITERS = sorted((ROOT / "etl").glob("*.py"))
 
 
 def test_the_stamp_says_what_it_can_and_admits_what_it_cannot():
@@ -62,7 +68,7 @@ def test_records_keep_their_characters():
         assert "em—dash" in path.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("probe", PROBES, ids=lambda p: p.name)
+@pytest.mark.parametrize("probe", WRITERS, ids=lambda p: p.name)
 def test_every_probe_that_writes_a_record_goes_through_the_stamped_writer(probe):
     """Asserted against the call, not against the import.
 
@@ -71,8 +77,13 @@ def test_every_probe_that_writes_a_record_goes_through_the_stamped_writer(probe)
     write goes through the one function that stamps.
     """
     source = probe.read_text(encoding="utf-8")
-    if "RECORD" not in source:
-        pytest.skip(f"{probe.name} writes no record")
+    tree_ = ast.parse(source)
+    has_record = any(
+        isinstance(n, ast.Assign) and any(
+            isinstance(t_, ast.Name) and t_.id == "RECORD" for t_ in n.targets)
+        for n in tree_.body)
+    if not has_record:
+        pytest.skip(f"{probe.name} defines no module-level RECORD")
 
     tree = ast.parse(source)
     writes_direct = [

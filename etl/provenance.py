@@ -79,6 +79,11 @@ def write_record(path: Path, payload: dict) -> None:
     that happens to carry its own `code` key would otherwise silently replace
     the provenance with something that is not it.
     """
+    # The directory too. Six probes did this immediately above the call and
+    # five did not, so whether a probe worked in a fresh checkout depended on
+    # which one you ran. The argument for centralising the write applies
+    # verbatim to centralising the directory it writes into.
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({**payload, "code": code_version()},
                    indent=2, ensure_ascii=False) + "\n",

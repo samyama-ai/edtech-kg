@@ -32,6 +32,7 @@ import urllib.error
 import urllib.request
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 
 # CTDL's own terms, searched for anything that could carry a per-record licence
 # position. `ceterms:License` is NOT one: it is a credential type — a
@@ -371,10 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.record:
         # `parents=True`: the writer creates what it writes into rather than
         # assuming a directory that only exists because it is committed.
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(
-            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                       ensure_ascii=False) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote docs/sources/{RECORD.name}")
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))

@@ -169,7 +169,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.record:
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
         write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     # `if`, not `elif` — a caller asking for both got silence on the siblings.

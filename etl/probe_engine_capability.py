@@ -295,7 +295,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.record:
         # `_` first and written by the writer, not left in the file for a
         # refresh to preserve by accident — the shape the licence record uses.
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
         write_record(RECORD, {"_": RECORD_NOTE,
                               "retrieved_at": datetime.date.today().isoformat(),
                               **result})

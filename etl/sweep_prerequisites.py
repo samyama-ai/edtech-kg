@@ -60,6 +60,7 @@ import time
 from etl.registry_courses import classify, courses_in, publisher_of
 from etl.registry_read import (REGISTRY, HttpStatus, MalformedSource, get,
                                parse, total)
+from etl.provenance import write_record
 
 PER_PAGE = 50
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -285,11 +286,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"{result['pages_in_population']} pages. "
                   "Finish it with --resume.", file=sys.stderr)
             return 1
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(json.dumps(
-            {"_": RECORD_NOTE,
-             "retrieved_at": datetime.date.today().isoformat(),
-             **result}, indent=2) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE,
+                              "retrieved_at": datetime.date.today().isoformat(),
+                              **result})
         # `relative_to` raises when the record is written outside the repo,
         # which happens under test and would turn a successful write into a
         # traceback AFTER the file landed — a command that worked, reporting

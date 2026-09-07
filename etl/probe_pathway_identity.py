@@ -230,7 +230,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.record:
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
         write_record(RECORD, {"_": RECORD_NOTE,
                               "retrieved_at": datetime.date.today().isoformat(),
                               **result})
