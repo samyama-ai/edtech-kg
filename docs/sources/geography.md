@@ -8,7 +8,10 @@ need location, and the graph holds none.
 cleared, and nobody noticed. Boundaries are the only part that needs a new
 one.**
 
-Every figure below was read live from the APIs named. Nothing is typed.
+Every figure below is printed by `python -m etl.probe_geography` and
+committed as [`geography-measured.json`](geography-measured.json). Nothing is
+typed, and `tests/test_geography_doc.py` holds this page to that record in both
+directions.
 
 ---
 
@@ -21,11 +24,18 @@ already the route every measured count in this repo arrives through — carries
 
 | source | records | sampled | usable coordinates |
 |---|---:|---:|---:|
-| CCD school directory, 2022 | 102,268 | 22,268 over pages 1, 5 and 11 | **100.0%** |
+| CCD school directory, 2022 | 102,268 | 32,268 over pages [1, 4, 7, 11] | **100.0%** |
 | IPEDS institution directory, 2022 | 6,256 | **all 6,256 — a census, not a sample** | **100.0%** |
 
-Neither absent values nor null-island `(0, 0)` appeared in any of them. The CCD
-figure is a strided sample and says so; the IPEDS figure is every record.
+Neither absent values nor null-island `(0, 0)` appeared in any of them — the
+probe counts all three outcomes separately rather than inferring coverage from a
+total. The CCD figure is a strided sample and the record names the pages it
+read; the IPEDS population fits one page, so `is_census` is true.
+
+*(An earlier draft said 22,268 over pages 1, 5 and 11 — figures measured by hand
+in a shell. The probe's stride reads 32,268 over pages [1, 4, 7, 11]. Same
+finding, different arithmetic, and the reason the rule is that a probe prints
+the number.)*
 
 Both also carry `fips`, `county_fips`/`county_code`, `zip` and `cbsa`, which
 answer coarse "near me" without any geometry at all — a county or a CBSA match
@@ -40,8 +50,8 @@ reads, keyed the way those rows are already keyed.
 "Which district contains this address" needs geometry, and neither directory
 carries it. Census TIGER does:
 
-- `TIGER2022/UNSD/` — **56 state files** of unified school district boundaries,
-  public domain.
+- `TIGER2022/UNSD/` — **56 state files** of unified school district
+  boundaries, vintage 2022, public domain.
 
 **And the vintage risk the issue names is real but avoidable.** A boundary file
 from one year against a directory from another assigns schools to the wrong
@@ -54,8 +64,9 @@ afterwards.
 ## An API fact worth writing down
 
 `per_page` is ignored above a cap. `?per_page=100` and `?per_page=500` both
-return **10,000 rows**, so the CCD school directory is about **11 pages, not
-1,023**.
+return **10,000 rows**, so the CCD school directory is
+**11 pages, not 1,023**. The probe asks rather than assuming, and records
+both numbers.
 
 Anyone computing a stride from their requested page size gets a page number far
 past the end and a 404 — which is exactly what happened while measuring this,
