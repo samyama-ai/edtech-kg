@@ -12,16 +12,15 @@ from __future__ import annotations
 
 import inspect
 import re
-from pathlib import Path
 
 import pytest
 
 from etl import load_pwcs as loader
 from etl.engine import Unquotable
 
-_SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schema"
-SCHEMA_FILES = (_SCHEMA_DIR / "edtech_kg.cypher",
-                _SCHEMA_DIR / "edtech_kg_tier2.cypher")
+# Imported, not re-declared: this file carried a hand-rolled third copy of the
+# tuple, and read it without `encoding="utf-8"` unlike every other reader.
+from tests.schema_source import schema_text
 
 
 class Recorder:
@@ -81,8 +80,10 @@ def pairs_to_map(pairs, what: str) -> dict[str, str]:
 
 
 def declared_keys() -> dict[str, str]:
-    code = "\n".join(line.split("//")[0] for f in SCHEMA_FILES
-                     for line in f.read_text().splitlines())
+    # `schema_text()` rather than a local re-read: it is the shared reader and
+    # it passes `encoding="utf-8"`, which the copy here did not.
+    code = "\n".join(line.split("//")[0]
+                     for line in schema_text().splitlines())
     declared = pairs_to_map(DECLARATION.findall(" ".join(code.split())), "the schema")
     assert declared, (
         "no constraints parsed out of the schema — a renamed file or a changed "

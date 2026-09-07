@@ -13,16 +13,19 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from etl.cypher_script import SCHEMA_FILES  # noqa: F401  (re-exported)
+
 ROOT = Path(__file__).resolve().parent.parent
-#: Tier 1 then tier 2 (#157). `schema_text()` is the only correct way to read
-#: "the schema".
+
+#: Re-exported from the loader, never re-declared. This module used to carry
+#: its own copy of the tuple, which is how "the schema" came to have five
+#: independent definitions after #157 — see `etl.cypher_script.SCHEMA_FILES`
+#: for what that cost.
 #:
 #: There is deliberately no `SCHEMA` naming one file. It existed through the
 #: split as a convenience and was a footgun: every test that reached for it got
 #: tier 1 and reported on "the schema", which is how the 960-course guard came
 #: to check the file the figure had just moved out of.
-SCHEMA_FILES = (ROOT / "schema" / "edtech_kg.cypher",
-                ROOT / "schema" / "edtech_kg_tier2.cypher")
 
 
 @lru_cache(maxsize=1)
@@ -35,6 +38,33 @@ def schema_text() -> str:
     the same file for the life of the process and nothing here writes to it.
     """
     return "\n".join(f.read_text(encoding="utf-8") for f in SCHEMA_FILES)
+
+
+def sole_file_stating(needle: str, what: str) -> Path:
+    """The one schema file containing `needle`, or a failure naming the count.
+
+    Reading "the schema" as one joined string is convenient and it is how four
+    separate guards ended up weaker than they read. `str.find` on the join
+    returns the FIRST occurrence, so a heading in tier 1 shadows the real one
+    in tier 2 and the slice between two anchors can silently span the file
+    boundary — the assertion still passes, on the wrong text, and the failure
+    message when it does fail names `schema/*.cypher` rather than a file
+    anyone can open.
+
+    Two anchors that must bracket a block must therefore be found in the SAME
+    file. This returns that file so callers can say so.
+    """
+    carrying = [f for f in SCHEMA_FILES if needle in f.read_text(encoding="utf-8")]
+    assert carrying, (
+        f"no schema file states {what} ({needle!r}) — searched "
+        f"{', '.join(f.name for f in SCHEMA_FILES)}")
+    assert len(carrying) == 1, (
+        f"{what} ({needle!r}) appears in {len(carrying)} schema files "
+        f"({', '.join(f.name for f in carrying)}); a marker in two files means "
+        f"every guard sliced on it reads whichever sorts first")
+    return carrying[0]
+
+
 SCHEMA_DOC = ROOT / "docs" / "schema.md"
 QUESTIONS = ROOT / "docs" / "questions.md"
 

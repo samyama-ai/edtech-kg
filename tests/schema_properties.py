@@ -40,7 +40,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # had its own copy of SCHEMA_FILES and schema_text() -- the same two lines twice,
 # which is the drift the split was supposed to prevent, reintroduced by the
 # split itself.
-from tests.schema_source import SCHEMA_FILES, schema_text  # noqa: E402
+from tests.schema_source import (schema_text,  # noqa: E402
+                                 sole_file_stating)
 
 
 def declared() -> dict[str, set[str]]:
@@ -220,20 +221,21 @@ def block(name: str = "PROPERTIES") -> str:
     the end marker starts at the opening one, so the two do not read each
     other however they are ordered in the file.
     """
-    schema = schema_text()
     opening, closing = f"// {name}\n", f"// END {name}"
+    # Sliced out of ONE file, not out of the two joined. On the join,
+    # `str.index` takes the first `// PROPERTIES` and the block silently
+    # becomes whichever file sorts first — so a second marked block, or the
+    # block moving to the other tier, is read as if nothing had changed.
+    # `sole_file_stating` fails loudly on both zero files and two.
+    #
     # A MESSAGE, not `ValueError: substring not found` from `str.index`, which
     # names neither the marker nor the file and sends the reader nowhere.
-    if opening not in schema:
-        raise ValueError(
-            f"neither schema file has a `{opening.strip()}` marker — it was "
-            f"renamed or removed ({', '.join(f.name for f in SCHEMA_FILES)})"
-            f" — "
-            f"removed, and every attribute test reads this block through it.")
+    source = sole_file_stating(opening, f"the `{opening.strip()}` block")
+    schema = source.read_text(encoding="utf-8")
     start = schema.index(opening)
     if closing not in schema[start:]:
         raise ValueError(
-            f"the schema opens `{opening.strip()}` and never closes it with "
+            f"{source.name} opens `{opening.strip()}` and never closes it with "
             f"`{closing}`, so the block would run to the end of the file.")
     return schema[start:schema.index(closing, start)]
 

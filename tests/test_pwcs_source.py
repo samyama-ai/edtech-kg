@@ -15,6 +15,7 @@ import pytest
 from etl import probe_pwcs as source
 from etl import pwcs_source as reader
 from tests.pwcs_markup import section, titled
+from tests.schema_source import sole_file_stating
 
 CACHE = Path(__file__).resolve().parents[1] / "data" / "pwcs"
 
@@ -142,17 +143,27 @@ def test_the_normalisation_rule_names_every_url_keyed_label():
     """Course, Subject and Pathway are all keyed on the address of a published
     page, and the rule that says how that address is spelled has to cover all
     three or it covers none of them."""
-    # Both schema files. Naming one is how a guard survives the sentence it
-    # guards moving to the other (#157).
-    text = "\n".join(
-        f.read_text(encoding="utf-8")
-        for f in sorted((Path(__file__).resolve().parents[1] / "schema")
-                        .glob("*.cypher")))
-    # `str.index` raises ValueError naming a substring, from which nobody can
-    # tell that a heading was renamed. `find` and an assertion say it.
+    # Both anchors, each located in the file that carries it — NOT in the two
+    # files joined. On the join `find` returns the first occurrence, so a stray
+    # "NORMALISATION" token in tier 1 would shadow the real heading in tier 2,
+    # and `end > start` would then be comparing offsets from different files:
+    # the rule moving to tier 2 while the constraint stayed in tier 1 gives
+    # `start > end` and fails with "the Course constraint no longer follows the
+    # rule", which is not what happened. Cross-file ordering was load-bearing
+    # in a way the single-file version never was, and the failure was a wrong
+    # message rather than a clear one.
+    rule_file = sole_file_stating("NORMALISATION", "the URL normalisation rule")
+    key_file = sole_file_stating("CREATE CONSTRAINT ON (c:Course)",
+                                 "the Course key")
+    assert rule_file == key_file, (
+        f"the normalisation rule is in {rule_file.name} and the Course "
+        f"constraint it governs is in {key_file.name}; the rule has to sit "
+        f"with the key it spells, or a reader of one never sees the other")
+    text = rule_file.read_text(encoding="utf-8")
     start, end = text.find("NORMALISATION"), text.find("CREATE CONSTRAINT ON (c:Course)")
-    assert start != -1, "the schema no longer states a NORMALISATION rule"
-    assert end > start, "the Course constraint no longer follows the rule"
+    assert end > start, (
+        f"{rule_file.name} states the NORMALISATION rule below the Course "
+        f"constraint it governs, so a reader meets the key before its spelling")
     rule = text[start:end]
     for label in ("Subject.url", "Pathway.url"):
         assert label in rule, f"the normalisation rule does not mention {label}"

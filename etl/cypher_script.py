@@ -20,11 +20,26 @@ from etl.engine import Engine
 
 _SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schema"
 
-#: Tier 1 then tier 2, in that order. The schema is two files since #157 — the
-#: single file reached 499 of the 500-line review ceiling, and a file review
-#: skips whole is a poor place to keep every key in the graph. Order is not
-#: load-bearing (constraints are independent) but it is the order both files
-#: are written to be read in.
+#: **The** declaration of what "the schema" is. Every reader — the loader, the
+#: parse tests, the document guards — imports this one tuple. There is no
+#: second copy anywhere, by design.
+#:
+#: #157 split the schema in two and this tuple was written four more times
+#: while doing it: here, in `tests/schema_source.py`, in `tests/test_load_pwcs`
+#: and as a `sorted(schema/*.cypher)` glob in two more modules. Nothing
+#: asserted the five agreed, so the drift #157 exists to close had only moved:
+#: from "one file read" to "one file list". Measured — adding a third tier file
+#: carrying a real CREATE CONSTRAINT left the suite green at 1,396 passed while
+#: the loader never applied it. A whole tier undeclared, silently.
+#:
+#: `tests/test_schema_cypher.py::test_the_declared_schema_is_every_schema_file`
+#: holds this tuple to the directory, so a new file fails loudly here until
+#: someone declares it. It is a hand-written list rather than the glob itself
+#: on purpose: the glob would apply any `.cypher` file dropped in `schema/` to
+#: a production graph without anyone deciding to.
+#:
+#: Tier 1 then tier 2. Order is not load-bearing (constraints are independent)
+#: but it is the order both files are written to be read in.
 SCHEMA_FILES = (_SCHEMA_DIR / "edtech_kg.cypher",
                 _SCHEMA_DIR / "edtech_kg_tier2.cypher")
 

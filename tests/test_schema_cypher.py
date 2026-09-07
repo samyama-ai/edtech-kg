@@ -18,7 +18,6 @@ import re
 
 import pytest
 
-from etl.cypher_script import split_statements, strip_comment
 from tests.schema_source import (WRAP_LIMIT, code, constraint_line,
                                  declarations, edges, first_column, labels,
                                  section, statements, schema_text)
@@ -378,63 +377,6 @@ def test_a_declaration_wrapped_wider_than_the_window_raises_rather_than_vanishin
     assert constraint_line("Absent", "CREATE INDEX ON :C(year);") is None
 
 
-def test_both_tiers_are_actually_read():
-    """Dropping tier 2 from the readers must fail loudly, not silently.
-
-    Measured: removing `edtech_kg_tier2.cypher` from `cypher_script.SCHEMA_FILES`
-    left every schema and loader test green — the load still succeeds with six
-    fewer keys and two fewer indexes declared, and nothing said so. A comment in that module
-    warned about exactly this and guarded nothing.
-
-    Asserted on the applied text rather than on the tuple, because the failure
-    that matters is a tier going unapplied, however that happens.
-    """
-    from etl import cypher_script
-
-    for name, text in (("tests", schema_text()),
-                       ("the loader", cypher_script.schema_text())):
-        assert "TIER 1 — uniqueness constraints" in text, (
-            f"{name} is not reading tier 1")
-        assert "TIER 2 — modelled, not yet populated" in text, (
-            f"{name} is not reading tier 2 — it declares six keys and two "
-            f"indexes, and a load without them succeeds silently")
-
-    # **Driven through apply_schema with no `schema=`, which is the branch the
-    # loader uses and the one nothing exercised.** `apply_schema` is called
-    # without an explicit file in exactly one place — etl/load_pwcs.py — and the
-    # only test that called it passed `schema=`, so `text = schema.read_text()
-    # if schema else schema_text()` had no coverage on the production side at
-    # all. Mutating that line to SCHEMA_FILES[0].read_text(), which silently
-    # applies tier 1 and skips six constraints and an index, left the whole
-    # suite green.
-    #
-    # Counting the readable text instead was near-tautological: it asserted that
-    # a join of two files contains both files, which is true however the loader
-    # behaves.
-    class Recorder:
-        def __init__(self):
-            self.sent = []
-
-        def run(self, statement):
-            self.sent.append(statement)
-            return {"records": []}
-
-    recorder = Recorder()
-    cypher_script.apply_schema(recorder, quiet=True)
-
-    per_file = [len(split_statements("\n".join(
-        strip_comment(line) for line in f.read_text(encoding="utf-8").splitlines())))
-        for f in cypher_script.SCHEMA_FILES]
-    assert len(per_file) == 2, "the schema is two files"
-    assert len(recorder.sent) == sum(per_file), (
-        f"apply_schema SENT {len(recorder.sent)} statements; the two schema "
-        f"files hold {sum(per_file)} ({' + '.join(map(str, per_file))})")
-
-    sent = "\n".join(recorder.sent)
-    for label, tier in (("Course", "tier 1"), ("EarningsRecord", "tier 2")):
-        assert label in sent, (
-            f"apply_schema sent nothing mentioning {label} — {tier} is not "
-            f"reaching the engine")
 
 
 def test_a_label_sits_under_the_tier_banner_it_belongs_to():
