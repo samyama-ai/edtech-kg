@@ -77,6 +77,24 @@ moment the runner can fetch what a job asks for.
 question — whether the runner has no network at all, or only cannot reach the
 action registry — is answered by one person reading the diagnostic's log.
 
+## What it cost, once, this week
+
+Not hypothetical. On 2026-09-07 four PRs merged in sequence — #172, #171, #173,
+#175 — each green on its own branch, none conflicting textually with any other.
+`main` went red on the fourth merge with five failures that had appeared on no
+branch: #171 added a guard requiring every probe to write its record through a
+stamped writer, and #173 and #175 were already in flight with probes that do
+not.
+
+This is the failure a merge-gating CI exists to catch, and it is invisible to
+per-branch testing however careful that testing is — the two changes are only
+in contact once both are on `main`. Nobody noticed at merge time. It was found
+by running the suite locally two hours later, for an unrelated reason.
+
+The fix is a separate change. What belongs here is the cost: **the repository
+was merging into a broken `main` with a red tick that had meant nothing for
+207 runs, and no signal distinguished that from any other day.**
+
 Until then, **the tick on a PR in this repo means nothing**, and the suite has
 to be run locally before merging:
 

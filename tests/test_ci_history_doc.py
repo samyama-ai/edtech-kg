@@ -96,6 +96,13 @@ def test_the_page_states_what_the_diagnostic_success_does_not_prove():
     assert "no job-log endpoint" in PAGE
 
 
+def test_the_incident_paragraph_quotes_the_measured_run_count():
+    """The one figure in "what it cost" — it restates the run count, so it
+    goes stale on the next measurement exactly like every other figure here."""
+    assert int(stated(r"red tick that had meant nothing for\n(\d+) runs")) == \
+        CI["runs"]
+
+
 def test_the_table_row_figures_are_the_measured_ones():
     row = re.search(r"\| `ci\.yml` \| (\d+) \| \*\*(\d+)\*\* \| (\d+)s \| (\d+)s \| (\d+) \|",
                     PAGE)
@@ -103,6 +110,20 @@ def test_the_table_row_figures_are_the_measured_ones():
     assert [int(g) for g in row.groups()] == [
         CI["runs"], CI["success"], CI["median_seconds"], CI["max_seconds"],
         RECORD["dependencies"]["ci.yml"]["count"]]
+
+    # The other row too. Bound because the table is where a reader compares
+    # the two workflows, so a stale figure there misreads as the comparison
+    # itself failing. Found by the dead-code guard: `DIAGNOSTIC` was defined
+    # at the top of this module and used by nothing, which is exactly what an
+    # unchecked table row looks like from the outside.
+    other = re.search(
+        r"\| `runner-diagnostic\.yml` \| (\d+) \| (\d+) \| (\d+)s \| (\d+)s \| (\d+) \|",
+        PAGE)
+    assert other, "the runner-diagnostic.yml table row no longer parses"
+    assert [int(g) for g in other.groups()] == [
+        DIAGNOSTIC["runs"], DIAGNOSTIC["success"], DIAGNOSTIC["median_seconds"],
+        DIAGNOSTIC["max_seconds"],
+        RECORD["dependencies"]["runner-diagnostic.yml"]["count"]]
 
 
 def test_the_page_does_not_conclude_past_its_evidence():
