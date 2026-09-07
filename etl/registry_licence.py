@@ -32,6 +32,7 @@ import urllib.error
 import urllib.request
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 
 # CTDL's own terms, searched for anything that could carry a per-record licence
 # position. `ceterms:License` is NOT one: it is a credential type — a
@@ -365,16 +366,14 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     # `if`, not `elif`: `--json --record` accepted both flags and printed
     # nothing, so a caller asking for the record AND the output got silence.
-    # And `ensure_ascii=False`, because the quoted terms carry em dashes and
-    # the sibling probes write the character rather than an escape — a record
+    # Characters are preserved by `write_record`, which is where
+    # `ensure_ascii=False` now lives — it matters here because the quoted
+    # terms carry em dashes and a registered trademark.
     # that differs from its siblings only in encoding is a diff nobody reads.
     if args.record:
         # `parents=True`: the writer creates what it writes into rather than
         # assuming a directory that only exists because it is committed.
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(
-            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                       ensure_ascii=False) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote docs/sources/{RECORD.name}")
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))

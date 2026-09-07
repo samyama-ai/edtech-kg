@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 # every later column left. A second reader is how this file missed
 # ` Course Title`.
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 from etl.probe_cipsoc import rows, sheets
 # The reach measurement lives next door; this module reads the sources and
 # prints the page. `MalformedSource` is raised by both, so it stays here.
@@ -454,9 +455,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
     if args.record:
-        RECORD.write_text(
-            json.dumps(record(result["new_york"], result["district"]),
-                       indent=2, ensure_ascii=False) + "\n")
+        write_record(RECORD, record(result["new_york"], result["district"]))
         # Relative to the REPO, not the cwd, and guarded. `relative_to` RAISES
         # when its argument is not an ancestor, so this crashed from any cwd
         # outside the repo — `~`, a sibling checkout — and it crashed AFTER

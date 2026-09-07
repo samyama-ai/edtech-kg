@@ -77,7 +77,7 @@ district at one point in time.
 
 | | |
 |---|---|
-| Code | this repository, at the commit that produced the records |
+| Code | Records carry a `code` stamp — the commit the tree was at when the probe ran, whether it was clean, and the package version — written by `etl/provenance.py`. **Records written before that mechanism existed carry no stamp; they gain one when their probe is next run (#6).** `tests/test_provenance.py` lists which are still unstamped. The commit that *contains* a record cannot be inside it. |
 | Data year | **2022** for IPEDS and CCD |
 | Engine | `1.1.0` pinned in CI; `1.7.0` also verified against the parse table |
 | Graph artefact | **none published** — no snapshot export exists yet (#25) |

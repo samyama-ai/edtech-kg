@@ -21,6 +21,7 @@ import urllib.error
 import urllib.request
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 from etl.ceds_ontology import (MalformedSource, classes, shapes, unique_labels)
 
 ONTOLOGY = ("https://raw.githubusercontent.com/CEDStandards/CEDS-Ontology/"
@@ -106,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
     if args.record:
-        RECORD.write_text(json.dumps(result, indent=2) + "\n")
+        write_record(RECORD, result)
         print(f"wrote docs/sources/{RECORD.name}")
     elif args.json:
         print(json.dumps(result, indent=2))

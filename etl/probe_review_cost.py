@@ -31,6 +31,7 @@ import urllib.error
 import urllib.request
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "review-cost-measured.json"
@@ -182,10 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
     if args.record:
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(
-            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                       ensure_ascii=False) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))

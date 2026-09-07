@@ -34,6 +34,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 
 API = "https://educationdata.urban.org/api/v1"
 
@@ -168,10 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.record:
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(
-            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                       ensure_ascii=False) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     # `if`, not `elif` — a caller asking for both got silence on the siblings.
     if args.json:

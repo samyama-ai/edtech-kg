@@ -27,6 +27,7 @@ import sys
 from etl.licence_positions import (MalformedSource, ONET_CROSSWALKS,
                                    ONET_DATABASE, URBAN_PORTAL, onet_crosswalks,
                                    onet_database, page_text, urban_portal)
+from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "licences-measured.json"
@@ -110,10 +111,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
     if args.record:
-        # `ensure_ascii=False`, as `probe_sced` does. Without it the registered
-        # trademark in O*NET's own attribution wording is written to the record
-        # as `\u00ae` — a document whose entire subject is reproducing that
-        # string exactly, storing it escaped.
+        # Characters are preserved by `write_record`, which is where
+        # `ensure_ascii=False` now lives. It matters here more than most:
+        # without it the registered trademark in O*NET's own attribution
+        # wording is written as `\u00ae` — a document whose entire subject is
+        # reproducing that string exactly, storing it escaped.
         #
         # `_` FIRST, and written by the writer. The committed record opened
         # with a note saying how to refresh it, and this command — the one the
@@ -121,9 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         # its own instructions. A record that documents itself has to be
         # documented by the thing that writes it, or the documentation lasts
         # exactly until someone follows it.
-        RECORD.write_text(
-            json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                       ensure_ascii=False) + "\n", encoding="utf-8")
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         # Derived, not spelled again. The directory was written into the
         # message as a literal, so moving the record would have left the
         # command reporting a path it had not written to.
