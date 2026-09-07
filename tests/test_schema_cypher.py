@@ -19,7 +19,7 @@ import re
 import pytest
 
 from etl.cypher_script import split_statements, strip_comment
-from tests.schema_source import (SCHEMA, WRAP_LIMIT, code, constraint_line,
+from tests.schema_source import (WRAP_LIMIT, code, constraint_line,
                                  declarations, edges, first_column, labels,
                                  section, statements, schema_text)
 
@@ -382,8 +382,8 @@ def test_both_tiers_are_actually_read():
     """Dropping tier 2 from the readers must fail loudly, not silently.
 
     Measured: removing `edtech_kg_tier2.cypher` from `cypher_script.SCHEMA_FILES`
-    left every schema and loader test green — the load still succeeds with eight
-    fewer constraints declared, and nothing said so. A comment in that module
+    left every schema and loader test green — the load still succeeds with six
+    fewer keys and two fewer indexes declared, and nothing said so. A comment in that module
     warned about exactly this and guarded nothing.
 
     Asserted on the applied text rather than on the tuple, because the failure
@@ -396,8 +396,8 @@ def test_both_tiers_are_actually_read():
         assert "TIER 1 — uniqueness constraints" in text, (
             f"{name} is not reading tier 1")
         assert "TIER 2 — modelled, not yet populated" in text, (
-            f"{name} is not reading tier 2 — it declares eight keys, and a "
-            f"load without them succeeds silently")
+            f"{name} is not reading tier 2 — it declares six keys and two "
+            f"indexes, and a load without them succeeds silently")
 
     applied = len(split_statements("\n".join(
         strip_comment(line) for line in cypher_script.schema_text().splitlines())))

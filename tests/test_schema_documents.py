@@ -16,7 +16,7 @@ engine are in `tests/test_schema_engine.py`.
 
 import re
 
-from tests.schema_source import (QUESTIONS, SCHEMA, SCHEMA_DOC, edges,
+from tests.schema_source import (SCHEMA_FILES, QUESTIONS, SCHEMA_DOC, edges,
                                  first_column, labels, section, schema_text)
 from tests.questions_document import marks
 from tests.spelling import spelled
@@ -167,8 +167,13 @@ def test_no_document_calls_960_a_course_count():
     does NOT claim" section — the stale-figure-one-file-over class this repo
     has now corrected three times.
     """
-    for path in (SCHEMA_DOC, SCHEMA):
-        flat = " ".join(path.read_text(errors="replace").split())
+    # Every schema file, not SCHEMA -- which is tier 1 only. The section this
+    # guards ("what this schema does NOT claim") moved to the tier-2 file in
+    # #157, so reading SCHEMA left it unchecked: the very
+    # stale-figure-one-file-over failure this docstring is about, repeated by
+    # the change that split the file.
+    for path in (SCHEMA_DOC, *SCHEMA_FILES):
+        flat = " ".join(path.read_text(encoding="utf-8", errors="replace").split())
         assert "960 courses" not in flat, (
             f"{path.name} still calls 960 a course count; it is the sitemap "
             f"page count, and the course count is 791")

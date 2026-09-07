@@ -19,11 +19,20 @@
 // reads. A cut at the midpoint would have put keys in one file and the rule
 // that normalises them in another.
 //
-// **A key declared here is a claim about shape, not about data.** Nothing below
-// is populated, so none of it has been tested against real values — which is
-// the distinction tier 2 exists to keep visible. Both files are applied
-// together by `etl/cypher_script.py` and executed against a live instance by
-// tests/test_schema_engine.py; neither is optional.
+// **A key declared here is a claim about shape, not about data.** None of the
+// six labels keyed below is populated, so none has been tested against real
+// values — which is the distinction tier 2 exists to keep visible.
+//
+// TWO STATEMENTS HERE ARE NOT KEYS AND ONE IS NOT TIER 2. This file holds six
+// constraints and two indexes. `CREATE INDEX ON :Completion(award_level)` sits
+// with the attributes discussion it belongs to, while `Completion`'s own
+// constraint is declared under the tier-1 banner in `edtech_kg.cypher` — a
+// tiering the split inherited rather than introduced, and one worth settling
+// separately from moving lines between files. Said here so a reader counting
+// keys does not count eight.
+//
+// Both files are applied together by `etl/cypher_script.py` and executed
+// against a live instance by tests/test_schema_engine.py; neither is optional.
 
 // =============================================================================
 // TIER 2 — modelled, not yet populated

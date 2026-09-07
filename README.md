@@ -129,7 +129,8 @@ Every figure below is printed by a probe in `etl/`. None is hand-typed.
 tier 1 is what is populated from a measured source, tier 2 what is declared but not yet
 loaded. `tests/test_schema_cypher.py` runs every statement in **both** against a live engine,
 and executes the tier-4 traversals rather than asserting them. Anything applying "the schema"
-reads both; a reader that takes only tier 1 still loads cleanly, eight keys short.
+reads both; a reader that takes only tier 1 still loads cleanly, six keys short —
+tier 2 declares six constraints and two indexes.
 
 **Nothing is minted.** Every shape has a published name, and the verdict for each — adopt,
 align, or mint — is in [`docs/ontology-reuse.md`](docs/ontology-reuse.md), each linked to

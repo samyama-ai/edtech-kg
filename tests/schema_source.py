@@ -15,10 +15,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 #: Tier 1 then tier 2 (#157). `schema_text()` is the only correct way to read
-#: "the schema"; a test reading SCHEMA alone sees tier 1 only.
+#: "the schema".
+#:
+#: There is deliberately no `SCHEMA` naming one file. It existed through the
+#: split as a convenience and was a footgun: every test that reached for it got
+#: tier 1 and reported on "the schema", which is how the 960-course guard came
+#: to check the file the figure had just moved out of.
 SCHEMA_FILES = (ROOT / "schema" / "edtech_kg.cypher",
                 ROOT / "schema" / "edtech_kg_tier2.cypher")
-SCHEMA = SCHEMA_FILES[0]
 
 
 @lru_cache(maxsize=1)

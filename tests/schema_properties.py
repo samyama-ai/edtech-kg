@@ -35,14 +35,12 @@ import re
 from etl.engine import upsert
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCHEMA_FILES = (ROOT / "schema" / "edtech_kg.cypher",
-                ROOT / "schema" / "edtech_kg_tier2.cypher")
-SCHEMA = SCHEMA_FILES[0]
 
-
-def schema_text() -> str:
-    """Both tiers (#157). Reading SCHEMA alone sees tier 1 only."""
-    return "\n".join(f.read_text(encoding="utf-8") for f in SCHEMA_FILES)
+# One definition of "the schema", in the module whose subject that is. This file
+# had its own copy of SCHEMA_FILES and schema_text() -- the same two lines twice,
+# which is the drift the split was supposed to prevent, reintroduced by the
+# split itself.
+from tests.schema_source import SCHEMA_FILES, schema_text  # noqa: E402
 
 
 def declared() -> dict[str, set[str]]:
@@ -228,12 +226,14 @@ def block(name: str = "PROPERTIES") -> str:
     # names neither the marker nor the file and sends the reader nowhere.
     if opening not in schema:
         raise ValueError(
-            f"{SCHEMA} has no `{opening.strip()}` marker — it was renamed or "
+            f"neither schema file has a `{opening.strip()}` marker — it was "
+            f"renamed or removed ({', '.join(f.name for f in SCHEMA_FILES)})"
+            f" — "
             f"removed, and every attribute test reads this block through it.")
     start = schema.index(opening)
     if closing not in schema[start:]:
         raise ValueError(
-            f"{SCHEMA} opens `{opening.strip()}` and never closes it with "
+            f"the schema opens `{opening.strip()}` and never closes it with "
             f"`{closing}`, so the block would run to the end of the file.")
     return schema[start:schema.index(closing, start)]
 
