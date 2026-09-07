@@ -142,8 +142,12 @@ def test_the_normalisation_rule_names_every_url_keyed_label():
     """Course, Subject and Pathway are all keyed on the address of a published
     page, and the rule that says how that address is spelled has to cover all
     three or it covers none of them."""
-    text = (Path(__file__).resolve().parents[1]
-            / "schema" / "edtech_kg.cypher").read_text()
+    # Both schema files. Naming one is how a guard survives the sentence it
+    # guards moving to the other (#157).
+    text = "\n".join(
+        f.read_text(encoding="utf-8")
+        for f in sorted((Path(__file__).resolve().parents[1] / "schema")
+                        .glob("*.cypher")))
     # `str.index` raises ValueError naming a substring, from which nobody can
     # tell that a heading was renamed. `find` and an assertion say it.
     start, end = text.find("NORMALISATION"), text.find("CREATE CONSTRAINT ON (c:Course)")

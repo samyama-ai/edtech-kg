@@ -19,6 +19,13 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOC = "docs/sources/pathway-identity.md"
+#: "the schema" is two files since #157. Naming one of them in a check is how a
+#: guard keeps passing after the sentence it guards moves to the other — the
+#: 960-course guard did exactly that, and the NEGATIVE assertions below are the
+#: shape where it is silent rather than loud.
+SCHEMA = "schema/*.cypher"
+
+
 RECORD = json.loads((ROOT / "docs" / "sources"
                      / "pathway-identity-measured.json").read_text("utf-8"))
 
@@ -39,13 +46,13 @@ QUOTATIONS = [
     (DOC, WEB["shared_values"], r"\*\*(?:Four|(\d+)) pages are each published"),
     (DOC, CTID["present"], r"\| \*\*(\d+) / 98\*\* \| 98 \| 0 \|"),
 
-    ("schema/edtech_kg.cypher", RECORD["pathways"],
+    (SCHEMA, RECORD["pathways"],
      r"argued: all (\d+)\n// Registry pathways read"),
-    ("schema/edtech_kg.cypher", WEB["absent"],
+    (SCHEMA, WEB["absent"],
      r"`subjectWebpage` leaves (\d+) nulls"),
-    ("schema/edtech_kg.cypher", WEB["collides"],
+    (SCHEMA, WEB["collides"],
      r"AND merges (\d+) onto \d+ shared pages"),
-    ("schema/edtech_kg.cypher", WEB["shared_values"],
+    (SCHEMA, WEB["shared_values"],
      r"merges \d+ onto (\d+) shared pages"),
 
     ("docs/schema.md", RECORD["pathways"],
@@ -67,6 +74,10 @@ SPELLED = {"Twenty": 20, "Seven": 7, "seven": 7, "Four": 4}
 
 
 def read(path: str) -> str:
+    if path == SCHEMA:
+        return "\n".join(
+            f.read_text(encoding="utf-8")
+            for f in sorted((ROOT / "schema").glob("*.cypher")))
     return (ROOT / path).read_text(encoding="utf-8")
 
 
@@ -106,7 +117,7 @@ def test_a_quoted_figure_matches_the_record(path, expected, pattern):
 def test_the_verdict_is_stated_wherever_the_key_is_declared():
     """A decision recorded in one file and not the others is how #85 arose in
     the first place: the schema said `ctid`, the loader wrote `url`."""
-    for path in ("schema/edtech_kg.cypher", "docs/schema.md", DOC):
+    for path in (SCHEMA, "docs/schema.md", DOC):
         text = read(path)
         assert '"<space>|<identifier>"' in text or \
                '`Pathway.id = "<space>|<identifier>"`' in text, \
@@ -120,7 +131,7 @@ def test_the_parse_direction_is_stated_with_the_key_not_only_in_the_doc():
     the first loader reads the schema, so the warning has to be there and not
     only in a source document they may never open.
     """
-    schema = read("schema/edtech_kg.cypher")
+    schema = read(SCHEMA)
     block = schema[schema.index("// Pathway — "):
                    schema.index("CREATE CONSTRAINT ON (pw:Pathway)")]
     assert "LEFT" in block and "rpartition" in block, (
@@ -143,5 +154,5 @@ def test_the_case_the_verdict_does_not_settle_is_stated_as_unsettled():
 def test_no_document_still_claims_the_key_question_is_undecided():
     """#85's own words, which three files carried before it was answered."""
     stale = "not a decision\nto take on one publisher's evidence"
-    for path in ("schema/edtech_kg.cypher", "docs/schema.md"):
+    for path in (SCHEMA, "docs/schema.md"):
         assert stale not in read(path), f"{path} still defers the decision"

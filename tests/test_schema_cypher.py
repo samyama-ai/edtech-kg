@@ -399,14 +399,42 @@ def test_both_tiers_are_actually_read():
             f"{name} is not reading tier 2 — it declares six keys and two "
             f"indexes, and a load without them succeeds silently")
 
-    applied = len(split_statements("\n".join(
-        strip_comment(line) for line in cypher_script.schema_text().splitlines())))
+    # **Driven through apply_schema with no `schema=`, which is the branch the
+    # loader uses and the one nothing exercised.** `apply_schema` is called
+    # without an explicit file in exactly one place — etl/load_pwcs.py — and the
+    # only test that called it passed `schema=`, so `text = schema.read_text()
+    # if schema else schema_text()` had no coverage on the production side at
+    # all. Mutating that line to SCHEMA_FILES[0].read_text(), which silently
+    # applies tier 1 and skips six constraints and an index, left the whole
+    # suite green.
+    #
+    # Counting the readable text instead was near-tautological: it asserted that
+    # a join of two files contains both files, which is true however the loader
+    # behaves.
+    class Recorder:
+        def __init__(self):
+            self.sent = []
+
+        def run(self, statement):
+            self.sent.append(statement)
+            return {"records": []}
+
+    recorder = Recorder()
+    cypher_script.apply_schema(recorder, quiet=True)
+
     per_file = [len(split_statements("\n".join(
-        strip_comment(line) for line in f.read_text().splitlines())))
+        strip_comment(line) for line in f.read_text(encoding="utf-8").splitlines())))
         for f in cypher_script.SCHEMA_FILES]
-    assert applied == sum(per_file) and len(per_file) == 2, (
-        f"the loader applies {applied} statements from {len(per_file)} file(s); "
-        f"the schema is two files and every statement in both must be applied")
+    assert len(per_file) == 2, "the schema is two files"
+    assert len(recorder.sent) == sum(per_file), (
+        f"apply_schema SENT {len(recorder.sent)} statements; the two schema "
+        f"files hold {sum(per_file)} ({' + '.join(map(str, per_file))})")
+
+    sent = "\n".join(recorder.sent)
+    for label, tier in (("Course", "tier 1"), ("EarningsRecord", "tier 2")):
+        assert label in sent, (
+            f"apply_schema sent nothing mentioning {label} — {tier} is not "
+            f"reaching the engine")
 
 
 def test_a_label_sits_under_the_tier_banner_it_belongs_to():
