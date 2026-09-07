@@ -1,0 +1,54 @@
+{
+  "_": "Measured by `python -m etl.probe_florida`. The type breakdown is a census from x-total headers and reconciles to zero unattributed; the field profile is a sample and says so.",
+  "retrieved_at": "2026-09-03",
+  "records": 10578,
+  "by_type": {
+    "course": 0,
+    "credential": 10241,
+    "learning_opportunity_profile": 0,
+    "pathway": 0,
+    "assessment_profile": 0,
+    "organization": 336,
+    "collection": 1,
+    "competency_framework": 0,
+    "job": 0,
+    "occupation": 0,
+    "pathway_set": 0,
+    "transfer_value_profile": 0,
+    "support_service": 0,
+    "scheduled_offering": 0
+  },
+  "unattributed": 0,
+  "profile": {
+    "sampled": 400,
+    "pages_read": [
+      1,
+      27,
+      52,
+      78,
+      104,
+      129,
+      155,
+      180
+    ],
+    "of_pages": 205,
+    "credential_types": {
+      "ceterms:Certificate": 165,
+      "ceterms:BachelorDegree": 83,
+      "ceterms:AssociateDegree": 62,
+      "ceterms:MasterDegree": 50,
+      "ceterms:DoctoralDegree": 35,
+      "ceterms:License": 3,
+      "ceterms:ApprenticeshipCertificate": 2
+    },
+    "field_coverage": {
+      "ceterms:instructionalProgramType": 400,
+      "ceterms:occupationType": 50,
+      "ceterms:requires": 350,
+      "ceterms:availableAt": 400,
+      "ceterms:subjectWebpage": 400,
+      "ceterms:identifier": 350,
+      "ceterms:estimatedCost": 50
+    }
+  }
+}
