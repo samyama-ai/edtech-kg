@@ -111,10 +111,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 3
     if args.record:
-        # `ensure_ascii=False`, as `probe_sced` does. Without it the registered
-        # trademark in O*NET's own attribution wording is written to the record
-        # as `\u00ae` — a document whose entire subject is reproducing that
-        # string exactly, storing it escaped.
+        # Characters are preserved by `write_record`, which is where
+        # `ensure_ascii=False` now lives. It matters here more than most:
+        # without it the registered trademark in O*NET's own attribution
+        # wording is written as `\u00ae` — a document whose entire subject is
+        # reproducing that string exactly, storing it escaped.
         #
         # `_` FIRST, and written by the writer. The committed record opened
         # with a note saying how to refresh it, and this command — the one the
