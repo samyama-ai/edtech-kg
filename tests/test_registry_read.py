@@ -185,14 +185,19 @@ def test_a_truncated_body_is_retried_rather_than_escaping(monkeypatch):
     class Response:
         def __enter__(self):
             calls.append(1)
-            if len(calls) < 3:
-                raise http.client.IncompleteRead(b"partial", 191520)
             return self
 
         def __exit__(self, *exc):
             return False
 
         def read(self):
+            # Raised from read(), NOT from __enter__. The failure this guards is
+            # a body that stops MID-READ — the sweep got 36,665 of 191,520
+            # bytes. Raising on entry never reaches `extract`, so it would have
+            # passed even with the read left outside the try, which is the one
+            # thing the docstring above `_request` says must not happen.
+            if len(calls) < 3:
+                raise http.client.IncompleteRead(b"partial", 191520)
             return b"whole"
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: Response())
