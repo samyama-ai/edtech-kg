@@ -25,12 +25,20 @@ No third-party dependency, as with the other probes.
 from __future__ import annotations
 
 import email.message
+import http.client
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from etl.identity import USER_AGENT
+
+#: Transport failures only — a truncated body, a dropped connection. Three tries
+#: is enough for a 958-page walk to survive one, and short enough that a service
+#: genuinely down is not hammered.
+ATTEMPTS = 3
+BACKOFF = 2.0
 
 REGISTRY = "https://credentialengineregistry.org"
 
@@ -72,13 +80,28 @@ def _request(url: str, method: str, extract):
     """
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT},
                                      method=method)
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            return extract(response)
-    except urllib.error.HTTPError as exc:
-        raise HttpStatus(exc.code, url) from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise HttpStatus(None, url, f" ({exc})") from exc
+    # A truncated body is retried; a status code is not. An HTTPError is the
+    # service answering, and asking again gets the same answer — three 403s
+    # instead of one. A connection dropped mid-body is transport, and the
+    # 958-page sweep for #58 hit one at page 75, twenty minutes in.
+    for attempt in range(ATTEMPTS):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                return extract(response)
+        except urllib.error.HTTPError as exc:
+            raise HttpStatus(exc.code, url) from exc
+        except (urllib.error.URLError, TimeoutError, OSError,
+                http.client.HTTPException) as exc:
+            # `http.client.HTTPException` was NOT in this tuple, and
+            # IncompleteRead is one — so a body that stopped early escaped as a
+            # bare exception while every other failure here arrived as
+            # HttpStatus. The docstring above says the read sits inside the
+            # `with` for exactly that reason; the guard did not cover the case
+            # it was written for.
+            if attempt == ATTEMPTS - 1:
+                raise HttpStatus(None, url, f" ({exc})") from exc
+            time.sleep(BACKOFF * (2 ** attempt))
+    raise AssertionError("unreachable")
 
 
 def get(url: str) -> bytes:
