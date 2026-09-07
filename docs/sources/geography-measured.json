@@ -1,0 +1,65 @@
+{
+  "_": "Measured by `python -m etl.probe_geography`. IPEDS coverage is a census; CCD coverage is a strided sample and says which pages it read.",
+  "retrieved_at": "2026-09-07",
+  "page_size_requested_vs_delivered": {
+    "100": 10000,
+    "500": 10000
+  },
+  "directories": {
+    "ccd_schools": {
+      "population": 102268,
+      "rows_per_page": 10000,
+      "pages_in_population": 11,
+      "pages_read": [
+        1,
+        4,
+        7,
+        11
+      ],
+      "is_census": false,
+      "sampled": 32268,
+      "usable_coordinates": 32268,
+      "absent": 0,
+      "null_island": 0,
+      "geography_columns": [
+        "cbsa",
+        "county_code",
+        "fips",
+        "latitude",
+        "longitude",
+        "zip_location",
+        "zip_mailing"
+      ]
+    },
+    "ipeds_institutions": {
+      "population": 6256,
+      "rows_per_page": 6256,
+      "pages_in_population": 1,
+      "pages_read": [
+        1
+      ],
+      "is_census": true,
+      "sampled": 6256,
+      "usable_coordinates": 6256,
+      "absent": 0,
+      "null_island": 0,
+      "geography_columns": [
+        "cbsa",
+        "cbsa_type",
+        "county_fips",
+        "county_name",
+        "fips",
+        "latitude",
+        "longitude",
+        "zip"
+      ]
+    }
+  },
+  "boundaries": {
+    "url": "https://www2.census.gov/geo/tiger/TIGER2022/UNSD/",
+    "state_files": 56,
+    "vintage": [
+      "2022"
+    ]
+  }
+}
