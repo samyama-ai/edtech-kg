@@ -168,3 +168,53 @@ def test_get_and_head_are_separate_because_their_return_types_are():
         assert list(params) == ["url"], (
             f"{name}{tuple(params)} takes more than a url — a flag that changes "
             f"the return type is what was just removed")
+
+
+# --- transport is retried, status is not ------------------------------------
+
+def test_a_truncated_body_is_retried_not_raised(monkeypatch):
+    """`IncompleteRead` is an `http.client.HTTPException`, which was not in the
+    caught tuple — so a body that stopped early escaped as a bare exception
+    while every other failure on this path arrived as `HttpStatus`. The 958-page
+    sweep in edtech-kg#58 hit one at page 75, twenty minutes in."""
+    import http.client
+    import urllib.request
+
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            calls.append(1)
+            if len(calls) < 3:
+                raise http.client.IncompleteRead(b"partial", 191520)
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b"whole"
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: Response())
+    monkeypatch.setattr(read.time, "sleep", lambda _: None)
+    assert read.get("https://example.test/x") == b"whole"
+    assert len(calls) == 3, "it should have retried twice before succeeding"
+
+
+def test_a_status_code_is_not_retried(monkeypatch):
+    """An HTTPError is the service answering. Asking again gets the same
+    answer, and retrying a 403 is just three 403s."""
+    import urllib.error
+    import urllib.request
+
+    calls = []
+
+    def raise_403(*args, **kwargs):
+        calls.append(1)
+        raise urllib.error.HTTPError("https://example.test/x", 403, "no", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", raise_403)
+    monkeypatch.setattr(read.time, "sleep", lambda _: None)
+    with pytest.raises(read.HttpStatus):
+        read.get("https://example.test/x")
+    assert len(calls) == 1, "a status code must not be retried"
