@@ -36,6 +36,7 @@ import json
 import pathlib
 import sys
 
+from etl.provenance import write_record
 from etl.registry_read import (PER_PAGE, REGISTRY, HttpStatus, MalformedSource,
                                describe, get, parse, sample_pages, total)
 
@@ -208,11 +209,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.record:
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(json.dumps(
-            {"_": RECORD_NOTE,
-             "retrieved_at": datetime.date.today().isoformat(),
-             **result}, indent=2) + "\n", encoding="utf-8")
+        # Through the shared writer (#171): the directory, the atomic move
+        # and `ensure_ascii=False` all come with it. This wrote its own
+        # `json.dumps` without that last one, so an em-dash landed here as
+        # `\\u2014` and as the character in records written elsewhere.
+        write_record(RECORD, {"_": RECORD_NOTE,
+                              "retrieved_at": datetime.date.today().isoformat(),
+                              **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     elif args.json:
         print(json.dumps(result, indent=2))

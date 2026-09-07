@@ -27,5 +27,11 @@
     "MUSC 131, Music Major",
     "OPTC 101, OPTC 107, OPTC 112",
     "OPTC 101, OPTC 112, OPTC 210, OPTC 217"
-  ]
+  ],
+  "code": {
+    "commit": "1ed83645975a4fa4e6b081dbf07a126291cccd54",
+    "dirty": false,
+    "package": "0.1.0",
+    "backfilled": "The commit that CONTAINS this record, not the tree the probe ran against — the record predates `write_record`. Weaker than a live stamp: it bounds the code that produced these figures rather than naming it. Re-running the probe replaces this."
+  }
 }

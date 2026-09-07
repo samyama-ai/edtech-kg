@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tomllib
 from functools import lru_cache
 from pathlib import Path
@@ -140,3 +141,103 @@ def write_record(path: Path, payload: dict) -> None:
                    indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")
     partial.replace(path)
+
+
+def commit_that_committed(path: Path) -> str | None:
+    """The commit that last changed a file, or None if git cannot say.
+
+    Used only by `backfill_stamp`. Deliberately separate from `code_version`,
+    which answers a different question — *what was the tree when the probe
+    ran* — and must not learn to guess.
+    """
+    if not _inside_our_repo():
+        return None
+    return _git("log", "-1", "--format=%H", "--", str(path)) or None
+
+
+def backfill_stamp(path: Path) -> dict | None:
+    """A stamp for a record that was measured before the writer stamped them.
+
+    **This is weaker evidence than a live stamp, and says so in the record.**
+    A live stamp names the tree the probe actually ran against. This names the
+    commit that CONTAINS the record — which git knows for certain, but which
+    only bounds the code that produced it rather than identifying it. The
+    `backfilled` key exists so nobody reads one as the other later.
+
+    Why it is needed at all: #171 landed the writer while #173 and #175 were
+    already in flight, so three records were measured against a tree where
+    `write_record` did not yet exist. Re-running is the better fix and was
+    tried first — Census TIGER answered HTTP 520 on 2026-09-07, so geography
+    cannot be re-measured today, and a repo whose suite goes red when a
+    third-party host has an outage is a worse failure than an honest
+    annotation.
+
+    Returns None when git cannot name a commit, so the caller can refuse
+    rather than write a stamp with a hole in it.
+    """
+    commit = commit_that_committed(path)
+    if not commit:
+        return None
+    return {
+        "commit": commit,
+        # A committed file is by definition not dirty in the tree that holds
+        # it. Stated rather than copied from `code_version()`, which would
+        # report on THIS working tree and mean nothing about the record.
+        "dirty": False,
+        "package": _code_version().get("package"),
+        "backfilled": (
+            "The commit that CONTAINS this record, not the tree the probe ran "
+            "against — the record predates `write_record`. Weaker than a live "
+            "stamp: it bounds the code that produced these figures rather "
+            "than naming it. Re-running the probe replaces this."),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Backfill a stamp onto a record that predates the stamped writer.
+
+        python -m etl.provenance --backfill docs/sources/geography-measured.json
+
+    A CLI rather than a one-off script, because the first backfill here WAS a
+    one-off script and that is the whole objection to it: the records changed,
+    and nothing committed could say how. This repo's rule for figures — every
+    one printed by something committed, never typed — applies to provenance at
+    least as strongly as to counts.
+
+    It refuses a record that already carries a stamp. Overwriting a live stamp
+    with a backfilled one would replace strong evidence with weak and look
+    like a routine re-run in the diff.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="python -m etl.provenance")
+    parser.add_argument("--backfill", metavar="RECORD", required=True,
+                        type=Path, help="the .json record to stamp")
+    args = parser.parse_args(argv)
+
+    record = args.backfill if args.backfill.is_absolute() else ROOT / args.backfill
+    if not record.exists():
+        print(f"no such record: {record}", file=sys.stderr)
+        return 2
+
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    if "code" in payload:
+        print(f"{record.name} already carries a stamp — refusing to overwrite "
+              f"it. Re-run the probe instead.", file=sys.stderr)
+        return 3
+
+    stamp = backfill_stamp(record)
+    if not stamp:
+        print(f"git cannot name a commit for {record.name}; a stamp with a "
+              f"hole in it is worse than none.", file=sys.stderr)
+        return 4
+
+    record.write_text(
+        json.dumps({**payload, "code": stamp}, indent=2, ensure_ascii=False)
+        + "\n", encoding="utf-8")
+    print(f"{record.name}: backfilled {stamp['commit'][:12]}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
