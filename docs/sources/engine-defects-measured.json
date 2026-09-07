@@ -1,0 +1,80 @@
+{
+  "_": "Measured by `python -m etl.probe_engine_defects --record` against a SCRATCH engine. Each entry says what was observed and whether the defect it was written for is still present.",
+  "measured_at": "2026-09-07",
+  "image": "public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0",
+  "version_reported": "1.7.0",
+  "remove": {
+    "issue": 163,
+    "before": {
+      "projection": "gone-please",
+      "count_by_value": 1
+    },
+    "after_remove": {
+      "projection": "gone-please",
+      "count_by_value": 1
+    },
+    "remove_then_return_gave": "gone-please",
+    "after_set_null": {
+      "projection": "gone-please",
+      "count_by_value": 1
+    },
+    "property_survives_remove": true,
+    "property_survives_set_null": true,
+    "still_defective": true
+  },
+  "tenant": {
+    "issue": 149,
+    "baseline": 2,
+    "counts_by_tenant": {
+      "default": 2,
+      "probe-scratch": 2,
+      "nonexistent-tenant-xyz": 2
+    },
+    "create_status": 201,
+    "delete_status": 204,
+    "nodes_after_dropping_the_tenant": 2,
+    "every_tenant_sees_one_graph": true,
+    "dropping_a_tenant_deleted_nothing": true,
+    "still_defective": true
+  },
+  "merge": {
+    "issue": 169,
+    "batch": 150,
+    "points": [
+      {
+        "nodes_in_label": 1000,
+        "merge_per_sec": 637.7,
+        "create_per_sec": 811.6,
+        "match_per_sec": 746.5
+      },
+      {
+        "nodes_in_label": 4000,
+        "merge_per_sec": 346.9,
+        "create_per_sec": 631.6,
+        "match_per_sec": 741.2
+      },
+      {
+        "nodes_in_label": 8000,
+        "merge_per_sec": 173.8,
+        "create_per_sec": 826.2,
+        "match_per_sec": 804.0
+      },
+      {
+        "nodes_in_label": 16000,
+        "merge_per_sec": 67.9,
+        "create_per_sec": 594.2,
+        "match_per_sec": 497.3
+      }
+    ],
+    "merge_into_a_fresh_label_per_sec": 467.2,
+    "merge_fell_by": 9.4,
+    "match_fell_by": 1.5,
+    "still_defective": true
+  },
+  "code": {
+    "commit": "43e5195ce93445cfba723e69104779ed09fb466e",
+    "dirty": true,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}

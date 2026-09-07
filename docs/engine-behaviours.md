@@ -121,7 +121,68 @@ would be caught automatically are the parse errors — the suite fails. **The si
 under "wrong answer, no error" would not**: they return something, and the tests
 that would notice are the ones asserting a specific figure.
 
-`etl/probe_engine_capability.py` measures the query constructs. It does not yet
-cover `REMOVE`, `tenant`, or the `MERGE` index behaviour — those three are
-recorded here from the issues that measured them, and turning them into one
-runnable probe is the obvious next step.
+`etl/probe_engine_capability.py` measures the query constructs.
+`etl/probe_engine_defects.py` measures the three that were previously recorded
+here from prose — `REMOVE`, `tenant` and the `MERGE` index behaviour. Both are
+runnable, and neither figure below is typed.
+
+**It needs a scratch engine and it refuses a loaded one.** The probe writes
+tens of thousands of nodes and cannot remove them, because not being able to
+remove them is one of the defects it measures:
+
+    docker run -d --name sg-defects -p 8224:8080 \
+        public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0
+    python -m etl.probe_engine_defects --url http://localhost:8224 --record
+
+Every check records `still_defective`, so **an engine upgrade that FIXES one
+shows up as a changed record**, not as a probe that quietly prints something
+else. All three are still present as of the committed run.
+
+### `REMOVE` — measured, not remembered
+
+The property survives `REMOVE` (`True`) and survives
+`SET x = null` (`True`). `REMOVE p.kind RETURN p.kind`
+returned `'gone-please'` — the value it had just claimed to
+remove. Read back two ways, a projection and a count-by-value, so the finding
+is not about a cached read.
+
+### `tenant` — the API accepts and scopes nothing
+
+Creating a tenant answered **201** and dropping one answered
+**204**; every tenant — including one that has never existed —
+saw the same graph, and dropping the tenant deleted nothing
+(`True`).
+
+The probe asserts the 201 rather than storing whatever it gets. Its first
+version sent only `id`, got a 422, and would have recorded the API as
+*refusing* these calls — contradicting the issue and reporting the defect as
+absent. **A defect probe reporting a false absence is the worst outcome
+available to it**, so a status other than 201 now stops the run.
+
+### `MERGE` — the index is ignored
+
+| nodes in label | `MERGE` /sec | `CREATE` /sec | `MATCH` /sec |
+|---:|---:|---:|---:|
+| 1,000 | 637.7 | 811.6 | 746.5 |
+| 4,000 | 346.9 | 631.6 | 741.2 |
+| 8,000 | 173.8 | 826.2 | 804.0 |
+| 16,000 | 67.9 | 594.2 | 497.3 |
+
+Over that range `MERGE` fell **9.4x** while `MATCH` moved
+1.5x. The isolating control is the last figure: the same
+`MERGE` statement against a fresh, nearly-empty label ran at
+**467.2/sec** — full speed. It is the size of
+the label being merged into, not the statement.
+
+**These are timings and they vary between runs.** The committed record is one
+run; re-running gives different absolute rates. What does not vary is the
+shape — `MERGE` degrading by close to `1/n` while `MATCH` and `CREATE` stay
+flat — and that shape is what `still_defective` tests, rather than any
+threshold on a rate.
+
+The first version of the timing was not usable and is worth recording: at a
+batch of 40, `MERGE` came out FASTER at 2,000 nodes than at 500, because forty
+round trips is short enough for warm-up to dominate. The engine caches parsed
+ASTs and chosen plans, so the first call of a statement shape pays for parsing
+that none of the rest do. Every timing is now preceded by an untimed warm-up of
+the same shape.
