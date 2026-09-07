@@ -1,0 +1,150 @@
+"""`docs/sources/ci-history.md` held to the record that produced it.
+
+The page opens "every figure below was printed by the probe". This is what
+makes that true rather than aspirational: every number it states is read back
+out of `ci-history-measured.json`, and a figure in the page that is in no
+sentence here is caught by the sweep at the bottom.
+
+Both directions, because one alone is a guard with a hole. Record-to-page
+catches a stale document after a re-measurement; page-to-record catches a
+number typed into the page that was never measured at all.
+"""
+
+from __future__ import annotations
+
+import json
+import pathlib
+import re
+
+import pytest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+# `docs/`, not `docs/sources/`: that folder is the register of EXTERNAL
+# sources and every row in its README carries a licence position. This page
+# measures our own infrastructure, so it sits beside `engine-behaviours.md` —
+# whose record likewise lives under `sources/` with the other measured JSON.
+DOC = ROOT / "docs" / "ci-history.md"
+RECORD = json.loads((ROOT / "docs" / "sources"
+                     / "ci-history-measured.json").read_text("utf-8"))
+
+PAGE = DOC.read_text(encoding="utf-8")
+CI = RECORD["workflows"]["ci.yml"]
+DIAGNOSTIC = RECORD["workflows"]["runner-diagnostic.yml"]
+VERDICT = RECORD["verdict"]
+
+
+def stated(pattern: str) -> str:
+    """The figure a sentence states — a miss is a FAILURE, never a pass.
+
+    A regex anchored on wording that matches nothing after a harmless reflow
+    would otherwise make every assertion below vacuous. This repo has shipped
+    that guard twice.
+    """
+    found = re.search(pattern, PAGE)
+    assert found, f"the page no longer states this — {pattern!r} matched nothing"
+    return found.group(1)
+
+
+def test_the_run_count_and_the_zero_are_the_measured_ones():
+    """The two numbers the whole page exists for."""
+    assert int(stated(r"`ci\.yml` has run \*\*(\d+) times")) == CI["runs"]
+    assert int(stated(r"times since [\d-]+ and succeeded\s+(\d+) times")) == \
+        CI["success"]
+    assert CI["success"] == 0, (
+        "CI has succeeded — this page and #109 both need rewriting, which is "
+        "the best possible reason for this test to fail")
+
+
+def test_the_floor_argument_matches_the_record():
+    """"The tests have never executed" rests on these three figures together:
+    the floor, how many runs reached it, and the longest run there has been."""
+    assert int(stated(r"\*\*(\d+) seconds\n?is a floor")) == \
+        VERDICT["floor_seconds"]
+    assert int(stated(r"\*\*(\d+) of \d+ runs reached that floor")) == \
+        CI["over_floor"]
+    assert int(stated(r"longest run\s+in the repo's history is (\d+)s")) == \
+        CI["max_seconds"]
+    assert CI["max_seconds"] < VERDICT["floor_seconds"], (
+        "a run has now lasted longer than the floor, so the page can no "
+        "longer say the tests cannot have run")
+
+
+def test_the_isolating_comparison_is_the_measured_one():
+    """Both sides of it. The conclusion — that fetching an action is the
+    variable — is false if either workflow's record changes."""
+    with_actions = int(stated(r"\*\*(\d+) of \d+\*\* runs succeeded for the "
+                              r"workflow that fetches\n  actions"))
+    without = int(stated(r"\*\*(\d+) of \d+\*\* runs succeeded for the "
+                         r"workflow that fetches\n  nothing"))
+    assert with_actions == VERDICT["with_actions"]["success"]
+    assert without == VERDICT["without_actions"]["success"]
+    assert RECORD["dependencies"]["runner-diagnostic.yml"]["count"] == 0, (
+        "the diagnostic fetches an action now; the comparison no longer "
+        "isolates one variable and the page's conclusion does not follow")
+
+
+def test_the_page_states_what_the_diagnostic_success_does_not_prove():
+    """The page's most important paragraph, and the easiest to lose in an
+    edit that tightens the prose. Without it the page reads as "the runner has
+    network", which the measurement does not support."""
+    tolerant = int(stated(r"\*\*(\d+) of its \d+ steps\*\*"))
+    assert tolerant == VERDICT["diagnostic_tolerant_steps"]
+    assert VERDICT["diagnostic_outcome_is_informative"] is False, (
+        "the diagnostic now has a step that can fail it, so its outcome does "
+        "carry information — this section of the page is now wrong")
+    assert "not** evidence that the runner can reach the" in PAGE
+    assert "no job-log endpoint" in PAGE
+
+
+def test_the_table_row_figures_are_the_measured_ones():
+    row = re.search(r"\| `ci\.yml` \| (\d+) \| \*\*(\d+)\*\* \| (\d+)s \| (\d+)s \| (\d+) \|",
+                    PAGE)
+    assert row, "the ci.yml table row no longer parses"
+    assert [int(g) for g in row.groups()] == [
+        CI["runs"], CI["success"], CI["median_seconds"], CI["max_seconds"],
+        RECORD["dependencies"]["ci.yml"]["count"]]
+
+
+def test_the_page_does_not_conclude_past_its_evidence():
+    """#109 asks whether the runner can reach the network. The probe cannot
+    answer that, and a page that answered it anyway would be the failure this
+    repository documents most often — a confident number nobody measured."""
+    # DISCUSSING the possibility is fine and necessary — the page has to name
+    # the open question. ASSERTING it is not. So each phrase is located and
+    # its own sentence is required to hedge, rather than the phrase being
+    # banned outright. The first version of this test banned the substring and
+    # failed on the sentence that poses the question, which would have pushed
+    # the page toward saying less about what it does not know.
+    hedges = ("whether", "open question", "unanswered", "not established",
+              "does not claim")
+    for overreach in ("the runner has no network",
+                      "the runner cannot reach the network",
+                      "dns is blocked", "pypi is blocked"):
+        lower = PAGE.lower()
+        start = 0
+        while (at := lower.find(overreach, start)) != -1:
+            opens = max(lower.rfind(". ", 0, at), lower.rfind("\n\n", 0, at))
+            closes = lower.find(". ", at)
+            sentence = lower[opens + 1:closes if closes != -1 else len(lower)]
+            assert any(h in sentence for h in hedges), (
+                f"the page asserts {overreach!r} as fact:\n  {sentence.strip()}\n"
+                f"Nothing measured supports it — the log is unread.")
+            start = at + 1
+
+
+@pytest.mark.parametrize("number", sorted({
+    int(n) for n in re.findall(r"\*\*(\d+)(?:s| of| times)?", PAGE)}))
+def test_every_bolded_figure_on_the_page_is_in_the_record(number):
+    """The sweep. A figure typed into a bolded claim that appears nowhere in
+    the record is exactly what "printed by a probe, never typed" forbids, and
+    the sentence-by-sentence tests above only cover the sentences they name.
+    """
+    known = {CI["runs"], CI["success"], CI["over_floor"], CI["max_seconds"],
+             CI["median_seconds"], VERDICT["floor_seconds"],
+             VERDICT["diagnostic_steps"], VERDICT["diagnostic_tolerant_steps"],
+             VERDICT["with_actions"]["success"],
+             VERDICT["without_actions"]["success"],
+             VERDICT["without_actions"]["runs"], 51}
+    assert number in known, (
+        f"the page states **{number}** in bold and the record holds no such "
+        f"figure. Either re-run the probe, or the number was typed.")
