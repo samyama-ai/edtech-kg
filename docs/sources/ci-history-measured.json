@@ -1,0 +1,115 @@
+{
+  "note": "Measured by `python -m etl.probe_ci_history --record`. Run outcomes come from the Gitea Actions API; the workflow dependency counts are read from the committed YAML. Which STEP failed is NOT measured — see the module docstring.",
+  "measured_at": "2026-09-08",
+  "api": "https://git.samyama.ai/api/v1/repos/Samyama.ai/edtech-kg",
+  "runs_returned": 230,
+  "workflows": {
+    "runner-diagnostic.yml": {
+      "runs": 7,
+      "success": 5,
+      "failure": 0,
+      "other": 2,
+      "first": "2026-09-07T08:45:05Z",
+      "last": "2026-09-08T07:23:09Z",
+      "unfinished": 0,
+      "timed": 7,
+      "median_seconds": 4.0,
+      "max_seconds": 5,
+      "over_floor": 0,
+      "untimed": 0
+    },
+    "ci.yml": {
+      "runs": 222,
+      "success": 0,
+      "failure": 220,
+      "other": 2,
+      "first": "2026-08-21T12:30:02Z",
+      "last": "2026-09-08T07:06:41Z",
+      "unfinished": 0,
+      "timed": 222,
+      "median_seconds": 7.0,
+      "max_seconds": 58,
+      "over_floor": 0,
+      "untimed": 0
+    },
+    "runner-diagnostics.yml": {
+      "runs": 1,
+      "success": 1,
+      "failure": 0,
+      "other": 0,
+      "first": "2026-09-01T05:48:18Z",
+      "last": "2026-09-01T05:48:18Z",
+      "unfinished": 0,
+      "timed": 1,
+      "median_seconds": 6.0,
+      "max_seconds": 6,
+      "over_floor": 0,
+      "untimed": 0
+    }
+  },
+  "dependencies": {
+    "ci.yml": {
+      "uses": [
+        "actions/checkout@v4",
+        "actions/setup-python@v5"
+      ],
+      "count": 2,
+      "steps": 7,
+      "tolerant_steps": 0
+    },
+    "runner-diagnostic.yml": {
+      "uses": [],
+      "count": 0,
+      "steps": 8,
+      "tolerant_steps": 8
+    }
+  },
+  "verdict": {
+    "floor_seconds": 60,
+    "suite": {
+      "seconds": 47,
+      "measured": true,
+      "command": "python -m pytest -q --deselect tests/test_ci_history_doc.py",
+      "excluded": "tests/test_ci_history_doc.py",
+      "of_modules": 87,
+      "why_excluded": "it asserts the figure this run produces"
+    },
+    "with_actions": {
+      "workflows": [
+        "ci.yml"
+      ],
+      "runs": 222,
+      "success": 0,
+      "failure": 220,
+      "other": 2,
+      "uses": [
+        "actions/checkout@v4",
+        "actions/setup-python@v5"
+      ],
+      "ran_longer_than_the_floor": 0
+    },
+    "without_actions": {
+      "workflows": [
+        "runner-diagnostic.yml"
+      ],
+      "runs": 7,
+      "success": 5,
+      "failure": 0,
+      "other": 2,
+      "uses": [],
+      "ran_longer_than_the_floor": 0
+    },
+    "in_history_but_not_committed": [
+      "runner-diagnostics.yml"
+    ],
+    "diagnostic_outcome_is_informative": false,
+    "diagnostic_steps": 8,
+    "diagnostic_tolerant_steps": 8
+  },
+  "code": {
+    "commit": "8d71a6746db8dcca4dce1c0bb9c107b60dabcabe",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
