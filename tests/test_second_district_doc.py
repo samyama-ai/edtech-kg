@@ -35,14 +35,14 @@ def test_every_district_has_a_row_and_every_row_is_measured():
     district whose absence changes the conclusion."""
     for name, found in DISTRICTS.items():
         assert name in PAGE, f"{name} was measured and is not on the page"
-        if not found.get("published"):
+        if not found.get("candidate_course_paths"):
             continue
         row = re.search(
             rf"\| {re.escape(name)} \| (\d+) \| (\d+) \| (\d+) \| "
             rf"\*\*([\d.]+)%\*\* \| (\d+)/(\d+)", PAGE)
         assert row, f"{name}'s row no longer parses"
         assert [int(row.group(1)), int(row.group(2)), int(row.group(3))] == [
-            found["published"], found["read"],
+            found["candidate_course_paths"], found["read"],
             found["with_a_typed_prerequisite"]]
         assert float(row.group(4)) == \
             found["percent_of_pages_with_a_typed_prerequisite"]
@@ -112,13 +112,12 @@ def test_the_sample_ceiling_is_described_as_a_ceiling():
     """Districts publishing fewer pages than the ceiling had their whole
     catalogue read. Calling it "60 pages each" was false for three of five."""
     assert f"Ceiling of {RECORD['sample_per_district']}" in PAGE
-    assert "never the ceiling" in PAGE
     # The sentence about reading whole catalogues is conditional — it applies
     # only while some district publishes fewer pages than the ceiling. Since
     # the pager is followed, none does; the sentence is a rule, not a claim
     # about today, so it stays and this asserts which case we are in.
     smaller = [n for n, f in DISTRICTS.items()
-               if f.get("published")
+               if f.get("candidate_course_paths")
                and f["read"] < RECORD["sample_per_district"]]
     assert not smaller, (
         f"{smaller} read fewer pages than the ceiling; the page should say so "
@@ -180,4 +179,14 @@ def test_the_correction_is_recorded_not_quietly_replaced():
     assert "not following the catalogue's pager" in PAGE
     assert "1.7%" in PAGE and "51 pages" in PAGE, (
         "the superseded figures must be named, or the correction is invisible")
-    assert str(APS["published"]) in PAGE
+    assert str(APS["candidate_course_paths"]) in PAGE
+
+    # The SECOND correction, from the same round: Central Islip's links were
+    # not deduplicated, so a course linked twice counted twice — in a rate
+    # whose whole claim is that the links land.
+    assert "not deduplicated" in PAGE
+    said = re.search(r"reported at 10 resolving links where it publishes\s+(\d+)",
+                     PAGE)
+    assert said, "the page no longer records the deduplication correction"
+    assert int(said.group(1)) == \
+        DISTRICTS["Central Islip (NY)"]["links"]

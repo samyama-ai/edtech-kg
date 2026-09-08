@@ -43,8 +43,11 @@ import time
 import urllib.error
 import urllib.request
 
+from etl.course_page import (COURSE_PATH, HREF, classify,
+                             same_host)
 from etl.identity import USER_AGENT
 from etl.provenance import write_record
+from etl.pwcs_pages import PATHWAY_FIELD_PRESENT
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "second-district-measured.json"
@@ -68,34 +71,8 @@ DISTRICTS = {
     "Central Islip (NY)": "https://hs-catalogue.centralislip.k12.ny.us",
 }
 
-#: **TWO different prerequisite fields**, and the difference between them is
-#: the whole question.
-#:
-#: `field-prerequisite-courses` is an ENTITY REFERENCE — the CMS links it to
-#: other course pages, and `etl/probe_pwcs.py` reads exactly this to get PWCS's
-#: 89%. `field-pr` is a free-text paragraph. A district can state its
-#: prerequisites completely and usefully in the second and still publish no
-#: edge anybody can traverse.
-#:
-#: The first version of this probe matched `field--name-field-pr\b`, whose word
-#: boundary excludes `field-prerequisite-courses` — so it read the free-text
-#: field on every district and reported PWCS at 0% linked. The control is the
-#: only reason that was caught: the repo's own figure for PWCS is 89%, and a
-#: method that cannot reproduce the known number measures nothing.
-TYPED_FIELD = re.compile(
-    # `\Z` as well: the lookahead required either another typed field or a
-    # footer to follow, so a page whose prerequisite field is the LAST thing
-    # in the document matched nothing and was counted as stating none.
-    r'field--name-field-prerequisite-courses'
-    r'.*?(?=field--name-field(?!-prerequisite)|</footer|\Z)', re.S)
-PROSE_FIELD = re.compile(
-    r'field--name-field-pr\b.*?<div class="field__item">(.*?)</div>', re.S)
-#: `href` values, absolute or root-relative. Matching only `/…` meant a
-#: district linking its prerequisites as `https://catalog.example.edu/x/y`
-#: was silently counted as having none — the finding this probe exists to
-#: measure, produced by not looking. `same_host` strips the prefix.
-HREF = re.compile(r'href="([^"#?]+)"')
-COURSE_PATH = re.compile(r"^/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
+
+
 
 SEED = 19            #: The issue number, so the sample is reproducible and
                      #: nobody has to wonder whether it was chosen after the
@@ -147,9 +124,14 @@ def course_paths(base: str) -> tuple[list[str], dict]:
     has_sitemap, in_sitemap = False, 0
     try:
         sitemap = get(f"{base}/sitemap.xml")
-        has_sitemap = True
         time.sleep(DELAY)
         locs = re.findall(r"<loc>([^<]+)</loc>", sitemap)
+        # A 200 IS NOT A SITEMAP. Setting the flag on the status alone made a
+        # soft-404 — a themed "not found" page answering 200 — indistinguish-
+        # able from Kenosha's real sitemap that happens to list no courses,
+        # and the page states that distinction as fact. A document is a
+        # sitemap when it parses as one.
+        has_sitemap = bool(locs) and "<urlset" in sitemap
         # PREFIX strip, not replace-everywhere. `str.replace` would also cut
         # the host out of the middle of a path — harmless on these five and
         # not a thing to leave in a URL parser.
@@ -192,6 +174,13 @@ def crawl(base: str) -> set[str]:
     found: set[str] = set()
     for index in ("/courses", "/high-school-courses", "/middle-school-courses",
                   "/high-school-course-catalog", ""):
+        # **Per candidate**, not against everything seen so far. Subtracting
+        # the global set meant an index whose first page happened to link only
+        # paths another index had already yielded was abandoned entirely —
+        # every later page of it included. Reproduced: two real courses lost.
+        # The pager's own repetition is what should stop it, and that is a
+        # fact about this index rather than about the ones before it.
+        seen_here: set[str] = set()
         for page in range(MAX_PAGES):
             url = f"{base}{index}" + (f"?page={page}" if page else "")
             try:
@@ -199,61 +188,27 @@ def crawl(base: str) -> set[str]:
             except Unreachable:
                 break
             time.sleep(DELAY)
-            fresh = {path for path in
-                     (same_host(href, base) for href in HREF.findall(markup))
-                     if path} - found
-            if not fresh:
-                # No NEW course on this page: either the pager has run out or
-                # the index does not paginate. Both mean stop.
+            here = {path for path in
+                    (same_host(href, base) for href in HREF.findall(markup))
+                    if path}
+            if not here - seen_here:
+                # This index has stopped yielding paths IT has not already
+                # yielded: the pager has run out, or the page does not
+                # paginate. Both mean move to the next candidate.
                 break
-            found |= fresh
+            seen_here |= here
+        found |= seen_here
     return found
 
 
-def same_host(href: str, base: str) -> str | None:
-    """`href` as a path on `base`, or None if it points somewhere else.
-
-    Absolute and root-relative both resolve; anything off-host is not a course
-    in this catalogue and is not a resolution failure either.
-    """
-    if href.startswith(base):
-        href = href[len(base):] or "/"
-    if not href.startswith("/"):
-        return None
-    return href if COURSE_PATH.match(href) else None
 
 
-def classify(markup: str, published: set[str], base: str = "") -> dict:
-    """What one course page says about prerequisites, and in which field.
 
-    Typed first: a page carrying both is answering the question in the form
-    that resolves, and counting it as prose would understate the district.
-    """
-    typed = TYPED_FIELD.search(markup)
-    if typed:
-        links = [path for path in
-                 (same_host(href, base) for href in HREF.findall(typed.group(0)))
-                 if path]
-        if links:
-            return {"kind": "typed", "links": links,
-                    "resolved": [href for href in links if href in published]}
-        # **A typed field holding no course link is its own answer.** It fell
-        # through to the prose branch, so a district that emits the field and
-        # fills it with navigation or off-host links was reported as not using
-        # it at all. That is a different fact from "no field" and from
-        # "prose", and only this branch can tell them apart.
-        text = re.sub(r"\s+", " ",
-                      re.sub(r"<[^>]+>", " ", typed.group(0))).strip()
-        if text:
-            return {"kind": "typed but no course link", "text": text[:120]}
 
-    prose = PROSE_FIELD.search(markup)
-    if prose:
-        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", prose.group(1))).strip()
-        if text and text.lower() not in {"none", "n/a", "na", "-"}:
-            return {"kind": "prose", "text": text[:120]}
-        return {"kind": "says none", "text": text}
-    return {"kind": "no field"}
+
+
+
+
 
 
 def district(name: str, base: str, sample: int = SAMPLE) -> dict:
@@ -263,7 +218,7 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         # THE SAME KEYS as every other district. A short entry is a KeyError
         # waiting for the first consumer that iterates the record, and it
         # reads as a missing measurement rather than a measured zero.
-        return {"base": base, **how, "published": 0, "sampled": 0, "read": 0,
+        return {"base": base, **how, "candidate_course_paths": 0, "sampled": 0, "read": 0,
                 "unreachable": 0, "kinds": {},
                 "with_a_typed_prerequisite": 0,
                 "percent_of_pages_with_a_typed_prerequisite": None,
@@ -293,6 +248,18 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
             time.sleep(DELAY)
             continue
         time.sleep(DELAY)
+        # **A pathway page is not a course**, and the repo already says so.
+        # `etl/pwcs_pages.classify` decides by the MARKUP — a page rendering
+        # the pathway course-table field is a pathway at any depth — and
+        # `docs/schema.md` quotes every PWCS rate against the 791 courses,
+        # not the 960 pages. Counting two-segment paths alone put pathway
+        # pages, which carry no prerequisite field, into the denominator and
+        # deflated the very percentage the conclusion rests on.
+        if PATHWAY_FIELD_PRESENT.search(markup):
+            kinds["not a course"] = kinds.get("not a course", 0) + 1
+            time.sleep(DELAY)
+            continue
+
         found = classify(markup, published, base)
         kinds[found["kind"]] = kinds.get(found["kind"], 0) + 1
         if found["kind"] == "typed":
@@ -301,18 +268,22 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         if found["kind"] == "prose" and len(examples) < 4:
             examples.append({"path": path, "text": found["text"]})
 
-    read = len(chosen) - kinds.get("unreachable", 0)
+    # Pages fetched, answered, AND found to be courses. A pathway page is
+    # not a course that states no prerequisite.
+    read = (len(chosen) - kinds.get("unreachable", 0)
+            - kinds.get("not a course", 0))
     typed = kinds.get("typed", 0)
     return {
         "base": base,
         **how,
-        "published": len(paths),
+        "candidate_course_paths": len(paths),
         "sampled": len(chosen),
         # PAGES ACTUALLY READ. A page that did not answer is not a page that
         # stated nothing, and counting it in the denominator would report a
         # network failure as a district's choice.
         "read": read,
         "unreachable": kinds.get("unreachable", 0),
+        "sampled_but_not_a_course": kinds.get("not a course", 0),
         "kinds": kinds,
         "with_a_typed_prerequisite": typed,
         # **The headline, and its denominator is pages READ.**
@@ -363,11 +334,11 @@ def report(measured: dict) -> None:
     print(header)
     print("  " + "-" * (len(header) - 2))
     for name, found in measured["districts"].items():
-        if not found.get("published"):
+        if not found.get("candidate_course_paths"):
             print(f"  {name:<34} {'—':>6}  {found.get('note','')[:40]}")
             continue
         share = found["percent_of_pages_with_a_typed_prerequisite"]
-        print(f"  {name:<34} {found['published']:>6} "
+        print(f"  {name:<34} {found['candidate_course_paths']:>6} "
               f"{found['read']:>5} "
               f"{found['with_a_typed_prerequisite']:>6} "
               f"{(f'{share}%' if share is not None else '—'):>7} "
@@ -403,7 +374,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     report(measured)
     if args.record:
-        if not any(d.get("published") for d in measured["districts"].values()):
+        if not any(d.get("candidate_course_paths")
+                   for d in measured["districts"].values()):
             print("refusing to --record: no district published a course index, "
                   "so this measured nothing.", file=sys.stderr)
             return 3

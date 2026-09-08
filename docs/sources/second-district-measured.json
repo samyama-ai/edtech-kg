@@ -11,37 +11,39 @@
       "has_sitemap": true,
       "courses_in_sitemap": 817,
       "courses_in_index_crawl": 792,
-      "published": 817,
+      "candidate_course_paths": 817,
       "sampled": 60,
       "read": 60,
       "unreachable": 0,
+      "sampled_but_not_a_course": 0,
       "kinds": {
         "typed": 17,
-        "prose": 4,
-        "no field": 39
+        "says none": 16,
+        "no field": 20,
+        "prose": 7
       },
       "with_a_typed_prerequisite": 17,
       "percent_of_pages_with_a_typed_prerequisite": 28.3,
       "links": 18,
       "links_resolving_to_a_published_course": 18,
       "percent_of_links_that_resolve": 100.0,
-      "with_a_nonempty_prose_field": 4,
+      "with_a_nonempty_prose_field": 7,
       "prose_examples": [
         {
-          "path": "/business-and-information-technology/design-multimedia-and-web-technologies",
-          "text": "Information Technology (IT) Fundamentals , recommended"
-        },
-        {
           "path": "/the-governors-school-innovation-park-math/gs-pre-calculus",
-          "text": "GMU MATH 105 - 4 credits"
+          "text": "Algebra 2 &nbsp; or Trigonometry"
         },
         {
-          "path": "/the-governors-school-innovation-park-science/gs-introduction-to-engineering",
-          "text": "GMU ENGR 107 - 2 credits"
+          "path": "/english-cambridge-programme/aice-english-language-and-composition-as",
+          "text": "IGCSE English 10 or &nbsp;a grade of B or better in&nbsp; English 10"
         },
         {
-          "path": "/gifted-education/gifted-seminar-philosophy-1-credit",
-          "text": "Gifted Seminar: Philosophy and Gifted Seminar: Power and Progress can count as sequential electives for graduation when "
+          "path": "/math-advanced-placement/ap-precalculus-for-bc",
+          "text": "Advanced Algebra 2 or Algebra 2 (with a B or better and teacher recommendation)"
+        },
+        {
+          "path": "/math-advanced-placement/ap-calculus-bc",
+          "text": "Precalculus with Trigonometry for BC or AP Precalculus for BC"
         }
       ]
     },
@@ -51,13 +53,15 @@
       "has_sitemap": false,
       "courses_in_sitemap": 0,
       "courses_in_index_crawl": 698,
-      "published": 698,
+      "candidate_course_paths": 698,
       "sampled": 60,
       "read": 60,
       "unreachable": 0,
+      "sampled_but_not_a_course": 0,
       "kinds": {
-        "prose": 28,
-        "no field": 29,
+        "prose": 33,
+        "says none": 11,
+        "no field": 13,
         "typed": 3
       },
       "with_a_typed_prerequisite": 3,
@@ -65,23 +69,23 @@
       "links": 4,
       "links_resolving_to_a_published_course": 4,
       "percent_of_links_that_resolve": 100.0,
-      "with_a_nonempty_prose_field": 28,
+      "with_a_nonempty_prose_field": 33,
       "prose_examples": [
         {
           "path": "/world-languages/spanish-ii",
-          "text": "Students in Arlington Public Schools in grades 7-12 may receive high school world language credit for native language st"
-        },
-        {
-          "path": "/arts-education/art-history-ap",
-          "text": "Students are required to take the AP exam associated with this course. Students not taking the exam will not earn the ad"
+          "text": "Spanish I, or equivalent proficiency in the language as determined by a placement test."
         },
         {
           "path": "/business-information-technology-it/computer-network-software-operations-advanced",
-          "text": "This course may be dual enrolled at Northern Virginia Community College. The NOVA entrance requirements must be met befo"
+          "text": "For none dual enrollment, the prerequisite is Computer Network Software Operations (26657). If taking the course as dual"
         },
         {
           "path": "/science/remedial-independent-self-paced-education-rise-earth-science",
-          "text": "Students will take this class on a pass/fail basis."
+          "text": "Students have passed the class(es) but failed the SOL assessments) and are lacking the necessary verified credits to gra"
+        },
+        {
+          "path": "/international-baccalaureate/ib-visual-arts-part-i-hl",
+          "text": "Permission of the instructor upon evaluation and examination of a body of work which demonstrates ability commensurate w"
         }
       ]
     },
@@ -91,10 +95,11 @@
       "has_sitemap": false,
       "courses_in_sitemap": 0,
       "courses_in_index_crawl": 1585,
-      "published": 1585,
+      "candidate_course_paths": 1585,
       "sampled": 60,
       "read": 60,
       "unreachable": 0,
+      "sampled_but_not_a_course": 0,
       "kinds": {
         "no field": 59,
         "prose": 1
@@ -108,7 +113,7 @@
       "prose_examples": [
         {
           "path": "/human-services/careers-in-education",
-          "text": "Early Childhood Ed"
+          "text": "Prerequisites Early Childhood Ed"
         }
       ]
     },
@@ -118,7 +123,7 @@
       "has_sitemap": true,
       "courses_in_sitemap": 0,
       "courses_in_index_crawl": 0,
-      "published": 0,
+      "candidate_course_paths": 0,
       "sampled": 0,
       "read": 0,
       "unreachable": 0,
@@ -138,43 +143,44 @@
       "has_sitemap": false,
       "courses_in_sitemap": 0,
       "courses_in_index_crawl": 202,
-      "published": 202,
+      "candidate_course_paths": 202,
       "sampled": 60,
       "read": 60,
       "unreachable": 0,
+      "sampled_but_not_a_course": 0,
       "kinds": {
-        "no field": 50,
-        "prose": 5,
+        "no field": 32,
+        "prose": 23,
         "typed": 5
       },
       "with_a_typed_prerequisite": 5,
       "percent_of_pages_with_a_typed_prerequisite": 8.3,
-      "links": 10,
-      "links_resolving_to_a_published_course": 10,
+      "links": 5,
+      "links_resolving_to_a_published_course": 5,
       "percent_of_links_that_resolve": 100.0,
-      "with_a_nonempty_prose_field": 5,
+      "with_a_nonempty_prose_field": 23,
       "prose_examples": [
         {
-          "path": "/social-studies/participation-in-government-0",
-          "text": "Students have the option to earn 3 college credits through Farmingdale State College in the honors level."
+          "path": "/science/physics-lab",
+          "text": "Algebra 2 and Chemistry with passing scores on both regents exams or recommendation from Algebra 2 and Chemistry teacher"
         },
         {
-          "path": "/high-school-musical-knowledge-courses/music-theory-ap",
-          "text": "Music Knowledge Courses are acceptable for Regents Diploma Graduation Requirement and Required for the Sequence in Music"
+          "path": "/mathematics/algebra-ii-trigonometry-honors",
+          "text": "Pass Geometry H with a final course grade of 80 and an 80 or higher on the Common Core Geometry Regents."
         },
         {
-          "path": "/mathematics/introduction-to-geometry",
-          "text": "Course does not end in a Regents Examination."
+          "path": "/language-other-than-english/ap-spanish-language",
+          "text": "Students must have successfully completed Spanish 4R with at least a 85 average and passed the Checkpoint B Spanish Exam"
         },
         {
-          "path": "/science/forensics",
-          "text": "There is a fee for this course."
+          "path": "/high-school-musical-exploratory-courses/advanced-piano",
+          "text": "Successful Completion of Beginning Piano"
         }
       ]
     }
   },
   "code": {
-    "commit": "f7a137e9351a126a753f451825b97dc5edcec7ad",
+    "commit": "7a5a5cd0edf8bfdce7f349ceafa21a9af8c00f82",
     "dirty": true,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

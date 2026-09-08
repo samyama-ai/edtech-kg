@@ -22,27 +22,41 @@ on the first and nothing on the second.**
 
 ## The answer
 
-| district | pages | read | with a typed prerequisite | share | links resolving |
+| district | candidate paths | courses read | with a typed prerequisite | share | links resolving |
 |---|---:|---:|---:|---:|---:|
 | PWCS (Prince William County, VA) | 817 | 60 | 17 | **28.3%** | 18/18 (100.0%) |
 | APS (Arlington, VA) | 698 | 60 | 3 | **5.0%** | 4/4 (100.0%) |
 | Clover Park (WA) | 1585 | 60 | 0 | **0.0%** | 0/0 |
 | Kenosha (WI) | — | — | — | — | — |
-| Central Islip (NY) | 202 | 60 | 5 | **8.3%** | 10/10 (100.0%) |
+| Central Islip (NY) | 202 | 60 | 5 | **8.3%** | 5/5 (100.0%) |
 
-Ceiling of 60 course pages per district, seed
-`19`, the same fields and the same classifier everywhere. Where a
-district publishes fewer pages than the ceiling the whole catalogue was read,
-so the denominator is **pages read**, never the ceiling.
+Ceiling of 60 pages per district, seed `19`,
+the same fields and the same classifier everywhere.
 
 **Resolution generalises and coverage does not.** Every typed link measured in
 every district resolves — 18/18
 at PWCS, 4/4 at Arlington,
-10/10 at Central Islip. But
+5/5 at Central Islip. But
 **28.3% of PWCS course pages carry a
 typed prerequisite against 5.0% of
 Arlington's** — 5.7 times as many, and against
 0.0% at Clover Park.
+
+### Candidate paths are not courses
+
+The first column counts two-segment paths, which is a candidate rule, not a
+classification. PWCS publishes 960 pages of which
+[`schema.md`](../schema.md) counts **791 courses**, 127 subject indexes and 42
+pathways, and quotes every PWCS rate against the 791. So 817
+is a larger set than the courses.
+
+**The share column does not use it.** Each sampled page is fetched and then
+classified by `etl/pwcs_pages`'s own rule — the markup, not the depth — and a
+pathway leaves the denominator. In this sample
+0 of PWCS's 60 sampled
+pages turned out not to be courses, so the correction changed no figure here.
+It is applied because the denominator has to be defensible whether or not it
+happens to matter.
 
 ## Two fields, and only one of them is a prerequisite field
 
@@ -50,12 +64,11 @@ Arlington's** — 5.7 times as many, and against
   other course pages. A graph edge already.
 - **`field-pr`** is free text.
 
-The second is counted here as *"has a non-empty prose field"* and **not** as
+The second is counted as *"has a non-empty prose field"* and **not** as
 *"states a prerequisite"*, because measurement shows it is used as a general
 notes field. Among its contents: *"This course is not eligible for high school
-credit."*, *"No lab class"*, and several GMU credit notes. An earlier version
-of this page divided by that count and so partly measured how chatty each
-district's notes are.
+credit."* and *"No lab class"*. An earlier version of this page divided by that
+count and so partly measured how chatty each district's notes are.
 
 Arlington's prose does carry real prerequisites — *"Previous band experience
 and audition by band director"* — which is the point. A prerequisite stated in
@@ -76,9 +89,9 @@ guessed at.
    population figures can be read as counts.
 2. **Layout.** Kenosha publishes pathway pages and no per-course pages, so
    there is nothing to attach a prerequisite to.
-3. **Field use.** Clover Park publishes 1585 course pages — the
-   largest catalogue here — and not one of the 60 sampled carries a
-   typed prerequisite.
+3. **Field use.** Clover Park publishes 1585 candidate
+   pages — the largest catalogue here — and not one of the 60 read
+   carries a typed prerequisite.
 
 ## What this means
 
@@ -101,6 +114,10 @@ platforms, and a larger sample would move these percentages.
 with 51 pages.** Those were wrong: the index crawl was not following the
 catalogue's pager, so it read the first page of each index and sampled from
 that — a biased subset rather than a small one. The pager is followed now, and
-Arlington publishes 698 course pages rather than 101. The
-direction of the finding survived the correction; the magnitudes did not, which
-is the argument for the calibration in point 1 above.
+Arlington publishes 698 candidate pages rather than
+101. The direction of the finding survived the correction; the magnitudes did
+not, which is the argument for the calibration in point 1 above.
+
+**Central Islip was also reported at 10 resolving links where it publishes
+5.** The links were not deduplicated, so a course linked twice
+counted twice — in a rate whose whole claim is that the links land.
