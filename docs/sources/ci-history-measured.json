@@ -1,17 +1,18 @@
 {
   "note": "Measured by `python -m etl.probe_ci_history --record`. Run outcomes come from the Gitea Actions API; the workflow dependency counts are read from the committed YAML. Which STEP failed is NOT measured — see the module docstring.",
-  "measured_at": "2026-09-07",
+  "measured_at": "2026-09-08",
   "api": "https://git.samyama.ai/api/v1/repos/Samyama.ai/edtech-kg",
-  "runs_returned": 209,
+  "runs_returned": 213,
   "workflows": {
     "ci.yml": {
-      "runs": 207,
+      "runs": 211,
       "success": 0,
-      "failure": 205,
+      "failure": 209,
       "other": 2,
       "first": "2026-08-21T12:30:02Z",
-      "last": "2026-09-07T08:45:58Z",
-      "timed": 207,
+      "last": "2026-09-08T04:01:44Z",
+      "unfinished": 0,
+      "timed": 211,
       "median_seconds": 7,
       "max_seconds": 58,
       "over_floor": 0
@@ -23,6 +24,7 @@
       "other": 0,
       "first": "2026-09-07T08:45:05Z",
       "last": "2026-09-07T08:45:05Z",
+      "unfinished": 0,
       "timed": 1,
       "median_seconds": 5,
       "max_seconds": 5,
@@ -35,6 +37,7 @@
       "other": 0,
       "first": "2026-09-01T05:48:18Z",
       "last": "2026-09-01T05:48:18Z",
+      "unfinished": 0,
       "timed": 1,
       "median_seconds": 6,
       "max_seconds": 6,
@@ -48,7 +51,7 @@
         "actions/setup-python@v5"
       ],
       "count": 2,
-      "steps": 5,
+      "steps": 7,
       "tolerant_steps": 0
     },
     "runner-diagnostic.yml": {
@@ -60,30 +63,38 @@
   },
   "verdict": {
     "floor_seconds": 60,
+    "suite_seconds_asserted": 51,
     "with_actions": {
-      "runs": 207,
+      "workflows": [
+        "ci.yml"
+      ],
+      "runs": 211,
       "success": 0,
       "uses": [
         "actions/checkout@v4",
         "actions/setup-python@v5"
       ],
-      "median_seconds": 7,
       "ran_longer_than_the_floor": 0
     },
     "without_actions": {
+      "workflows": [
+        "runner-diagnostic.yml"
+      ],
       "runs": 1,
       "success": 1,
       "uses": [],
-      "median_seconds": 5,
       "ran_longer_than_the_floor": 0
     },
+    "in_history_but_not_committed": [
+      "runner-diagnostics.yml"
+    ],
     "diagnostic_outcome_is_informative": false,
     "diagnostic_steps": 8,
     "diagnostic_tolerant_steps": 8
   },
   "code": {
-    "commit": "43e5195ce93445cfba723e69104779ed09fb466e",
-    "dirty": true,
+    "commit": "d9b07ef53f084a3ffac474f3e9dfd59be1382149",
+    "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
   }
