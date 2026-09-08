@@ -189,15 +189,17 @@ available to it**, so a status other than 201 now stops the run.
 
 | nodes in label | `MERGE` /sec | `CREATE` /sec | `MATCH` /sec |
 |---:|---:|---:|---:|
-| 1,000 | 558.6 | 774.8 | 807.8 |
-| 4,000 | 380.5 | 699.1 | 768.0 |
-| 8,000 | 129.1 | 634.4 | 730.5 |
-| 16,000 | 83.9 | 789.2 | 805.6 |
+| 1,000 | 563.9 | 821.1 | 772.0 |
+| 4,000 | 383.8 | 804.5 | 766.7 |
+| 8,000 | 164.0 | 799.1 | 782.4 |
+| 16,000 | 87.1 | 788.3 | 726.5 |
 
-Over that range `MERGE` fell **6.7x** while `MATCH` moved
-1.0x. The isolating control is the last figure: the same
+Over that range `MERGE` fell **6.5x** while `MATCH` moved
+1.1x. The isolating control is the last figure: the same
 `MERGE` statement against a fresh, nearly-empty label ran at
-**773.2/sec** — full speed. It is the size of
+**759.8/sec** — full speed, with the SAME uniqueness constraint declared
+on it. Without that the control differed in two variables and a fast result
+could have meant either a small label or an absent index. It is the size of
 the label being merged into, not the statement.
 
 **These are timings and they vary between runs.** The committed record is one
