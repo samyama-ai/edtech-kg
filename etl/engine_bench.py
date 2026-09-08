@@ -16,6 +16,18 @@ import time
 
 from etl.engine import Engine, Refused
 
+def ratio(before: float, after: float) -> float | None:
+    """How far a rate fell, or None if either end is unmeasured.
+
+    None, never 0.0. `rate()` returns 0.0 when the elapsed clock is zero, and
+    a `merge_fell_by` of 0.0 reads as "it did not fall" while meaning "there
+    was nothing to divide".
+    """
+    if not before or not after:
+        return None
+    return round(before / after, 1)
+
+
 #: Its own scratch label, not the correctness probe's. #169's own control is
 #: that the same MERGE against a nearly-empty label runs at full speed — so
 #: timing into a label something else has filled reports the other thing's
@@ -40,6 +52,26 @@ FULL_SIZES = SIZES + (32000,)
 #: untimed warm-up of the same statement shape.
 BATCH = 150
 WARMUP = 30
+
+
+def declare_constraint(engine: Engine, label: str) -> str:
+    """Declare the uniqueness constraint, and say what happened.
+
+    Returns "declared", "already" or a refusal message — never silence. The
+    first version swallowed the refusal under a comment claiming it was
+    "recorded, not swallowed", and no field for it existed anywhere.
+
+    Whether the index is there is the whole subject: `MERGE` is being measured
+    against a constrained key, and a run where the declaration failed measures
+    something else entirely.
+    """
+    try:
+        engine.run(f"CREATE CONSTRAINT ON (n:{label}) ASSERT n.id IS UNIQUE")
+        return "declared"
+    except Refused as refused:
+        # A re-declaration is expected on a re-used engine and is not a
+        # problem; anything else is, and the caller can see which.
+        return f"refused: {refused}"
 
 
 def rate(engine: Engine, statement, count: int) -> float:
@@ -84,14 +116,7 @@ def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
     statement.
     """
     engine.run(f"MATCH (n:{LABEL}) DETACH DELETE n")
-    try:
-        engine.run(f"CREATE CONSTRAINT ON (n:{LABEL}) "
-                   f"ASSERT n.id IS UNIQUE")
-    except Refused:
-        # Already declared, or the engine refuses a re-declaration. Either way
-        # the index either exists or does not, and the measurement below is
-        # what decides — so this is not fatal and is recorded, not swallowed.
-        pass
+    bench_constraint = declare_constraint(engine, LABEL)
 
     filled, points = 0, []
     for size in sizes:
@@ -145,7 +170,12 @@ def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
                        "match_per_sec": match_rate})
 
     # The isolating control: identical MERGE, nearly empty label.
+    # **The control needs the constraint too.** Without it the "identical
+    # MERGE" differed in two variables — label size AND whether an index
+    # existed — so a fast result could have meant either. It is only an
+    # isolating control if the single difference is how much is in the label.
     engine.run(f"MATCH (n:{LABEL}Fresh) DETACH DELETE n")
+    fresh_constraint = declare_constraint(engine, f"{LABEL}Fresh")
     fresh = rate(engine, lambda i: f'MERGE (n:{LABEL}Fresh {{id: "f-{i}"}})',
                  BATCH)
 
@@ -154,11 +184,18 @@ def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
         "issue": 169,
         "batch": BATCH,
         "points": points,
+        # RECORDED, which the comment on the old `except Refused: pass`
+        # claimed and did not do — nothing was written and no field existed.
+        # Both labels must be constrained or the control is not a control.
+        "constraint_declared": {LABEL: bench_constraint,
+                                f"{LABEL}Fresh": fresh_constraint},
         "merge_into_a_fresh_label_per_sec": fresh,
-        "merge_fell_by": round(first["merge_per_sec"] / last["merge_per_sec"], 1)
-                         if last["merge_per_sec"] else None,
-        "match_fell_by": round(first["match_per_sec"] / last["match_per_sec"], 1)
-                         if last["match_per_sec"] else None,
+        # BOTH ends guarded. Only the denominator was, so a 0.0 numerator —
+        # which `rate()` returns when the clock reports no elapsed time —
+        # produced `merge_fell_by: 0.0`, a number that reads as "it did not
+        # fall" and means "nothing was measured".
+        "merge_fell_by": ratio(first["merge_per_sec"], last["merge_per_sec"]),
+        "match_fell_by": ratio(first["match_per_sec"], last["match_per_sec"]),
         "still_defective": merge_is_still_defective(points),
     }
 

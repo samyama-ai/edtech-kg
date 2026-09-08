@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from etl.engine import Refused
 from etl import engine_bench as bench
 from etl import probe_engine_defects as probe
 
@@ -65,10 +66,30 @@ def test_the_probe_refuses_a_loaded_engine(monkeypatch):
     monkeypatch.setattr(probe, "api",
                         lambda url, path, *a, **k:
                         (200, {"storage": {"nodes": 4392}, "version": "1.7.0"}))
+    # Its own labels are cleared first — that is what makes the probe
+    # re-runnable — so the count that decides is what is LEFT afterwards.
+    monkeypatch.setattr(probe, "clear_our_own", lambda engine: 4392)
     with pytest.raises(probe.Unusable) as refused:
         probe.measure("http://localhost:9999")
     assert "4392" in str(refused.value)
+    assert "did not write" in str(refused.value)
     assert "scratch" in str(refused.value)
+
+
+def test_a_graph_holding_only_a_previous_run_is_cleared_not_refused(monkeypatch):
+    """The probe wrote ~33,000 nodes and then refused to start against them,
+    so re-measuring meant destroying the container. Zero left after clearing
+    its own labels means the graph was its own last run."""
+    monkeypatch.setattr(probe, "api",
+                        lambda url, path, *a, **k:
+                        (200, {"storage": {"nodes": 33000}, "version": "1.7.0"}))
+    monkeypatch.setattr(probe, "clear_our_own", lambda engine: 0)
+    monkeypatch.setattr(probe, "remove_is_a_no_op", lambda e: {"ok": 1})
+    monkeypatch.setattr(probe, "tenant_is_ignored", lambda u, e: {"ok": 1})
+    monkeypatch.setattr(probe, "merge_ignores_the_index",
+                        lambda e, sizes: {"ok": 1})
+    measured = probe.measure("http://localhost:9999")
+    assert measured["remove"] == {"ok": 1}, "the run was refused"
 
 
 def test_an_engine_that_does_not_answer_status_is_refused(monkeypatch):
@@ -106,3 +127,74 @@ def test_the_warmup_is_not_inside_the_timing():
     assert bench.WARMUP > 0 and bench.BATCH >= 100, (
         "a batch this small is dominated by warm-up; 40 gave a non-monotonic "
         "table that reversed the finding")
+
+
+def test_the_verdict_does_not_require_the_row_to_have_lost_the_key():
+    """**The case #163 originally described must not report FIXED.**
+
+    Requiring `row_no_longer_holds_it` did exactly that: an engine where the
+    row keeps the property and every read is stale — the issue's own wording —
+    came out as fixed. That is the milder version of this defect and it is
+    still the defect. What the row did is a refinement recorded beside the
+    finding, not a gate on it.
+    """
+    before = {"projection": "keep", "count_by_value": 1,
+              "row_has_the_key": True, "row_value": "keep"}
+
+    # The issue's original claim: nothing changed anywhere.
+    unchanged = dict(before)
+    assert probe.reads_disagree_with_the_row(before, unchanged) is True
+
+    # What 1.1.0 actually does: the row loses the key, the reads do not.
+    row_cleared = {"projection": "keep", "count_by_value": 1,
+                   "row_has_the_key": False, "row_value": None}
+    assert probe.reads_disagree_with_the_row(before, row_cleared) is True
+
+    # Genuinely fixed: the reads follow the write.
+    fixed = {"projection": None, "count_by_value": 0,
+             "row_has_the_key": False, "row_value": None}
+    assert probe.reads_disagree_with_the_row(before, fixed) is False
+
+
+def test_a_probe_run_can_follow_another_on_the_same_engine():
+    """It wrote ~33,000 nodes and then refused to start against them, so
+    re-measuring meant destroying the container. Its own labels are cleared;
+    anything else is still refused."""
+    assert probe.LABEL in probe.OUR_LABELS
+    assert all(lbl for lbl in probe.OUR_LABELS), "an unnamed label survives a reset"
+
+
+def test_a_ratio_with_an_unmeasured_end_is_none_not_zero():
+    """`rate()` returns 0.0 when the clock reports no elapsed time. Only the
+    denominator was guarded, so a 0.0 numerator gave `merge_fell_by: 0.0` — a
+    number that reads as "it did not fall" and means "nothing was measured"."""
+    assert bench.ratio(0.0, 500.0) is None
+    assert bench.ratio(500.0, 0.0) is None
+    assert bench.ratio(640.0, 80.0) == 8.0
+
+
+def test_the_fresh_label_control_is_declared_too(monkeypatch):
+    """Without the constraint the "identical MERGE" differed in two variables
+    — label size AND index presence — so a fast result could mean either. It
+    is an isolating control only if the one difference is label size."""
+    import inspect
+    source = inspect.getsource(bench.merge_ignores_the_index)
+    assert "declare_constraint(engine, f\"{LABEL}Fresh\")" in source, (
+        "the fresh control label is measured without a uniqueness constraint")
+
+
+def test_a_refused_constraint_is_recorded_rather_than_swallowed():
+    """The old `except Refused: pass` carried a comment saying it was
+    "recorded, not swallowed", and nothing was written and no field existed."""
+    class Refuses:
+        def run(self, cypher):
+            raise Refused(400, "constraint already declared")
+
+    said = bench.declare_constraint(Refuses(), "X")
+    assert said.startswith("refused: "), said
+
+    class Accepts:
+        def run(self, cypher):
+            return {"records": []}
+
+    assert bench.declare_constraint(Accepts(), "X") == "declared"

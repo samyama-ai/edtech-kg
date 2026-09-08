@@ -51,7 +51,7 @@ import urllib.error
 import urllib.request
 
 from etl.engine import Engine, Refused
-from etl.engine_bench import (FULL_SIZES, SIZES,
+from etl.engine_bench import (FULL_SIZES, LABEL as BENCH_LABEL, SIZES,
                               merge_ignores_the_index)
 from etl.provenance import write_record
 
@@ -101,6 +101,23 @@ def api(url: str, path: str, method: str = "GET",
             return refused.code, None
     except (urllib.error.URLError, TimeoutError, OSError) as gone:
         raise Unusable(f"{path}: {gone}") from gone
+
+
+#: Every label this probe writes. Named in one place so `clear_our_own` and
+#: the writers cannot drift — a label missing from here is one that survives a
+#: reset and then blocks the next run.
+OUR_LABELS = (LABEL, BENCH_LABEL, f"{BENCH_LABEL}Fresh")
+
+
+def clear_our_own(engine: Engine) -> int:
+    """Delete this probe's own nodes; return how many others remain.
+
+    Zero means the graph held nothing but a previous run of this probe and is
+    now empty. Anything else is somebody's data and the caller must refuse.
+    """
+    for label in OUR_LABELS:
+        engine.run(f"MATCH (n:{label}) DETACH DELETE n")
+    return scalar(engine, "MATCH (n) WITH n RETURN count(n)") or 0
 
 
 def one(engine: Engine, cypher: str) -> list:
@@ -232,17 +249,21 @@ def reads_disagree_with_the_row(before: dict, after: dict) -> bool:
     # `A and B and not C or D` — which parses as `(A and B and not C) or D`
     # and is not what it reads as. Both are the same mistake: a verdict a
     # reviewer cannot check by looking at it.
+    #
+    # **The row's state is NOT a condition.** Requiring it to have lost the
+    # key reported FIXED in exactly the case #163 originally described — the
+    # row keeps the property and the reads are stale. That is the milder
+    # version of this defect and it is still the defect. What the row did is a
+    # REFINEMENT of the finding, recorded beside it, not a gate on it.
     projection_is_stale = after["projection"] == before["projection"]
     filter_is_stale = after["count_by_value"] == before["count_by_value"]
-    row_no_longer_holds_it = (not after["row_has_the_key"]
-                              or after["row_value"] is None)
-    return projection_is_stale and filter_is_stale and row_no_longer_holds_it
+    return projection_is_stale and filter_is_stale
 
 
 def tenant_is_ignored(url: str, engine: Engine) -> dict:
     """#149 — does `tenant` on /api/query scope anything?
 
-    Asks for a count under four tenants including one that has never existed.
+    Asks for a count under three tenants, one of which has never existed.
     The status codes are recorded too: the claim is not that the API rejects
     the calls, it is that it accepts them and scopes nothing, and only the
     codes distinguish those.
@@ -266,13 +287,18 @@ def tenant_is_ignored(url: str, engine: Engine) -> dict:
             f"longer accepts them the finding needs re-stating, not "
             f"re-recording.")
     counts = {}
-    for tenant in ("default", "probe-scratch", "nonexistent-tenant-xyz"):
-        status, body = api(url, "/api/query", "POST", {
-            "query": f"MATCH (n:{LABEL}) WITH n RETURN count(n)",
-            "tenant": tenant})
-        records = (body or {}).get("records") or []
-        counts[tenant] = records[0][0] if records and records[0] else None
-    dropped, _ = api(url, "/api/tenants/probe-scratch", "DELETE")
+    try:
+        for tenant in ("default", "probe-scratch", "nonexistent-tenant-xyz"):
+            status, body = api(url, "/api/query", "POST", {
+                "query": f"MATCH (n:{LABEL}) WITH n RETURN count(n)",
+                "tenant": tenant})
+            records = (body or {}).get("records") or []
+            counts[tenant] = records[0][0] if records and records[0] else None
+    finally:
+        # The tenant goes even if a query raises. It leaked otherwise, and a
+        # leaked tenant is the one piece of state this probe creates that a
+        # later run would find already there.
+        dropped, _ = api(url, "/api/tenants/probe-scratch", "DELETE")
     after_drop = scalar(engine, f"MATCH (n:{LABEL}) WITH n RETURN count(n)")
 
     seen = set(counts.values())
@@ -297,15 +323,25 @@ def measure(url: str, full: bool = False, image: str = DEFAULT_IMAGE) -> dict:
         raise Unusable(f"{url} answered {status} at /api/status")
     nodes = ((body or {}).get("storage") or {}).get("nodes")
     if nodes:
-        # REFUSED, not a warning. This probe writes tens of thousands of nodes
-        # and cannot remove them (that is defect #163), so running it against
-        # a loaded graph corrupts the graph — which is exactly how :8200 came
-        # to hold four copies of one district (#149).
-        raise Unusable(
-            f"{url} already holds {nodes} nodes. This probe writes and cannot "
-            f"clean up — point it at a scratch engine:\n"
-            f"  docker run -d --name sg-defects -p 8224:8080 "
-            f"public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0")
+        # A graph holding ONLY this probe's own labels is its own previous
+        # run, and refusing that made the probe single-use: it left ~33,000
+        # nodes behind and then would not start against them, so re-measuring
+        # meant destroying and recreating the container. Deleting them is
+        # safe and is measured to work — DETACH DELETE is not the broken
+        # operation here; REMOVE is.
+        #
+        # Anything else is still refused outright, because this writes tens
+        # of thousands of nodes into a graph it cannot tidy. Running it
+        # against a loaded one is how :8200 came to hold four copies of one
+        # district (#149).
+        leftover = clear_our_own(Engine(url))
+        if leftover:
+            raise Unusable(
+                f"{url} holds {leftover} node(s) this probe did not write. It "
+                f"writes tens of thousands and cannot clean up after itself — "
+                f"point it at a scratch engine:\n"
+                f"  docker run -d --name sg-defects -p 8224:8080 "
+                f"public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0")
 
     return {
         "_": RECORD_NOTE,
