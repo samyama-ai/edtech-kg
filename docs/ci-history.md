@@ -52,7 +52,7 @@ argument turns on: if the suite took 30s the floor would drop toward 40s, the
 
 `tests/test_ci_history_doc.py` is deselected from that timing because it asserts
 this very figure — timing the whole suite is circular and could never
-bootstrap. One module of 86.
+bootstrap. One module of 87.
 
 CI additionally pulls a container image and polls for it. So **60 seconds
 is a floor** — a chosen round number above the measured suite time, not a

@@ -2,20 +2,21 @@
   "note": "Measured by `python -m etl.probe_ci_history --record`. Run outcomes come from the Gitea Actions API; the workflow dependency counts are read from the committed YAML. Which STEP failed is NOT measured — see the module docstring.",
   "measured_at": "2026-09-08",
   "api": "https://git.samyama.ai/api/v1/repos/Samyama.ai/edtech-kg",
-  "runs_returned": 220,
+  "runs_returned": 221,
   "workflows": {
     "ci.yml": {
-      "runs": 218,
+      "runs": 219,
       "success": 0,
-      "failure": 216,
+      "failure": 217,
       "other": 2,
       "first": "2026-08-21T12:30:02Z",
-      "last": "2026-09-08T05:38:18Z",
+      "last": "2026-09-08T06:09:37Z",
       "unfinished": 0,
-      "timed": 218,
+      "timed": 219,
       "median_seconds": 7.0,
       "max_seconds": 58,
-      "over_floor": 0
+      "over_floor": 0,
+      "untimed": 0
     },
     "runner-diagnostic.yml": {
       "runs": 1,
@@ -28,7 +29,8 @@
       "timed": 1,
       "median_seconds": 5.0,
       "max_seconds": 5,
-      "over_floor": 0
+      "over_floor": 0,
+      "untimed": 0
     },
     "runner-diagnostics.yml": {
       "runs": 1,
@@ -41,7 +43,8 @@
       "timed": 1,
       "median_seconds": 6.0,
       "max_seconds": 6,
-      "over_floor": 0
+      "over_floor": 0,
+      "untimed": 0
     }
   },
   "dependencies": {
@@ -68,14 +71,14 @@
       "measured": true,
       "command": "python -m pytest -q --deselect tests/test_ci_history_doc.py",
       "excluded": "tests/test_ci_history_doc.py",
-      "of_modules": 86,
+      "of_modules": 87,
       "why_excluded": "it asserts the figure this run produces"
     },
     "with_actions": {
       "workflows": [
         "ci.yml"
       ],
-      "runs": 218,
+      "runs": 219,
       "success": 0,
       "uses": [
         "actions/checkout@v4",
@@ -100,7 +103,7 @@
     "diagnostic_tolerant_steps": 8
   },
   "code": {
-    "commit": "3a9668bde09aa7a60b3b0ce0924f4471c6055d7a",
+    "commit": "c39c3077d7323d18d59ef59560eb6f84b8920a43",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
