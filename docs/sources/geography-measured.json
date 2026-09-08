@@ -61,5 +61,11 @@
     "vintage": [
       "2022"
     ]
+  },
+  "code": {
+    "commit": "e2601da8843baaa5e7d1cacae8d64378b17a78c2",
+    "dirty": false,
+    "package": "0.1.0",
+    "backfilled": "The commit that CONTAINS this record, not the tree the probe ran against — the record predates `write_record`. Weaker than a live stamp: it bounds the code that produced these figures rather than naming it. Re-running the probe replaces this."
   }
 }
