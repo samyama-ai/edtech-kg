@@ -11,6 +11,9 @@ from __future__ import annotations
 import pytest
 
 from etl import probe_ci_history as probe
+# The YAML reading lives in its own module since the split — imported
+# from where it lives rather than re-exported through the probe.
+from etl import workflow_files
 
 
 def run(workflow="ci.yml", status="failure", started="2026-09-01T05:00:00Z",
@@ -94,7 +97,7 @@ def test_a_workflow_with_no_steps_is_not_called_informative():
 def test_dependencies_reads_the_committed_workflows():
     """Read from the YAML, never typed — the `uses:` count is what the whole
     comparison in the document rests on."""
-    found = probe.dependencies()
+    found = workflow_files.dependencies()
     assert "ci.yml" in found, "ci.yml is not committed"
     assert found["ci.yml"]["count"] >= 2, (
         "ci.yml fetches actions; if it stops doing so the document's "
@@ -106,7 +109,7 @@ def test_the_diagnostic_still_fetches_nothing():
     """The comparison is only valid while this stays true. If someone adds an
     action to the diagnostic, the two workflows stop differing in one variable
     and the document's conclusion goes with it."""
-    found = probe.dependencies()
+    found = workflow_files.dependencies()
     if "runner-diagnostic.yml" not in found:
         pytest.skip("the diagnostic has been removed — #109 is closed")
     assert found["runner-diagnostic.yml"]["count"] == 0, (
@@ -126,7 +129,10 @@ def test_an_api_answer_without_runs_is_an_error_not_an_empty_history(monkeypatch
     with pytest.raises(probe.Unreachable):
         probe.runs("token")
 
-    monkeypatch.setattr(probe, "get", lambda url, token: b'{"workflow_runs": []}')
+    # `total_count` is required now, so an empty history states it as 0.
+    monkeypatch.setattr(
+        probe, "get",
+        lambda url, token: b'{"total_count": 0, "workflow_runs": []}')
     assert probe.runs("token") == []
 
 
@@ -187,7 +193,7 @@ jobs:
   other:
     continue-on-error: true
 """
-    counted = probe.step_counts(workflow)
+    counted = workflow_files.step_counts(workflow)
     assert counted["steps"] == 3, "a step leading with uses: or run: is a step"
     assert counted["tolerant_steps"] == 1, (
         "only the real key indented under a step counts — not the comment, "
@@ -225,3 +231,78 @@ def test_a_workflow_that_ran_and_is_not_committed_is_named_not_dropped():
         {"ci.yml": {"uses": ["x"], "count": 1, "steps": 1,
                     "tolerant_steps": 0}}, 51)
     assert check["in_history_but_not_committed"] == ["deleted.yml"]
+
+
+def test_a_timestamp_this_instance_does_not_use_still_parses():
+    """A fractional second or a `+00:00` offset — both legal ISO-8601, both
+    emitted by other Gitea builds — returned None, and every None quietly left
+    the duration evidence emptier. The floor argument is a claim ABOUT
+    durations, so silently having none is the worst failure available here."""
+    pairs = [("2026-09-01T05:00:00Z", "2026-09-01T05:00:07Z"),
+             ("2026-09-01T05:00:00.123Z", "2026-09-01T05:00:07.456Z"),
+             ("2026-09-01T05:00:00+00:00", "2026-09-01T05:00:07+00:00"),
+             ("2026-09-01T10:30:00+05:30", "2026-09-01T05:00:07+00:00")]
+    for started, ended in pairs:
+        assert probe.seconds(started, ended) == 7, (started, ended)
+    assert probe.seconds("not a date", "2026-09-01T05:00:07Z") is None
+
+
+def test_a_missing_total_count_fails_rather_than_skipping_the_guard(monkeypatch):
+    """`if total is not None and ...` meant the day the key moved — Gitea
+    returns it in an X-Total-Count header on several list endpoints — the
+    truncation assertion the docstring promises would stop running, silently.
+    """
+    monkeypatch.setattr(probe, "get",
+                        lambda url, token: b'{"workflow_runs": []}')
+    with pytest.raises(probe.Unreachable) as gone:
+        probe.runs("token")
+    assert "X-Total-Count" in str(gone.value), (
+        "the failure must point at where the count probably moved to")
+
+
+def test_a_steps_aligned_list_is_counted():
+    """Legal, common YAML:
+
+        steps:
+        - uses: actions/checkout@v4
+
+    Ending the block on any equal indent gave `steps == 0` for every workflow
+    written that way — and zero steps with zero tolerant steps reads as
+    `tolerant < steps` being False, which flips
+    `diagnostic_outcome_is_informative` to True and quietly restores the
+    claim this probe exists to refuse.
+    """
+    aligned = """
+jobs:
+  test:
+    steps:
+    - uses: actions/checkout@v4
+    - name: One
+      continue-on-error: true
+    - run: echo two
+  other:
+    continue-on-error: true
+"""
+    assert workflow_files.step_counts(aligned) == {"steps": 3, "tolerant_steps": 1}
+
+
+def test_the_suite_timing_refuses_to_pass_off_a_failed_run(monkeypatch):
+    """A failing suite can stop early, and a run that died in collection takes
+    no time at all — which would drop the floor to nothing and make "0 runs
+    reached the floor" true by arithmetic rather than by measurement."""
+    class Finished:
+        returncode = 1
+    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **k: Finished())
+    monkeypatch.delenv(probe.REENTRY, raising=False)
+    timed = probe.time_the_suite()
+    assert timed["measured"] is False
+    assert "exited 1" in timed["why"]
+
+
+def test_the_probe_cannot_fork_a_suite_from_inside_one(monkeypatch):
+    """Without the guard, a test that called `measure()` would fork a suite
+    that forks a suite."""
+    monkeypatch.setenv(probe.REENTRY, "1")
+    timed = probe.time_the_suite()
+    assert timed["measured"] is False
+    assert "re-entered" in timed["why"]

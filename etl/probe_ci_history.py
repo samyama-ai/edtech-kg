@@ -36,13 +36,15 @@ import datetime
 import json
 import os
 import pathlib
-import re
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
 from etl.identity import USER_AGENT
 from etl.provenance import write_record
+from etl.workflow_files import dependencies
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "ci-history-measured.json"
@@ -52,7 +54,6 @@ RECORD_NOTE = ("Measured by `python -m etl.probe_ci_history --record`. Run "
                "STEP failed is NOT measured — see the module docstring.")
 
 API = "https://git.samyama.ai/api/v1/repos/Samyama.ai/edtech-kg"
-WORKFLOWS = ROOT / ".github" / "workflows"
 
 #: The suite takes ~51s locally with an engine already up. CI additionally
 #: pulls a container image and polls for it. A run that ENDED faster than this
@@ -60,12 +61,20 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 #: is what makes the durations usable without a log.
 FLOOR_SECONDS = 60
 
-#: How long the suite takes locally with an engine already up. **An assertion
-#: by whoever ran this, not something the Actions API can report** — it is the
-#: other half of the floor argument, and it was a bare `51` typed into the page
-#: and whitelisted in the test sweep, which is the one thing this repo says a
-#: figure may never be. Recorded so it is at least visible and datable.
+#: Fallback only, for `--no-time-suite`. The suite is TIMED by default — see
+#: `time_the_suite`. This was a typed `51`, disclosed as an assertion, and a
+#: review was right that disclosure is not measurement: CONTRIBUTING says
+#: "every figure in a document is printed by a probe, never typed. If you
+#: cannot point at the command, delete the figure", and this is the figure the
+#: whole floor argument turns on. If the suite really took 30s the floor would
+#: drop toward 40s, the 58s run could have executed tests, and the headline
+#: would weaken.
 SUITE_SECONDS = 51
+
+#: Set while the probe shells out to pytest, so a probe run started FROM the
+#: suite cannot start another one. Without it a test that called `measure()`
+#: would fork a suite that forks a suite.
+REENTRY = "SAMYAMA_TIMING_THE_SUITE"
 
 
 class Unreachable(RuntimeError):
@@ -93,10 +102,17 @@ def seconds(started: str, ended: str) -> int | None:
     """
     if not started or not ended:
         return None
-    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    # **Not one hard-coded format.** `%Y-%m-%dT%H:%M:%SZ` matches this
+    # instance and nothing else: a fractional second or a `+00:00` offset —
+    # both legal ISO-8601 and both emitted by other Gitea builds — returned
+    # None, and every None quietly left the duration evidence emptier. The
+    # floor argument is a claim about durations, so silently having none is
+    # the worst possible failure here.
+    #
+    # `fromisoformat` handles offsets and fractions. It rejects a trailing
+    # `Z` before 3.11, so that is normalised first rather than assumed.
     try:
-        return int((datetime.datetime.strptime(ended, fmt)
-                    - datetime.datetime.strptime(started, fmt)).total_seconds())
+        return int((_parse(ended) - _parse(started)).total_seconds())
     except ValueError:
         return None
 
@@ -104,6 +120,12 @@ def seconds(started: str, ended: str) -> int | None:
 #: Terminal outcomes. A run not in this set has not finished, and its stamps
 #: do not describe a completed run.
 TERMINAL = {"success", "failure", "cancelled"}
+
+
+def _parse(stamp: str) -> datetime.datetime:
+    """One ISO-8601 timestamp, `Z` or offset, with or without fractions."""
+    return datetime.datetime.fromisoformat(
+        stamp.replace("Z", "+00:00") if stamp.endswith("Z") else stamp)
 
 
 def runs(token: str, limit: int = 250) -> list[dict]:
@@ -129,7 +151,18 @@ def runs(token: str, limit: int = 250) -> list[dict]:
         raise Unreachable("the Actions API answered without a workflow_runs key")
 
     total = body.get("total_count")
-    if total is not None and total != len(found):
+    if total is None:
+        # **An absent total is a failure, not a pass.** The guard was written
+        # `if total is not None and ...`, so the day the key moved — Gitea
+        # returns the count in an `X-Total-Count` HEADER on several list
+        # endpoints — the assertion the docstring promises would simply stop
+        # running, and nothing would say so.
+        raise Unreachable(
+            "the Actions API answered without a total_count, so the page "
+            "cannot be checked for truncation. It may be in an "
+            "X-Total-Count header on this build — read it there rather than "
+            "deleting this check.")
+    if total != len(found):
         raise Unreachable(
             f"the API reports {total} runs and returned {len(found)}. Every "
             f"figure here is a count over the whole history, so a truncated "
@@ -199,73 +232,7 @@ def tally(found: list[dict]) -> dict:
     return by_workflow
 
 
-def dependencies() -> dict:
-    """What each committed workflow fetches, read from the YAML.
-
-    `uses:` is the line that needs the runner to fetch something from outside.
-    A workflow with none of them exercises the runner and nothing else, which
-    is what makes `runner-diagnostic.yml`'s outcome mean something.
-
-    Read with a regex rather than a YAML parser on purpose: the suite has no
-    third-party dependency beyond pytest, and adding one to count six lines
-    would be a heavier price than the parse is worth. The pattern is anchored
-    to a list item so a `uses:` inside a comment or a string does not count.
-    """
-    found = {}
-    # `.yaml` too. A workflow saved under the other spelling is one the runner
-    # runs and this function does not see, and its absence here would read as
-    # "that workflow fetches nothing".
-    for path in sorted(list(WORKFLOWS.glob("*.yml"))
-                       + list(WORKFLOWS.glob("*.yaml"))):
-        text = path.read_text(encoding="utf-8")
-        uses = re.findall(r"^\s*-?\s*uses:\s*(\S+)", text, re.M)
-        found[path.name] = {"uses": sorted(set(uses)), "count": len(uses),
-                            **step_counts(text)}
-    return found
-
-
-def step_counts(text: str) -> dict:
-    r"""How many steps a workflow has, and how many of them cannot fail it.
-
-    **Counted the same way as each other**, which the first version did not
-    do. `^\s+- name:` saw only steps whose first key is `name`, missing any
-    leading with `uses:` or `run:`; `continue-on-error:\s*true` was unanchored
-    and would match the phrase in a comment or on a job-level key. So the two
-    could drift in opposite directions at once and `tolerant < steps` — the
-    test that decides whether the diagnostic's outcome means anything — could
-    invert on a workflow nobody had touched.
-
-    A step is a list item under `steps:`, whatever key it leads with. A
-    tolerant step is the key itself, indented under one, not the words
-    appearing anywhere.
-    """
-    steps = tolerant = 0
-    #: The column `steps:` sits at. The block ends at the first non-blank line
-    #: indented no further than that — which is how a SIBLING job's own
-    #: `continue-on-error` stops being counted as a step's. Resetting only at
-    #: column zero left `other:` inside the previous job's step list, and the
-    #: job-level key was counted as a tolerant step.
-    at_column = None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        indent = len(line) - len(line.lstrip())
-        if at_column is not None and indent <= at_column:
-            at_column = None
-        if stripped == "steps:":
-            at_column = indent
-            continue
-        if at_column is None:
-            continue
-        if re.match(r"^-\s*[\w-]+:", stripped):
-            steps += 1
-        if re.match(r"^-?\s*continue-on-error:\s*true$", stripped):
-            tolerant += 1
-    return {"steps": steps, "tolerant_steps": tolerant}
-
-
-def verdict(by_workflow: dict, deps: dict, suite_seconds: int) -> dict:
+def verdict(by_workflow: dict, deps: dict, suite: dict) -> dict:
     """The comparison that answers #109 without reading a single log.
 
     Two workflows, same runner, same repo, same week. One fetches actions and
@@ -312,7 +279,9 @@ def verdict(by_workflow: dict, deps: dict, suite_seconds: int) -> dict:
 
     return {
         "floor_seconds": FLOOR_SECONDS,
-        "suite_seconds_asserted": suite_seconds,
+        # MEASURED, with the command that measured it — not asserted. The
+        # floor below is only a floor if this figure is real.
+        "suite": suite,
         "with_actions": group([n for n in committed if deps[n]["count"]]),
         "without_actions": group(action_free),
         "in_history_but_not_committed": uncommitted,
@@ -330,7 +299,55 @@ def verdict(by_workflow: dict, deps: dict, suite_seconds: int) -> dict:
     }
 
 
-def measure(token: str, suite_seconds: int = SUITE_SECONDS) -> dict:
+def time_the_suite() -> dict:
+    """Run the suite and time it. **The floor argument's other half.**
+
+    Shelled out rather than imported: the figure that matters is what a person
+    gets from the documented command, and an in-process run would not include
+    interpreter start-up or collection, which CI pays for too.
+
+    Returns the seconds AND the command, so the page can point at it. On any
+    failure it returns `measured: False` with the reason and the fallback
+    constant — a probe must not die because it could not time itself, but it
+    must not pass a guess off as a measurement either.
+    """
+    if os.environ.get(REENTRY):
+        return {"seconds": SUITE_SECONDS, "measured": False,
+                "why": "re-entered from inside a suite run"}
+
+    # **Deselect the module that reads this record.** Timing the whole suite
+    # is circular: `tests/test_ci_history_doc.py` asserts the figure this
+    # function is in the middle of producing, so before a first successful run
+    # it fails, the exit code is non-zero, and the timing is discarded — the
+    # measurement can never bootstrap. The exclusion is recorded, and it is
+    # one module of ~200: the difference it makes to the figure is far below
+    # the run-to-run variance of the figure itself.
+    excluded = "tests/test_ci_history_doc.py"
+    command = [sys.executable, "-m", "pytest", "-q", "--deselect", excluded]
+    environment = {**os.environ, REENTRY: "1"}
+    start = time.monotonic()
+    try:
+        finished = subprocess.run(command, cwd=str(ROOT), env=environment,
+                                  capture_output=True, timeout=1800)
+    except (OSError, subprocess.SubprocessError) as gone:
+        return {"seconds": SUITE_SECONDS, "measured": False, "why": str(gone)}
+    elapsed = round(time.monotonic() - start)
+
+    if finished.returncode != 0:
+        # A FAILING suite's duration is not the figure the argument wants —
+        # pytest can stop early, and a run that died in collection takes no
+        # time at all and would drop the floor to nothing.
+        return {"seconds": SUITE_SECONDS, "measured": False,
+                "why": f"the suite exited {finished.returncode}; a failing "
+                       f"run's duration does not bound a passing one",
+                "observed_seconds": elapsed}
+    return {"seconds": elapsed, "measured": True,
+            "command": f"python -m pytest -q --deselect {excluded}",
+            "excluded": excluded,
+            "why_excluded": "it asserts the figure this run produces"}
+
+
+def measure(token: str, suite_seconds: dict | None = None) -> dict:
     found = runs(token)
     by_workflow = tally(found)
     deps = dependencies()
@@ -342,7 +359,8 @@ def measure(token: str, suite_seconds: int = SUITE_SECONDS) -> dict:
         "runs_returned": len(found),
         "workflows": by_workflow,
         "dependencies": deps,
-        "verdict": verdict(by_workflow, deps, suite_seconds),
+        "verdict": verdict(by_workflow, deps,
+                           suite_seconds or time_the_suite()),
     }
 
 
@@ -383,9 +401,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m etl.probe_ci_history")
     parser.add_argument("--token", default=os.environ.get("SAMYAMA_GITEA_TOKEN"),
                         help="Gitea token; defaults to $SAMYAMA_GITEA_TOKEN.")
-    parser.add_argument("--suite-seconds", type=int, default=SUITE_SECONDS,
-                        help="How long the suite takes locally. Recorded as "
-                             "an assertion — the API cannot report it.")
+    parser.add_argument("--no-time-suite", action="store_true",
+                        help="Skip timing the suite and fall back to the "
+                             "recorded constant. The record then says "
+                             "measured: false, and the floor argument is "
+                             "weaker for it.")
     parser.add_argument("--record", action="store_true",
                         help=f"Write {RECORD.relative_to(ROOT)}.")
     args = parser.parse_args(argv)
@@ -400,7 +420,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        measured = measure(args.token, suite_seconds=args.suite_seconds)
+        measured = measure(
+            args.token,
+            suite_seconds=({"seconds": SUITE_SECONDS, "measured": False,
+                            "why": "--no-time-suite"}
+                           if args.no_time_suite else None))
     except Unreachable as gone:
         print(f"unreachable: {gone}", file=sys.stderr)
         return 1

@@ -11,13 +11,12 @@ Reading it needs a token — the Actions API is not public on a private repo:
 
 ## The measurement
 
-`suite_seconds` below is the one figure the Actions API cannot report — it is
-how long the suite takes on the machine that ran the probe, recorded as an
-assertion rather than typed into the prose. Everything else is measured.
+Every figure here is measured. The suite duration is the one the Actions API
+cannot report, so the probe times it directly and records the command.
 
 | workflow | runs | succeeded | median | longest | `uses:` |
 |---|---|---|---|---|---|
-| `ci.yml` | 211 | **0** | 7s | 58s | 2 |
+| `ci.yml` | 214 | **0** | 7s | 58s | 2 |
 | `runner-diagnostic.yml` | 1 | 1 | 5s | 5s | 0 |
 | `runner-diagnostics.yml` | 1 | 1 | 6s | 6s | not committed |
 
@@ -26,17 +25,30 @@ since been deleted. It ran once and succeeded. It is in the table because it
 is in the record, and leaving it out would have quietly halved the
 action-free evidence.
 
-`ci.yml` has run **211 times since 2026-08-21 and succeeded
+`ci.yml` has run **214 times since 2026-08-21 and succeeded
 0 times.**
 
 ## The tests have never executed — and that is a stronger claim than "CI fails"
 
-The suite takes about 51 seconds locally against an engine that is already up.
+The suite takes **47 seconds** locally with an engine already up — timed by
+the probe, not asserted:
+
+    python -m pytest -q --deselect tests/test_ci_history_doc.py
+
+That figure was a typed `51` until a review pointed out that disclosing an
+assertion is not the same as measuring it, and this is the figure the whole
+argument turns on: if the suite took 30s the floor would drop toward 40s, the
+58s run could have executed tests, and the headline would weaken.
+
+`tests/test_ci_history_doc.py` is deselected from that timing because it asserts
+this very figure — timing the whole suite is circular and could never
+bootstrap. One module of roughly two hundred.
+
 CI additionally pulls a container image and polls for it. So **60 seconds
 is a floor**: a run that *ended* faster than that cannot have run the tests,
 whatever step it reported.
 
-**0 of 211 runs reached that floor.** The longest run
+**0 of 214 runs reached that floor.** The longest run
 in the repo's history is 58s.
 
 That is what makes the red tick misleading rather than merely unhelpful. A red
@@ -47,7 +59,7 @@ meant *the tests did not run*, and those look identical on the PR page.
 
 Two workflows, same runner, same repository, same week:
 
-- **0 of 211** runs succeeded for the workflow that fetches
+- **0 of 214** runs succeeded for the workflow that fetches
   actions (`actions/checkout@v4`, `actions/setup-python@v5`).
 - **1 of 1** runs succeeded for the workflow that fetches
   nothing at all.
@@ -103,7 +115,7 @@ by running the suite locally two hours later, for an unrelated reason.
 
 The fix is a separate change. What belongs here is the cost: **the repository
 was merging into a broken `main` with a red tick that had meant nothing for
-211 runs, and no signal distinguished that from any other day.**
+214 runs, and no signal distinguished that from any other day.**
 
 Until then, **the tick on a PR in this repo means nothing**, and the suite has
 to be run locally before merging:

@@ -148,7 +148,13 @@ def test_the_page_does_not_conclude_past_its_evidence():
             # after the full stop ends ".\n", so the naive split ran two
             # sentences together and the phrase could borrow a hedge from the
             # NEXT sentence, which is the failure mode of a guard like this.
-            bounds = [m.end() for m in re.finditer(r"[.!?][\s\n]", lower)]
+            # `[.!?]` followed by whitespace OR markup. A full stop before
+            # `**` — which starts a bolded sentence, and this page has
+            # several — was not a boundary, so two sentences ran together and
+            # the phrase could still borrow the next one's hedge. That is the
+            # same bug the previous fix was for, one character narrower.
+            bounds = [m.end() for m in
+                      re.finditer(r"[.!?](?:[\s\n]|\*\*|\Z)", lower)]
             opens = max([b for b in bounds if b <= at] + [0])
             closes = min([b for b in bounds if b > at] + [len(lower)])
             sentence = lower[opens:closes]
@@ -167,9 +173,25 @@ def test_the_sweep_has_something_to_sweep():
     success. If a reflow stops the bold pattern matching, the sweep below
     silently checks nothing — which is the failure it exists to catch, applied
     to itself."""
-    assert len(BOLDED) >= 5, (
-        f"only {len(BOLDED)} bolded figures found on the page; the sweep is "
-        f"close to vacuous. Has the markup changed?")
+    # **Named figures, not a count.** A threshold equal to the current count
+    # is not a ratchet: it passes today and passes after every figure but one
+    # is lost. And a threshold below it is a number the next person lowers.
+    # What the sweep must actually cover is the argument's own load-bearing
+    # figures — if any of these stops appearing in bold, the page has stopped
+    # making the claim, whatever the total is.
+    required = {
+        "the run count": CI["runs"],
+        "the successes": CI["success"],
+        "the floor": VERDICT["floor_seconds"],
+        "the measured suite duration": VERDICT["suite"]["seconds"],
+        "the tolerant step count": VERDICT["diagnostic_tolerant_steps"],
+    }
+    missing = {what: figure for what, figure in required.items()
+               if figure not in BOLDED}
+    assert not missing, (
+        f"the page no longer states {missing} in bold, so the sweep does not "
+        f"cover it. These are the figures the floor argument and the "
+        f"isolating comparison rest on.")
 
 
 @pytest.mark.parametrize("number", BOLDED)
@@ -184,11 +206,57 @@ def test_every_bolded_figure_on_the_page_is_in_the_record(number):
              VERDICT["with_actions"]["success"],
              VERDICT["without_actions"]["success"],
              VERDICT["without_actions"]["runs"],
-             # Was a bare literal whitelisted here, which made the one figure
-             # the floor argument rests on the only unbound number on the
-             # page. It is recorded as an assertion now — the API cannot
-             # report how long the suite takes.
-             VERDICT["suite_seconds_asserted"]}
+             # Was a bare literal whitelisted here, which made the one
+             # figure the floor argument rests on the only unbound number on
+             # the page. It is TIMED now, by the probe, with the command
+             # recorded beside it.
+             VERDICT["suite"]["seconds"]}
     assert number in known, (
         f"the page states **{number}** in bold and the record holds no such "
         f"figure. Either re-run the probe, or the number was typed.")
+
+
+def test_the_suite_duration_was_measured_not_asserted():
+    """**The figure the whole floor argument turns on.**
+
+    CONTRIBUTING: "every figure in a document is printed by a probe, never
+    typed. If you cannot point at the command, delete the figure." This one
+    was typed and then DISCLOSED as an assertion, and a review was right that
+    disclosure is not measurement — if the suite really took 30s the floor
+    would drop toward 40s, the 58s run could have executed tests, and the
+    headline would weaken.
+    """
+    suite = VERDICT["suite"]
+    assert suite["measured"] is True, (
+        f"the suite duration was not timed ({suite.get('why')}), so the floor "
+        f"argument rests on a constant again. Re-run the probe without "
+        f"--no-time-suite.")
+    assert suite["command"], "no command recorded to point at"
+    assert suite["seconds"] < VERDICT["floor_seconds"], (
+        f"the suite takes {suite['seconds']}s and the floor is "
+        f"{VERDICT['floor_seconds']}s; the floor must exceed the suite it "
+        f"bounds, or it bounds nothing")
+    assert suite["command"] in PAGE, (
+        "the page must show the command that produced this figure")
+
+
+def test_the_third_workflow_row_is_bound_too():
+    """The page calls `runner-diagnostics.yml` load-bearing — it is half the
+    action-free evidence — and nothing checked its row. A table row nobody
+    binds is a figure nobody re-measures, which is this module's whole
+    subject."""
+    old = RECORD["workflows"].get("runner-diagnostics.yml")
+    if old is None:
+        assert "runner-diagnostics.yml" not in PAGE, (
+            "the page shows a workflow the record no longer holds")
+        return
+    row = re.search(
+        r"\| `runner-diagnostics\.yml` \| (\d+) \| (\d+) \| (\d+)s \| (\d+)s \|",
+        PAGE)
+    assert row, "the runner-diagnostics.yml row no longer parses"
+    assert [int(g) for g in row.groups()] == [
+        old["runs"], old["success"], old["median_seconds"], old["max_seconds"]]
+    assert "not committed" in PAGE, (
+        "the row must say the workflow is no longer in the tree, or a reader "
+        "will look for a file that is not there")
+    assert VERDICT["in_history_but_not_committed"] == ["runner-diagnostics.yml"]
