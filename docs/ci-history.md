@@ -36,7 +36,7 @@ itself about its own central claim.
 
 ## The tests have never executed — and that is a stronger claim than "CI fails"
 
-The suite takes **47 seconds** locally with an engine already up — timed by
+The suite takes **46 seconds** locally with an engine already up — timed by
 the probe, not asserted:
 
     python -m pytest -q --deselect tests/test_ci_history_doc.py
