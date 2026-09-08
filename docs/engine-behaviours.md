@@ -189,15 +189,15 @@ available to it**, so a status other than 201 now stops the run.
 
 | nodes in label | `MERGE` /sec | `CREATE` /sec | `MATCH` /sec |
 |---:|---:|---:|---:|
-| 1,000 | 637.7 | 811.6 | 746.5 |
-| 4,000 | 346.9 | 631.6 | 741.2 |
-| 8,000 | 173.8 | 826.2 | 804.0 |
-| 16,000 | 67.9 | 594.2 | 497.3 |
+| 1,000 | 558.6 | 774.8 | 807.8 |
+| 4,000 | 380.5 | 699.1 | 768.0 |
+| 8,000 | 129.1 | 634.4 | 730.5 |
+| 16,000 | 83.9 | 789.2 | 805.6 |
 
-Over that range `MERGE` fell **9.4x** while `MATCH` moved
-1.5x. The isolating control is the last figure: the same
+Over that range `MERGE` fell **6.7x** while `MATCH` moved
+1.0x. The isolating control is the last figure: the same
 `MERGE` statement against a fresh, nearly-empty label ran at
-**467.2/sec** — full speed. It is the size of
+**773.2/sec** — full speed. It is the size of
 the label being merged into, not the statement.
 
 **These are timings and they vary between runs.** The committed record is one

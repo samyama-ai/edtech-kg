@@ -1,25 +1,35 @@
 {
   "_": "Measured by `python -m etl.probe_engine_defects --record` against a SCRATCH engine. Each entry says what was observed and whether the defect it was written for is still present.",
-  "measured_at": "2026-09-07",
-  "image": "public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0",
-  "version_reported": "1.7.0",
+  "retrieved_at": "2026-09-08",
+  "image_asserted": "public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0",
+  "engine_version_reported": "1.7.0",
+  "url": "http://localhost:8224",
   "remove": {
     "issue": 163,
     "before": {
       "projection": "gone-please",
-      "count_by_value": 1
+      "count_by_value": 1,
+      "row_has_the_key": true,
+      "row_value": "gone-please"
     },
     "after_remove": {
       "projection": "gone-please",
-      "count_by_value": 1
+      "count_by_value": 1,
+      "row_has_the_key": false,
+      "row_value": null
     },
     "remove_then_return_gave": "gone-please",
     "after_set_null": {
       "projection": "gone-please",
-      "count_by_value": 1
+      "count_by_value": 1,
+      "row_has_the_key": true,
+      "row_value": null
     },
-    "property_survives_remove": true,
-    "property_survives_set_null": true,
+    "reads_stale_after_remove": true,
+    "reads_stale_after_set_null": true,
+    "row_lost_the_key_on_remove": true,
+    "remove_is_a_no_op_on_the_row": false,
+    "staleness_survives_restart": null,
     "still_defective": true
   },
   "tenant": {
@@ -42,38 +52,46 @@
     "batch": 150,
     "points": [
       {
-        "nodes_in_label": 1000,
-        "merge_per_sec": 637.7,
-        "create_per_sec": 811.6,
-        "match_per_sec": 746.5
+        "nodes_at_start": 1000,
+        "nodes_at_end": 1360,
+        "requested_size": 1000,
+        "merge_per_sec": 558.6,
+        "create_per_sec": 774.8,
+        "match_per_sec": 807.8
       },
       {
-        "nodes_in_label": 4000,
-        "merge_per_sec": 346.9,
-        "create_per_sec": 631.6,
-        "match_per_sec": 741.2
+        "nodes_at_start": 4000,
+        "nodes_at_end": 4360,
+        "requested_size": 4000,
+        "merge_per_sec": 380.5,
+        "create_per_sec": 699.1,
+        "match_per_sec": 768.0
       },
       {
-        "nodes_in_label": 8000,
-        "merge_per_sec": 173.8,
-        "create_per_sec": 826.2,
-        "match_per_sec": 804.0
+        "nodes_at_start": 8000,
+        "nodes_at_end": 8360,
+        "requested_size": 8000,
+        "merge_per_sec": 129.1,
+        "create_per_sec": 634.4,
+        "match_per_sec": 730.5
       },
       {
-        "nodes_in_label": 16000,
-        "merge_per_sec": 67.9,
-        "create_per_sec": 594.2,
-        "match_per_sec": 497.3
+        "nodes_at_start": 16000,
+        "nodes_at_end": 16360,
+        "requested_size": 16000,
+        "merge_per_sec": 83.9,
+        "create_per_sec": 789.2,
+        "match_per_sec": 805.6
       }
     ],
-    "merge_into_a_fresh_label_per_sec": 467.2,
-    "merge_fell_by": 9.4,
-    "match_fell_by": 1.5,
+    "merge_into_a_fresh_label_per_sec": 773.2,
+    "merge_fell_by": 6.7,
+    "match_fell_by": 1.0,
     "still_defective": true
   },
   "code": {
-    "commit": "43e5195ce93445cfba723e69104779ed09fb466e",
-    "dirty": true,
+    "commit": "84accd06b2c6f0c0314cd4c0e07628cbc9847ad8",
+    "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
   }
