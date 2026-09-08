@@ -1,5 +1,5 @@
 {
-  "_": "Measured by `python -m etl.probe_second_district --record`. Same field, same sample size and the same seed on every district — the comparison measures the districts, not the method.",
+  "_": "Measured by `python -m etl.probe_second_district --record`. The same fields, the same classifier and the same seed on every district. The sample size is the same CEILING everywhere and is smaller where a district publishes fewer pages than the ceiling — see `sampled` and `read` per district, and divide by `read`, never by the ceiling. Enumeration differs by necessity: three districts publish no sitemap, which is recorded per district and is itself part of the finding.",
   "retrieved_at": "2026-09-08",
   "seed": 19,
   "sample_per_district": 60,
@@ -10,38 +10,37 @@
       "how": "sitemap",
       "has_sitemap": true,
       "courses_in_sitemap": 817,
+      "courses_in_index_crawl": 73,
       "published": 817,
       "sampled": 60,
+      "read": 60,
+      "unreachable": 0,
       "kinds": {
         "typed": 17,
         "prose": 4,
         "no field": 39
       },
-      "state_a_prerequisite": 21,
-      "state_it_in_the_typed_field": 17,
+      "with_a_typed_prerequisite": 17,
+      "percent_of_pages_with_a_typed_prerequisite": 28.3,
       "links": 18,
       "links_resolving_to_a_published_course": 18,
-      "percent_stated_as_resolving_link": 100.0,
-      "percent_stated_in_the_typed_field": 81.0,
-      "examples": [
+      "percent_of_links_that_resolve": 100.0,
+      "with_a_nonempty_prose_field": 4,
+      "prose_examples": [
         {
           "path": "/business-and-information-technology/design-multimedia-and-web-technologies",
-          "kind": "prose",
           "text": "Information Technology (IT) Fundamentals , recommended"
         },
         {
           "path": "/the-governors-school-innovation-park-math/gs-pre-calculus",
-          "kind": "prose",
           "text": "GMU MATH 105 - 4 credits"
         },
         {
           "path": "/the-governors-school-innovation-park-science/gs-introduction-to-engineering",
-          "kind": "prose",
           "text": "GMU ENGR 107 - 2 credits"
         },
         {
           "path": "/gifted-education/gifted-seminar-philosophy-1-credit",
-          "kind": "prose",
           "text": "Gifted Seminar: Philosophy and Gifted Seminar: Power and Progress can count as sequential electives for graduation when "
         }
       ]
@@ -51,38 +50,38 @@
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
+      "courses_in_index_crawl": 101,
       "published": 101,
       "sampled": 60,
+      "read": 59,
+      "unreachable": 1,
       "kinds": {
         "prose": 19,
-        "no field": 40,
-        "typed": 1
+        "no field": 39,
+        "typed": 1,
+        "unreachable": 1
       },
-      "state_a_prerequisite": 20,
-      "state_it_in_the_typed_field": 1,
+      "with_a_typed_prerequisite": 1,
+      "percent_of_pages_with_a_typed_prerequisite": 1.7,
       "links": 1,
       "links_resolving_to_a_published_course": 1,
-      "percent_stated_as_resolving_link": 100.0,
-      "percent_stated_in_the_typed_field": 5.0,
-      "examples": [
+      "percent_of_links_that_resolve": 100.0,
+      "with_a_nonempty_prose_field": 19,
+      "prose_examples": [
         {
           "path": "/world-languages/american-sign-language-ii-0",
-          "kind": "prose",
           "text": "Students in Arlington Public Schools in grades 7-12 may receive high school world language credit for native language st"
         },
         {
           "path": "/arts-education/apprentice-fine-arts-ii",
-          "kind": "prose",
           "text": "For current school year application materials and submission guidelines, please review the information on the APS websit"
         },
         {
           "path": "/mathematics-wakefield-immersion-program/algebra-i-immersion",
-          "kind": "prose",
           "text": "Students take the Algebra I SOL test at the end of this course. Passing the SOL test and the course earns a verified cre"
         },
         {
           "path": "/english-language-development/english-language-development-eld-4",
-          "kind": "prose",
           "text": "This course is not eligible for high school credit."
         }
       ]
@@ -92,19 +91,21 @@
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
+      "courses_in_index_crawl": 51,
       "published": 51,
       "sampled": 51,
+      "read": 51,
+      "unreachable": 0,
       "kinds": {
-        "no field": 50,
-        "unreachable": 1
+        "no field": 51
       },
-      "state_a_prerequisite": 0,
-      "state_it_in_the_typed_field": 0,
+      "with_a_typed_prerequisite": 0,
+      "percent_of_pages_with_a_typed_prerequisite": 0.0,
       "links": 0,
       "links_resolving_to_a_published_course": 0,
-      "percent_stated_as_resolving_link": 0.0,
-      "percent_stated_in_the_typed_field": 0.0,
-      "examples": []
+      "percent_of_links_that_resolve": 0.0,
+      "with_a_nonempty_prose_field": 0,
+      "prose_examples": []
     },
     "Kenosha (WI)": {
       "base": "https://catalogs.kusd.org",
@@ -112,6 +113,7 @@
       "how": "index crawl",
       "has_sitemap": true,
       "courses_in_sitemap": 0,
+      "courses_in_index_crawl": 0,
       "note": "the index published no two-segment course paths; the catalogue is laid out differently and this method does not apply to it"
     },
     "Central Islip (NY)": {
@@ -119,40 +121,40 @@
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
+      "courses_in_index_crawl": 53,
       "published": 53,
       "sampled": 53,
+      "read": 53,
+      "unreachable": 0,
       "kinds": {
         "no field": 48,
         "prose": 3,
         "typed": 2
       },
-      "state_a_prerequisite": 5,
-      "state_it_in_the_typed_field": 2,
+      "with_a_typed_prerequisite": 2,
+      "percent_of_pages_with_a_typed_prerequisite": 3.8,
       "links": 4,
       "links_resolving_to_a_published_course": 3,
-      "percent_stated_as_resolving_link": 75.0,
-      "percent_stated_in_the_typed_field": 40.0,
-      "examples": [
+      "percent_of_links_that_resolve": 75.0,
+      "with_a_nonempty_prose_field": 3,
+      "prose_examples": [
         {
           "path": "/science/astronomy",
-          "kind": "prose",
           "text": "No lab class"
         },
         {
           "path": "/visual-arts-education/advanced-creative-crafts",
-          "kind": "prose",
           "text": "*Portfolio Development for college placement will be stressed."
         },
         {
           "path": "/english/ap-english-literature-and-composition",
-          "kind": "prose",
           "text": "For seniors, this course may be taken in lieu of another twelfth grade English course. Students will be prepared for the"
         }
       ]
     }
   },
   "code": {
-    "commit": "d09775cbe9b1f4b1ed2fdf1e7694d1b660c74ca7",
+    "commit": "154d83039bf582eca12de162fe96b7effe0ef32e",
     "dirty": true,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

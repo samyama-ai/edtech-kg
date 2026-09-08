@@ -48,10 +48,14 @@ from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "second-district-measured.json"
-RECORD_NOTE = ("Measured by `python -m etl.probe_second_district --record`. "
-               "Same field, same sample size and the same seed on every "
-               "district — the comparison measures the districts, not the "
-               "method.")
+RECORD_NOTE = (
+    "Measured by `python -m etl.probe_second_district --record`. The same "
+    "fields, the same classifier and the same seed on every district. The "
+    "sample size is the same CEILING everywhere and is smaller where a "
+    "district publishes fewer pages than the ceiling — see `sampled` and "
+    "`read` per district, and divide by `read`, never by the ceiling. "
+    "Enumeration differs by necessity: three districts publish no sitemap, "
+    "which is recorded per district and is itself part of the finding.")
 
 #: Clean Catalog's own K-12 client list, read from cleancatalog.com/k12/ on
 #: 2026-09-08. Named there with a "View Site" link each, so these are the
@@ -79,8 +83,11 @@ DISTRICTS = {
 #: only reason that was caught: the repo's own figure for PWCS is 89%, and a
 #: method that cannot reproduce the known number measures nothing.
 TYPED_FIELD = re.compile(
+    # `\Z` as well: the lookahead required either another typed field or a
+    # footer to follow, so a page whose prerequisite field is the LAST thing
+    # in the document matched nothing and was counted as stating none.
     r'field--name-field-prerequisite-courses'
-    r'.*?(?=field--name-field(?!-prerequisite)|</footer)', re.S)
+    r'.*?(?=field--name-field(?!-prerequisite)|</footer|\Z)', re.S)
 PROSE_FIELD = re.compile(
     r'field--name-field-pr\b.*?<div class="field__item">(.*?)</div>', re.S)
 HREF = re.compile(r'href="(/[^"#?]*)"')
@@ -119,14 +126,15 @@ def course_paths(base: str) -> tuple[list[str], dict]:
     shape, and it is what `etl/pwcs_source.py` already relies on; using a
     different rule here would measure the rule.
     """
-    # **The sitemap first.** PWCS's 982 comes from its sitemap, and an index
-    # crawl of the same catalogue finds 73 — the index is partial. Using the
-    # index everywhere would have made every district look small in the same
-    # wrong way, which is comparable and useless.
+    # **The sitemap decides the population; the crawl is measured beside it.**
+    # PWCS's population comes from its sitemap and its index crawl finds a
+    # fraction of the same catalogue — both counts are recorded rather than
+    # one being described in prose. Using the crawl everywhere would have made
+    # every district look small in the same wrong way: comparable and useless.
     #
-    # Three of the five districts publish no sitemap at all, which is itself
-    # part of the answer: the enumeration PWCS's figure rests on does not
-    # generalise either.
+    # Three of the five publish no sitemap at all, which is part of the
+    # answer — the enumeration PWCS's own figure rests on does not generalise.
+    #
     # HAS A SITEMAP and HAS COURSES IN IT are different facts, and the page
     # makes a claim about the first. Kenosha publishes a sitemap holding only
     # pathway pages, so it falls through to the crawl while still having one —
@@ -141,12 +149,32 @@ def course_paths(base: str) -> tuple[list[str], dict]:
         paths = {u.replace(base, "") for u in locs if u.startswith(base)}
         courses = sorted(p for p in paths if COURSE_PATH.match(p))
         in_sitemap = len(courses)
-        if courses:
-            return courses, {"how": "sitemap", "has_sitemap": True,
-                             "courses_in_sitemap": in_sitemap}
     except Unreachable:
         pass
 
+    # **The index crawl is run even when the sitemap worked**, because the
+    # page quotes the gap between them — "an index crawl of PWCS finds 73 of
+    # its 817" — and that figure lived in a code comment, which is the one
+    # place this repo says a figure may not live.
+    crawled = crawl(base)
+    if in_sitemap:
+        return sorted(courses), {"how": "sitemap", "has_sitemap": True,
+                                 "courses_in_sitemap": in_sitemap,
+                                 "courses_in_index_crawl": len(crawled)}
+
+    return sorted(crawled), {"how": "index crawl", "has_sitemap": has_sitemap,
+                             "courses_in_sitemap": in_sitemap,
+                             "courses_in_index_crawl": len(crawled)}
+
+
+def crawl(base: str) -> set[str]:
+    """Course paths the catalogue's own index pages link to.
+
+    The districts do not agree on where the index lives, so each candidate is
+    tried and the results pooled. It finds far fewer than a sitemap does —
+    73 against 817 on PWCS — which is why the sitemap is preferred and why
+    both counts are recorded.
+    """
     found: set[str] = set()
     for index in ("/courses", "/high-school-courses", "/middle-school-courses",
                   "/high-school-course-catalog", ""):
@@ -155,9 +183,9 @@ def course_paths(base: str) -> tuple[list[str], dict]:
         except Unreachable:
             continue
         time.sleep(DELAY)
-        found.update(p for p in HREF.findall(markup) if COURSE_PATH.match(p))
-    return sorted(found), {"how": "index crawl", "has_sitemap": has_sitemap,
-                           "courses_in_sitemap": in_sitemap}
+        found.update(path for path in HREF.findall(markup)
+                     if COURSE_PATH.match(path))
+    return found
 
 
 def classify(markup: str, published: set[str]) -> dict:
@@ -172,7 +200,7 @@ def classify(markup: str, published: set[str]) -> dict:
                  if COURSE_PATH.match(href)]
         if links:
             return {"kind": "typed", "links": links,
-                    "resolved": [l for l in links if l in published]}
+                    "resolved": [href for href in links if href in published]}
 
     prose = PROSE_FIELD.search(markup)
     if prose:
@@ -205,6 +233,10 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
             markup = get(f"{base}{path}")
         except Unreachable:
             kinds["unreachable"] = kinds.get("unreachable", 0) + 1
+            # Sleep on the FAILURE path too. Skipping it meant a host that
+            # started refusing got hammered at full speed — the opposite of
+            # what politeness is for.
+            time.sleep(DELAY)
             continue
         time.sleep(DELAY)
         found = classify(markup, published)
@@ -212,31 +244,44 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         if found["kind"] == "typed":
             links += len(found["links"])
             resolved += len(found["resolved"])
-        if found.get("text") and len(examples) < 4:
-            examples.append({"path": path, "kind": found["kind"],
-                             "text": found["text"]})
+        if found["kind"] == "prose" and len(examples) < 4:
+            examples.append({"path": path, "text": found["text"]})
 
-    stating = kinds.get("typed", 0) + kinds.get("prose", 0)
+    read = len(chosen) - kinds.get("unreachable", 0)
+    typed = kinds.get("typed", 0)
     return {
         "base": base,
         **how,
         "published": len(paths),
         "sampled": len(chosen),
+        # PAGES ACTUALLY READ. A page that did not answer is not a page that
+        # stated nothing, and counting it in the denominator would report a
+        # network failure as a district's choice.
+        "read": read,
+        "unreachable": kinds.get("unreachable", 0),
         "kinds": kinds,
-        "state_a_prerequisite": stating,
-        "state_it_in_the_typed_field": kinds.get("typed", 0),
+        "with_a_typed_prerequisite": typed,
+        # **The headline, and its denominator is pages READ.**
+        #
+        # The first version divided by "courses stating a prerequisite",
+        # counting any non-empty prose field as a statement — and the prose
+        # field is not a prerequisite field. Measured, it carries "This course
+        # is not eligible for high school credit.", "No lab class", and GMU
+        # credit notes. That inflated the denominator differently per
+        # district, so the comparison partly measured how chatty each
+        # district's notes are.
+        "percent_of_pages_with_a_typed_prerequisite": (
+            round(100 * typed / read, 1) if read else 0.0),
+        # Kept, and named for what it divides by. Only comparable within
+        # itself — it says whether the links a district DOES publish land.
         "links": links,
         "links_resolving_to_a_published_course": resolved,
-        # The comparable figure, and it is only comparable BECAUSE the
-        # denominator is the same everywhere: of the prerequisites a district
-        # states, what share is a link that lands on a course it publishes.
-        "percent_stated_as_resolving_link": (
+        "percent_of_links_that_resolve": (
             round(100 * resolved / links, 1) if links else 0.0),
-        # The figure that answers #19: of the prerequisites a district states
-        # at all, what share is in the field that produces an edge.
-        "percent_stated_in_the_typed_field": (
-            round(100 * kinds.get("typed", 0) / stating, 1) if stating else 0.0),
-        "examples": examples,
+        # Reported, NOT counted as prerequisites. The field is used for
+        # general notes by at least three of the five.
+        "with_a_nonempty_prose_field": kinds.get("prose", 0),
+        "prose_examples": examples,
     }
 
 
@@ -256,8 +301,8 @@ def measure(sample: int = SAMPLE) -> dict:
 def report(measured: dict) -> None:
     print(f"  seed {measured['seed']}, {measured['sample_per_district']} "
           f"courses per district\n")
-    header = (f"  {'district':<34} {'pages':>6} {'state':>6} {'link':>5} "
-              f"{'resolve':>8}")
+    header = (f"  {'district':<34} {'pages':>6} {'read':>5} {'typed':>6} "
+              f"{'share':>7} {'links ok':>9}")
     print(header)
     print("  " + "-" * (len(header) - 2))
     for name, found in measured["districts"].items():
@@ -265,9 +310,11 @@ def report(measured: dict) -> None:
             print(f"  {name:<34} {'—':>6}  {found.get('note','')[:40]}")
             continue
         print(f"  {name:<34} {found['published']:>6} "
-              f"{found['state_a_prerequisite']:>6} "
-              f"{found['state_it_in_the_typed_field']:>5} "
-              f"{found['percent_stated_as_resolving_link']:>7}%")
+              f"{found['read']:>5} "
+              f"{found['with_a_typed_prerequisite']:>6} "
+              f"{found['percent_of_pages_with_a_typed_prerequisite']:>6}% "
+              f"{found['links_resolving_to_a_published_course']:>4}/"
+              f"{found['links']:<4}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -283,6 +330,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"unreachable: {gone}", file=sys.stderr)
         return 2
 
+    if args.json and args.record:
+        # REFUSED rather than one silently winning. They are opposite
+        # intentions — print without touching the tree, and write to the tree.
+        print("--json and --record ask for different things; pick one.",
+              file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(measured, indent=2, sort_keys=True))
         return 0

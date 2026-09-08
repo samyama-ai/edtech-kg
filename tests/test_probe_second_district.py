@@ -38,6 +38,15 @@ def test_the_typed_field_is_found_and_the_prose_field_is_not_mistaken_for_it():
     0% linked. The repo's own figure for PWCS is 89%; a method that cannot
     reproduce the control measures nothing.
     """
+    # ASSERTED, not argued. A review read the boundary the other way, and
+    # the claim is load-bearing: it is why the prose pattern can be searched
+    # over a whole page without stealing the typed field's match. After `pr`
+    # comes `e`, so there is no word boundary and no match.
+    assert not probe.PROSE_FIELD.search(
+        'field--name-field-prerequisite-courses'
+        '<div class="field__item">x</div>'), (
+        "the prose pattern matches the typed field's class name")
+
     typed = probe.classify(
         page(typed='<a href="/maths/algebra-1">Algebra I</a>'), PUBLISHED)
     assert typed["kind"] == "typed"
@@ -104,3 +113,37 @@ def test_the_sample_is_seeded_so_two_runs_agree():
     second = random.Random(probe.SEED).sample(paths, 20)
     assert first == second
     assert probe.SEED == 19, "the seed is the issue number, recorded on the page"
+
+
+def test_a_typed_field_at_the_very_end_of_a_page_is_still_found():
+    """The lookahead required another `field--name-field-*` or a `</footer>`
+    to follow, so a page whose prerequisite field is the LAST thing in the
+    document matched nothing and was counted as stating none."""
+    last = ('<div class="field--name-field-prerequisite-courses">'
+            '<a href="/maths/algebra-1">Algebra I</a></div>')
+    found = probe.classify(last, PUBLISHED)
+    assert found["kind"] == "typed", (
+        "a typed field with nothing after it was read as absent")
+    assert found["resolved"] == ["/maths/algebra-1"]
+
+
+def test_json_and_record_are_refused_together(capsys):
+    """Opposite intentions — print without touching the tree, and write to
+    the tree. One silently winning is the worse outcome."""
+    import etl.probe_second_district as module
+    module_measure = module.measure
+    module.measure = lambda *a, **k: {"districts": {}}
+    try:
+        assert module.main(["--json", "--record"]) == 2
+        assert "pick one" in capsys.readouterr().err
+    finally:
+        module.measure = module_measure
+
+
+def test_an_unreachable_page_leaves_the_denominator_honest():
+    """A page that did not answer is not a page that stated nothing. Counting
+    it in `read` would report a network failure as a district's choice."""
+    kinds = {"typed": 1, "no field": 8, "unreachable": 1}
+    read = 10 - kinds["unreachable"]
+    assert read == 9
+    assert round(100 * kinds["typed"] / read, 1) == 11.1
