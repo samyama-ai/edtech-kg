@@ -1,7 +1,7 @@
 # CI has never run the tests
 
 **Every figure below was printed by `python -m etl.probe_ci_history`.** The
-record is `sources/ci-history-measured.json`; `tests/test_ci_history_doc.py` fails if
+record is `docs/sources/ci-history-measured.json`; `tests/test_ci_history_doc.py` fails if
 this page and that record disagree, in either direction.
 
 Reading it needs a token — the Actions API is not public on a private repo:
@@ -11,12 +11,22 @@ Reading it needs a token — the Actions API is not public on a private repo:
 
 ## The measurement
 
+`suite_seconds` below is the one figure the Actions API cannot report — it is
+how long the suite takes on the machine that ran the probe, recorded as an
+assertion rather than typed into the prose. Everything else is measured.
+
 | workflow | runs | succeeded | median | longest | `uses:` |
 |---|---|---|---|---|---|
-| `ci.yml` | 207 | **0** | 7s | 58s | 2 |
+| `ci.yml` | 211 | **0** | 7s | 58s | 2 |
 | `runner-diagnostic.yml` | 1 | 1 | 5s | 5s | 0 |
+| `runner-diagnostics.yml` | 1 | 1 | 6s | 6s | not committed |
 
-`ci.yml` has run **207 times since 2026-08-21 and succeeded
+`runner-diagnostics.yml` — the plural — is an earlier diagnostic that has
+since been deleted. It ran once and succeeded. It is in the table because it
+is in the record, and leaving it out would have quietly halved the
+action-free evidence.
+
+`ci.yml` has run **211 times since 2026-08-21 and succeeded
 0 times.**
 
 ## The tests have never executed — and that is a stronger claim than "CI fails"
@@ -26,7 +36,7 @@ CI additionally pulls a container image and polls for it. So **60 seconds
 is a floor**: a run that *ended* faster than that cannot have run the tests,
 whatever step it reported.
 
-**0 of 207 runs reached that floor.** The longest run
+**0 of 211 runs reached that floor.** The longest run
 in the repo's history is 58s.
 
 That is what makes the red tick misleading rather than merely unhelpful. A red
@@ -37,7 +47,7 @@ meant *the tests did not run*, and those look identical on the PR page.
 
 Two workflows, same runner, same repository, same week:
 
-- **0 of 207** runs succeeded for the workflow that fetches
+- **0 of 211** runs succeeded for the workflow that fetches
   actions (`actions/checkout@v4`, `actions/setup-python@v5`).
 - **1 of 1** runs succeeded for the workflow that fetches
   nothing at all.
@@ -93,7 +103,7 @@ by running the suite locally two hours later, for an unrelated reason.
 
 The fix is a separate change. What belongs here is the cost: **the repository
 was merging into a broken `main` with a red tick that had meant nothing for
-207 runs, and no signal distinguished that from any other day.**
+211 runs, and no signal distinguished that from any other day.**
 
 Until then, **the tick on a PR in this repo means nothing**, and the suite has
 to be run locally before merging:

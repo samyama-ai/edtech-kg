@@ -74,11 +74,12 @@ def test_a_workflow_whose_steps_all_tolerate_failure_reports_nothing_by_succeedi
     """
     deps = {"runner-diagnostic.yml": {"uses": [], "count": 0,
                                       "steps": 8, "tolerant_steps": 8}}
-    check = probe.verdict({}, deps)
+    check = probe.verdict({}, deps, probe.SUITE_SECONDS)
     assert check["diagnostic_outcome_is_informative"] is False
 
     deps["runner-diagnostic.yml"]["tolerant_steps"] = 7
-    assert probe.verdict({}, deps)["diagnostic_outcome_is_informative"] is True
+    assert probe.verdict({}, deps, probe.SUITE_SECONDS)[
+        "diagnostic_outcome_is_informative"] is True
 
 
 def test_a_workflow_with_no_steps_is_not_called_informative():
@@ -86,7 +87,8 @@ def test_a_workflow_with_no_steps_is_not_called_informative():
     as informative, and an empty file would be evidence of something."""
     deps = {"runner-diagnostic.yml": {"uses": [], "count": 0,
                                       "steps": 0, "tolerant_steps": 0}}
-    assert probe.verdict({}, deps)["diagnostic_outcome_is_informative"] is False
+    assert probe.verdict({}, deps, probe.SUITE_SECONDS)[
+        "diagnostic_outcome_is_informative"] is False
 
 
 def test_dependencies_reads_the_committed_workflows():
@@ -126,3 +128,100 @@ def test_an_api_answer_without_runs_is_an_error_not_an_empty_history(monkeypatch
 
     monkeypatch.setattr(probe, "get", lambda url, token: b'{"workflow_runs": []}')
     assert probe.runs("token") == []
+
+
+def test_a_truncated_page_is_an_error_not_a_shorter_history(monkeypatch):
+    """"0 successes in 211 runs" is only evidence if 211 is the whole history.
+    A clamped page would understate the successes as easily as the failures,
+    and make the headline true by not looking."""
+    monkeypatch.setattr(
+        probe, "get",
+        lambda url, token: b'{"total_count": 300, "workflow_runs": []}')
+    with pytest.raises(probe.Unreachable) as gone:
+        probe.runs("token")
+    assert "300" in str(gone.value)
+
+
+def test_a_github_shaped_payload_stops_the_run(monkeypatch):
+    """`status` is 'completed' there and the result is in `conclusion`, so
+    reading `status` would count every run as neither success nor failure —
+    and "0 successes" would be true because nothing was examined."""
+    monkeypatch.setattr(
+        probe, "get",
+        lambda url, token:
+        b'{"total_count": 1, "workflow_runs": [{"workflow_id": "ci.yml",'
+        b' "status": "completed", "conclusion": "success"}]}')
+    with pytest.raises(probe.Unreachable) as gone:
+        probe.runs("token")
+    assert "conclusion" in str(gone.value)
+
+
+def test_an_unfinished_run_contributes_no_duration():
+    """`updated_at` is populated while a run is still going, so timing one
+    gives how long it has been alive — a small number that lands under the
+    floor and counts as evidence the tests did not run."""
+    found = [run(status="running", updated="2026-09-01T05:00:03Z"),
+             run(status="failure", updated="2026-09-01T05:00:07Z")]
+    tallied = probe.tally(found)["ci.yml"]
+    assert tallied["timed"] == 1, "the running job was timed"
+    assert tallied["unfinished"] == 1
+    assert tallied["median_seconds"] == 7
+
+
+def test_steps_and_tolerant_steps_are_counted_the_same_way():
+    """They must not drift in opposite directions. `^\\s+- name:` saw only
+    steps whose first key is `name` — missing `- uses:` and `- run:` — while
+    an unanchored `continue-on-error: true` matched comments and job-level
+    keys, so `tolerant < steps` could invert on an unchanged workflow.
+    """
+    workflow = """
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@v4
+      - name: Something
+        run: echo hi
+      - run: echo bare
+        continue-on-error: true
+      # continue-on-error: true   <- a comment, not a step
+  other:
+    continue-on-error: true
+"""
+    counted = probe.step_counts(workflow)
+    assert counted["steps"] == 3, "a step leading with uses: or run: is a step"
+    assert counted["tolerant_steps"] == 1, (
+        "only the real key indented under a step counts — not the comment, "
+        "and not the job-level one")
+
+
+def test_the_action_free_comparison_uses_every_action_free_workflow():
+    """The history holds two diagnostics — the singular and an earlier plural
+    — and both succeeded. Reporting 1/1 where the evidence is 2/2 understates
+    the comparison the whole page rests on."""
+    by_workflow = {
+        "ci.yml": {"runs": 211, "success": 0, "over_floor": 0,
+                   "median_seconds": 7},
+        "a.yml": {"runs": 1, "success": 1, "over_floor": 0, "median_seconds": 5},
+        "b.yml": {"runs": 3, "success": 3, "over_floor": 0, "median_seconds": 6},
+    }
+    deps = {"ci.yml": {"uses": ["actions/checkout@v4"], "count": 1,
+                       "steps": 7, "tolerant_steps": 0},
+            "a.yml": {"uses": [], "count": 0, "steps": 8, "tolerant_steps": 8},
+            "b.yml": {"uses": [], "count": 0, "steps": 2, "tolerant_steps": 0}}
+    check = probe.verdict(by_workflow, deps, 51)
+    assert check["without_actions"]["runs"] == 4
+    assert check["without_actions"]["success"] == 4
+    assert check["without_actions"]["workflows"] == ["a.yml", "b.yml"]
+
+
+def test_a_workflow_that_ran_and_is_not_committed_is_named_not_dropped():
+    """Its `uses:` cannot be read, so it cannot be classified from the tree.
+    Silently excluding it is how the 1/1 above happened."""
+    check = probe.verdict(
+        {"ci.yml": {"runs": 1, "success": 0, "over_floor": 0,
+                    "median_seconds": 7},
+         "deleted.yml": {"runs": 1, "success": 1, "over_floor": 0,
+                         "median_seconds": 6}},
+        {"ci.yml": {"uses": ["x"], "count": 1, "steps": 1,
+                    "tolerant_steps": 0}}, 51)
+    assert check["in_history_but_not_committed"] == ["deleted.yml"]

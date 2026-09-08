@@ -60,6 +60,13 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 #: is what makes the durations usable without a log.
 FLOOR_SECONDS = 60
 
+#: How long the suite takes locally with an engine already up. **An assertion
+#: by whoever ran this, not something the Actions API can report** — it is the
+#: other half of the floor argument, and it was a bare `51` typed into the page
+#: and whitelisted in the test sweep, which is the one thing this repo says a
+#: figure may never be. Recorded so it is at least visible and datable.
+SUITE_SECONDS = 51
+
 
 class Unreachable(RuntimeError):
     """The API did not answer. Distinct from it answering with no runs."""
@@ -94,12 +101,51 @@ def seconds(started: str, ended: str) -> int | None:
         return None
 
 
+#: Terminal outcomes. A run not in this set has not finished, and its stamps
+#: do not describe a completed run.
+TERMINAL = {"success", "failure", "cancelled"}
+
+
 def runs(token: str, limit: int = 250) -> list[dict]:
-    """Every run the API will return, newest first."""
+    """Every run the API will return, newest first — and it must be every one.
+
+    **The count is checked against `total_count`.** "0 successes in 207 runs"
+    is only evidence if 207 is the whole history; a page limit silently
+    clamped by the server would make the headline vacuously true by not
+    looking at the runs that might contradict it. Measured on this instance
+    the limit is not clamped — 50, 100 and 250 all returned every run — but a
+    finding that rests on a server's pagination behaviour has to assert it
+    rather than rely on it.
+
+    The outcome is read from `status`. GitHub-shaped payloads put the terminal
+    result in `conclusion` and use `status` for `completed`, which would make
+    every run here count as "other" and the zero-success headline true by
+    accident. This instance has no `conclusion` key on any run — asserted
+    below, so the day one appears the probe stops instead of miscounting.
+    """
     body = json.loads(get(f"{API}/actions/tasks?limit={limit}", token))
     found = body.get("workflow_runs")
     if found is None:
         raise Unreachable("the Actions API answered without a workflow_runs key")
+
+    total = body.get("total_count")
+    if total is not None and total != len(found):
+        raise Unreachable(
+            f"the API reports {total} runs and returned {len(found)}. Every "
+            f"figure here is a count over the whole history, so a truncated "
+            f"page would understate the successes as easily as the failures.")
+
+    conclusions = [r for r in found if "conclusion" in r]
+    if conclusions:
+        raise Unreachable(
+            f"{len(conclusions)} run(s) carry a `conclusion` key. This probe "
+            f"reads the outcome from `status`; on a GitHub-shaped payload "
+            f"`status` is 'completed' and the result is in `conclusion`, so "
+            f"reading `status` would count every run as neither success nor "
+            f"failure and make '0 successes' true by not looking.")
+    unknown = {r.get("status") for r in found} - TERMINAL - {"running", "waiting"}
+    if unknown:
+        raise Unreachable(f"unrecognised run status(es): {sorted(unknown)}")
     return found
 
 
@@ -122,15 +168,27 @@ def tally(found: list[dict]) -> dict:
         status = run.get("status")
         seen["success" if status == "success" else
              "failure" if status == "failure" else "other"] += 1
-        took = seconds(run.get("run_started_at", ""), run.get("updated_at", ""))
-        if took is not None:
-            seen["durations"].append(took)
+        # **Only finished runs have a duration.** `updated_at` is populated on
+        # a run that is still going, so timing one gives however long it has
+        # been alive so far — a small number that lands under the floor and
+        # counts as evidence that the tests did not run. The floor argument
+        # would then be partly built out of runs that had not finished.
+        if status in TERMINAL:
+            took = seconds(run.get("run_started_at", ""),
+                           run.get("updated_at", ""))
+            if took is not None:
+                seen["durations"].append(took)
+        else:
+            seen["unfinished"] = seen.get("unfinished", 0) + 1
         started = run.get("run_started_at")
         if started:
             seen["first"] = min(seen["first"] or started, started)
             seen["last"] = max(seen["last"] or started, started)
 
     for seen in by_workflow.values():
+        # Present on every workflow, not only those that had one — an absent
+        # key and a zero read the same in a record and mean different things.
+        seen.setdefault("unfinished", 0)
         took = sorted(seen.pop("durations"))
         seen["timed"] = len(took)
         seen["median_seconds"] = took[len(took) // 2] if took else None
@@ -154,22 +212,60 @@ def dependencies() -> dict:
     to a list item so a `uses:` inside a comment or a string does not count.
     """
     found = {}
-    for path in sorted(WORKFLOWS.glob("*.yml")):
+    # `.yaml` too. A workflow saved under the other spelling is one the runner
+    # runs and this function does not see, and its absence here would read as
+    # "that workflow fetches nothing".
+    for path in sorted(list(WORKFLOWS.glob("*.yml"))
+                       + list(WORKFLOWS.glob("*.yaml"))):
         text = path.read_text(encoding="utf-8")
         uses = re.findall(r"^\s*-?\s*uses:\s*(\S+)", text, re.M)
-        found[path.name] = {
-            "uses": sorted(set(uses)),
-            "count": len(uses),
-            # A step marked `continue-on-error` cannot fail its job. Counted
-            # because it decides whether the JOB'S OUTCOME carries information
-            # at all — see `verdict`.
-            "steps": len(re.findall(r"^\s+- name:", text, re.M)),
-            "tolerant_steps": len(re.findall(r"continue-on-error:\s*true", text)),
-        }
+        found[path.name] = {"uses": sorted(set(uses)), "count": len(uses),
+                            **step_counts(text)}
     return found
 
 
-def verdict(by_workflow: dict, deps: dict) -> dict:
+def step_counts(text: str) -> dict:
+    r"""How many steps a workflow has, and how many of them cannot fail it.
+
+    **Counted the same way as each other**, which the first version did not
+    do. `^\s+- name:` saw only steps whose first key is `name`, missing any
+    leading with `uses:` or `run:`; `continue-on-error:\s*true` was unanchored
+    and would match the phrase in a comment or on a job-level key. So the two
+    could drift in opposite directions at once and `tolerant < steps` — the
+    test that decides whether the diagnostic's outcome means anything — could
+    invert on a workflow nobody had touched.
+
+    A step is a list item under `steps:`, whatever key it leads with. A
+    tolerant step is the key itself, indented under one, not the words
+    appearing anywhere.
+    """
+    steps = tolerant = 0
+    #: The column `steps:` sits at. The block ends at the first non-blank line
+    #: indented no further than that — which is how a SIBLING job's own
+    #: `continue-on-error` stops being counted as a step's. Resetting only at
+    #: column zero left `other:` inside the previous job's step list, and the
+    #: job-level key was counted as a tolerant step.
+    at_column = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if at_column is not None and indent <= at_column:
+            at_column = None
+        if stripped == "steps:":
+            at_column = indent
+            continue
+        if at_column is None:
+            continue
+        if re.match(r"^-\s*[\w-]+:", stripped):
+            steps += 1
+        if re.match(r"^-?\s*continue-on-error:\s*true$", stripped):
+            tolerant += 1
+    return {"steps": steps, "tolerant_steps": tolerant}
+
+
+def verdict(by_workflow: dict, deps: dict, suite_seconds: int) -> dict:
     """The comparison that answers #109 without reading a single log.
 
     Two workflows, same runner, same repo, same week. One fetches actions and
@@ -182,17 +278,33 @@ def verdict(by_workflow: dict, deps: dict) -> dict:
     is a decision for the issue, and a probe that writes the conclusion into
     the record is a probe whose conclusion nothing can contradict.
     """
-    def summary(name):
-        seen = by_workflow.get(name)
-        if not seen:
+    def group(names):
+        """Every named workflow's runs added together.
+
+        The first version compared ONE action-free workflow against ci.yml,
+        and the history holds two — `runner-diagnostics.yml` preceded
+        `runner-diagnostic.yml` and also succeeded. Reporting 1/1 where the
+        evidence is 2/2 understates the very comparison the page rests on.
+        """
+        present = [by_workflow[n] for n in names if n in by_workflow]
+        if not present:
             return None
         return {
-            "runs": seen["runs"],
-            "success": seen["success"],
-            "uses": deps.get(name, {}).get("uses", []),
-            "median_seconds": seen["median_seconds"],
-            "ran_longer_than_the_floor": seen["over_floor"],
+            "workflows": sorted(names),
+            "runs": sum(s["runs"] for s in present),
+            "success": sum(s["success"] for s in present),
+            "uses": sorted({u for n in names
+                            for u in deps.get(n, {}).get("uses", [])}),
+            "ran_longer_than_the_floor": sum(s["over_floor"] for s in present),
         }
+
+    committed = set(deps)
+    action_free = {n for n in committed if deps[n]["count"] == 0}
+    # A workflow that ran and is no longer committed cannot have its `uses:`
+    # read, so it cannot be classified from the tree. Named rather than
+    # dropped: `runner-diagnostics.yml` is one, and silently excluding it is
+    # how the 1/1 above happened.
+    uncommitted = sorted(set(by_workflow) - committed)
 
     diagnostic = deps.get("runner-diagnostic.yml", {})
     steps = diagnostic.get("steps", 0)
@@ -200,8 +312,10 @@ def verdict(by_workflow: dict, deps: dict) -> dict:
 
     return {
         "floor_seconds": FLOOR_SECONDS,
-        "with_actions": summary("ci.yml"),
-        "without_actions": summary("runner-diagnostic.yml"),
+        "suite_seconds_asserted": suite_seconds,
+        "with_actions": group([n for n in committed if deps[n]["count"]]),
+        "without_actions": group(action_free),
+        "in_history_but_not_committed": uncommitted,
         # **What the diagnostic's SUCCESS does not mean.** Every one of its
         # steps is `continue-on-error`, deliberately, so that one run maps the
         # whole surface instead of stopping at the first broken thing. The
@@ -216,7 +330,7 @@ def verdict(by_workflow: dict, deps: dict) -> dict:
     }
 
 
-def measure(token: str) -> dict:
+def measure(token: str, suite_seconds: int = SUITE_SECONDS) -> dict:
     found = runs(token)
     by_workflow = tally(found)
     deps = dependencies()
@@ -228,7 +342,7 @@ def measure(token: str) -> dict:
         "runs_returned": len(found),
         "workflows": by_workflow,
         "dependencies": deps,
-        "verdict": verdict(by_workflow, deps),
+        "verdict": verdict(by_workflow, deps, suite_seconds),
     }
 
 
@@ -252,8 +366,12 @@ def report(measured: dict) -> None:
     if with_actions and without:
         print(f"  With actions ({', '.join(with_actions['uses']) or 'none'}): "
               f"{with_actions['success']}/{with_actions['runs']} succeeded")
-        print(f"  Without actions: "
+        print(f"  Without actions "
+              f"({', '.join(without['workflows'])}): "
               f"{without['success']}/{without['runs']} succeeded")
+    if check["in_history_but_not_committed"]:
+        print(f"  ran but not committed, so unclassifiable from the tree: "
+              f"{', '.join(check['in_history_but_not_committed'])}")
     if not check["diagnostic_outcome_is_informative"]:
         print(f"\n  NOTE: {check['diagnostic_tolerant_steps']} of "
               f"{check['diagnostic_steps']} diagnostic steps are "
@@ -265,6 +383,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m etl.probe_ci_history")
     parser.add_argument("--token", default=os.environ.get("SAMYAMA_GITEA_TOKEN"),
                         help="Gitea token; defaults to $SAMYAMA_GITEA_TOKEN.")
+    parser.add_argument("--suite-seconds", type=int, default=SUITE_SECONDS,
+                        help="How long the suite takes locally. Recorded as "
+                             "an assertion — the API cannot report it.")
     parser.add_argument("--record", action="store_true",
                         help=f"Write {RECORD.relative_to(ROOT)}.")
     args = parser.parse_args(argv)
@@ -279,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        measured = measure(args.token)
+        measured = measure(args.token, suite_seconds=args.suite_seconds)
     except Unreachable as gone:
         print(f"unreachable: {gone}", file=sys.stderr)
         return 1

@@ -144,17 +144,35 @@ def test_the_page_does_not_conclude_past_its_evidence():
         lower = PAGE.lower()
         start = 0
         while (at := lower.find(overreach, start)) != -1:
-            opens = max(lower.rfind(". ", 0, at), lower.rfind("\n\n", 0, at))
-            closes = lower.find(". ", at)
-            sentence = lower[opens + 1:closes if closes != -1 else len(lower)]
+            # Split on every sentence end, not just ". " — a line wrapped
+            # after the full stop ends ".\n", so the naive split ran two
+            # sentences together and the phrase could borrow a hedge from the
+            # NEXT sentence, which is the failure mode of a guard like this.
+            bounds = [m.end() for m in re.finditer(r"[.!?][\s\n]", lower)]
+            opens = max([b for b in bounds if b <= at] + [0])
+            closes = min([b for b in bounds if b > at] + [len(lower)])
+            sentence = lower[opens:closes]
             assert any(h in sentence for h in hedges), (
                 f"the page asserts {overreach!r} as fact:\n  {sentence.strip()}\n"
                 f"Nothing measured supports it — the log is unread.")
             start = at + 1
 
 
-@pytest.mark.parametrize("number", sorted({
-    int(n) for n in re.findall(r"\*\*(\d+)(?:s| of| times)?", PAGE)}))
+BOLDED = sorted({int(n) for n in
+                 re.findall(r"\*\*(\d+)(?:s| of| times)?", PAGE)})
+
+
+def test_the_sweep_has_something_to_sweep():
+    """A parametrize over an empty list collects zero cases and reports
+    success. If a reflow stops the bold pattern matching, the sweep below
+    silently checks nothing — which is the failure it exists to catch, applied
+    to itself."""
+    assert len(BOLDED) >= 5, (
+        f"only {len(BOLDED)} bolded figures found on the page; the sweep is "
+        f"close to vacuous. Has the markup changed?")
+
+
+@pytest.mark.parametrize("number", BOLDED)
 def test_every_bolded_figure_on_the_page_is_in_the_record(number):
     """The sweep. A figure typed into a bolded claim that appears nowhere in
     the record is exactly what "printed by a probe, never typed" forbids, and
@@ -165,7 +183,12 @@ def test_every_bolded_figure_on_the_page_is_in_the_record(number):
              VERDICT["diagnostic_steps"], VERDICT["diagnostic_tolerant_steps"],
              VERDICT["with_actions"]["success"],
              VERDICT["without_actions"]["success"],
-             VERDICT["without_actions"]["runs"], 51}
+             VERDICT["without_actions"]["runs"],
+             # Was a bare literal whitelisted here, which made the one figure
+             # the floor argument rests on the only unbound number on the
+             # page. It is recorded as an assertion now — the API cannot
+             # report how long the suite takes.
+             VERDICT["suite_seconds_asserted"]}
     assert number in known, (
         f"the page states **{number}** in bold and the record holds no such "
         f"figure. Either re-run the probe, or the number was typed.")
