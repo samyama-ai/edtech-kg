@@ -2,17 +2,17 @@
   "note": "Measured by `python -m etl.probe_ci_history --record`. Run outcomes come from the Gitea Actions API; the workflow dependency counts are read from the committed YAML. Which STEP failed is NOT measured — see the module docstring.",
   "measured_at": "2026-09-08",
   "api": "https://git.samyama.ai/api/v1/repos/Samyama.ai/edtech-kg",
-  "runs_returned": 213,
+  "runs_returned": 216,
   "workflows": {
     "ci.yml": {
-      "runs": 211,
+      "runs": 214,
       "success": 0,
-      "failure": 209,
+      "failure": 212,
       "other": 2,
       "first": "2026-08-21T12:30:02Z",
-      "last": "2026-09-08T04:01:44Z",
+      "last": "2026-09-08T04:25:47Z",
       "unfinished": 0,
-      "timed": 211,
+      "timed": 214,
       "median_seconds": 7,
       "max_seconds": 58,
       "over_floor": 0
@@ -63,12 +63,18 @@
   },
   "verdict": {
     "floor_seconds": 60,
-    "suite_seconds_asserted": 51,
+    "suite": {
+      "seconds": 47,
+      "measured": true,
+      "command": "python -m pytest -q --deselect tests/test_ci_history_doc.py",
+      "excluded": "tests/test_ci_history_doc.py",
+      "why_excluded": "it asserts the figure this run produces"
+    },
     "with_actions": {
       "workflows": [
         "ci.yml"
       ],
-      "runs": 211,
+      "runs": 214,
       "success": 0,
       "uses": [
         "actions/checkout@v4",
@@ -93,7 +99,7 @@
     "diagnostic_tolerant_steps": 8
   },
   "code": {
-    "commit": "d9b07ef53f084a3ffac474f3e9dfd59be1382149",
+    "commit": "306084f9c4456fcfc06db52baeb133db92a7cc5b",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
