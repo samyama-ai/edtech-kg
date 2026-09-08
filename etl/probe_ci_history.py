@@ -35,16 +35,15 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
-import os
 import pathlib
 import sys
 import urllib.error
 import urllib.request
 
-from etl.identity import USER_AGENT
+from etl.identity import USER_AGENT, gitea_token
 from etl.provenance import write_record
-from etl.durations import (SUITE_SECONDS, TOKEN_NAMES, _instant, _median,
-                           seconds, time_the_suite)
+from etl.durations import (SUITE_SECONDS, _instant, _median, seconds,
+                           time_the_suite)
 from etl.workflow_files import dependencies
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -417,14 +416,6 @@ def lost_workflows(measured: dict) -> set[str]:
         return set()
     committed = json.loads(RECORD.read_text(encoding="utf-8"))
     return set(committed.get("workflows") or {}) - set(measured["workflows"])
-
-
-def gitea_token() -> str | None:
-    """The token, from the environment only — the names the sibling uses."""
-    for name in TOKEN_NAMES:
-        if os.environ.get(name):
-            return os.environ[name]
-    return None
 
 
 def main(argv: list[str] | None = None) -> int:

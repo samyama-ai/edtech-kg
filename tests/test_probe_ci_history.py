@@ -182,12 +182,13 @@ def test_the_action_free_comparison_uses_every_action_free_workflow():
     """The history holds two diagnostics — the singular and an earlier plural
     — and both succeeded. Reporting 1/1 where the evidence is 2/2 understates
     the comparison the whole page rests on."""
-    by_workflow = {
-        "ci.yml": {"runs": 211, "success": 0, "over_floor": 0,
-                   "median_seconds": 7},
-        "a.yml": {"runs": 1, "success": 1, "over_floor": 0, "median_seconds": 5},
-        "b.yml": {"runs": 3, "success": 3, "over_floor": 0, "median_seconds": 6},
-    }
+    def tallied(runs, success, failure=0):
+        return {"runs": runs, "success": success, "failure": failure,
+                "other": runs - success - failure, "over_floor": 0,
+                "median_seconds": 7.0}
+
+    by_workflow = {"ci.yml": tallied(211, 0, 211),
+                   "a.yml": tallied(1, 1), "b.yml": tallied(3, 3)}
     deps = {"ci.yml": {"uses": ["actions/checkout@v4"], "count": 1,
                        "steps": 7, "tolerant_steps": 0},
             "a.yml": {"uses": [], "count": 0, "steps": 8, "tolerant_steps": 8},
@@ -202,10 +203,10 @@ def test_a_workflow_that_ran_and_is_not_committed_is_named_not_dropped():
     """Its `uses:` cannot be read, so it cannot be classified from the tree.
     Silently excluding it is how the 1/1 above happened."""
     check = probe.verdict(
-        {"ci.yml": {"runs": 1, "success": 0, "over_floor": 0,
-                    "median_seconds": 7},
-         "deleted.yml": {"runs": 1, "success": 1, "over_floor": 0,
-                         "median_seconds": 6}},
+        {"ci.yml": {"runs": 1, "success": 0, "failure": 1, "other": 0,
+                    "over_floor": 0, "median_seconds": 7.0},
+         "deleted.yml": {"runs": 1, "success": 1, "failure": 0, "other": 0,
+                         "over_floor": 0, "median_seconds": 6.0}},
         {"ci.yml": {"uses": ["x"], "count": 1, "steps": 1,
                     "tolerant_steps": 0}}, 51)
     assert check["in_history_but_not_committed"] == ["deleted.yml"]

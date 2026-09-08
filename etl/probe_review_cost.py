@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import pathlib
 import re
 import subprocess
@@ -30,7 +29,7 @@ import time
 import urllib.error
 import urllib.request
 
-from etl.identity import USER_AGENT
+from etl.identity import USER_AGENT, gitea_token
 from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -55,9 +54,18 @@ class Unreachable(Exception):
 
 
 def token() -> str:
-    for name in ("GITEA_TOKEN", "SAMYAMA_GITEA_TOKEN"):
-        if os.environ.get(name):
-            return os.environ[name]
+    """The shared resolver, then this probe's own refusal.
+
+    The names lived here and in `etl/probe_ci_history.py` and in the filter
+    `etl/durations.py` uses to keep the token out of a subprocess — and that
+    third copy named only one of the two, which is how the credential reached
+    a pytest run. One list in `etl.identity` now; what to DO about a missing
+    token is still each probe's own decision, which is why this raises and the
+    other prints.
+    """
+    found = gitea_token()
+    if found:
+        return found
     raise Unreachable(
         "no Gitea token in GITEA_TOKEN or SAMYAMA_GITEA_TOKEN. This probe "
         "reads a private forge; the committed record is what the tests use.")

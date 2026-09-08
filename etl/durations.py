@@ -19,6 +19,8 @@ import sys
 import time
 from pathlib import Path
 
+from etl.identity import TOKEN_NAMES
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -36,12 +38,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SUITE_SECONDS = 46
 
 
-#: **Every name the probe will read a token from.** One list, because
-#: `gitea_token()` and the subprocess filter drifted apart: the filter stripped
-#: SAMYAMA_GITEA_TOKEN while the reader preferred GITEA_TOKEN, so the common
-#: path was the leaking one. Derived from the same tuple now, so they cannot
-#: disagree again.
-TOKEN_NAMES = ("GITEA_TOKEN", "SAMYAMA_GITEA_TOKEN")
 
 #: Set while the probe shells out to pytest, so a probe run started FROM the
 #: suite cannot start another one. Without it a test that called `measure()`
