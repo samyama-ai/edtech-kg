@@ -264,7 +264,8 @@ def test_the_probe_cannot_fork_a_suite_from_inside_one(monkeypatch):
 
 def test_the_history_is_paged_not_one_request(monkeypatch):
     """A single `?limit=250` WAS the whole history, so the probe hard-failed
-    the day it passed 250 — it is at 218 now. This instance returns every run
+    the day it passed 250, and the history was already past 200 when this was
+    written. This instance returns every run
     when no `page` is given and honours `limit` only alongside it, which is
     exactly what hid the missing loop."""
     pages = {
@@ -434,3 +435,65 @@ def test_report_says_so_when_no_diagnostic_is_committed(capsys):
     printed = capsys.readouterr().out
     assert "no runner-diagnostic.yml is committed" in printed
     assert "0 of 0" not in printed
+
+
+def test_the_cli_refuses_to_record_a_partial_measurement(monkeypatch, capsys):
+    """**Not only an empty one.** The first guard was `not
+    measured["workflows"]`, so a run returning `runner-diagnostic.yml` and no
+    `ci.yml` overwrote the record and exited 0 — and the doc suite then died
+    at COLLECTION on a missing key, which is the "reads as a broken test
+    rather than a destroyed artifact" failure the guard exists to close.
+
+    Reachable without malice: a token scoped to fewer workflows, a renamed
+    `ci.yml`, or an API blip returning a partial-but-self-consistent page.
+    """
+    monkeypatch.setenv("GITEA_TOKEN", "x")
+    monkeypatch.setattr(probe, "measure", lambda *a, **k: {
+        "workflows": {"runner-diagnostic.yml": {
+            "runs": 1, "success": 1, "failure": 0, "other": 0,
+            "first": "2026-09-01T05:00:00Z", "last": "2026-09-01T05:00:00Z",
+            "median_seconds": 5.0, "max_seconds": 5, "over_floor": 0,
+            "timed": 1, "unfinished": 0, "untimed": 0}},
+        "runs_returned": 1, "dependencies": {},
+        "verdict": {"floor_seconds": 60, "suite": {"seconds": 1},
+                    "with_actions": None, "without_actions": None,
+                    "in_history_but_not_committed": [],
+                    "diagnostic_steps": 0, "diagnostic_tolerant_steps": 0,
+                    "diagnostic_outcome_is_informative": False}})
+    before = probe.RECORD.read_bytes()
+    assert probe.main(["--record"]) == 4
+    said = capsys.readouterr().err
+    assert "ci.yml" in said, "the refusal must name what would be lost"
+    assert probe.RECORD.read_bytes() == before, "the record was overwritten"
+
+
+def test_the_first_run_has_nothing_to_lose(tmp_path, monkeypatch):
+    """A ratchet that refused when no record exists yet could never write
+    one."""
+    monkeypatch.setattr(probe, "RECORD", tmp_path / "absent.json")
+    assert probe.lost_workflows({"workflows": {"a.yml": {}}}) == set()
+    assert probe.lost_workflows({"workflows": {}}) == {"(any workflow at all)"}
+
+
+def test_the_token_never_reaches_the_pytest_subprocess(monkeypatch):
+    """**Both names.** The filter stripped SAMYAMA_GITEA_TOKEN while
+    `gitea_token()` reads GITEA_TOKEN first, so the ordinary path handed the
+    credential straight through. They come from one tuple now."""
+    seen = {}
+
+    class Finished:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        seen.update(kwargs.get("env") or {})
+        return Finished()
+
+    for name in durations.TOKEN_NAMES:
+        monkeypatch.setenv(name, "LEAKY")
+    monkeypatch.delenv(durations.REENTRY, raising=False)
+    monkeypatch.setattr(durations.subprocess, "run", fake_run)
+    durations.time_the_suite()
+
+    leaked = [n for n in durations.TOKEN_NAMES if n in seen]
+    assert not leaked, f"{leaked} reached the subprocess"
+    assert seen.get(durations.REENTRY) == "1", "the re-entry guard was dropped"

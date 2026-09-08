@@ -23,16 +23,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 #: Fallback only, for `--no-time-suite`. The suite is TIMED by default — see
-#: `time_the_suite`, which measures ~46s. This was a typed `51`, disclosed as
-#: an assertion, and a
+#: `time_the_suite`, which measures it. This was a typed `51` — disclosed as
+#: an assertion and then measured at 46, so 51 was wrong as well as untethered
+#: and leaving it here shrank the floor margin from 14s to 9s on every
+#: fallback path. It is the last measured value, and a
 #: review was right that disclosure is not measurement: CONTRIBUTING says
 #: "every figure in a document is printed by a probe, never typed. If you
 #: cannot point at the command, delete the figure", and this is the figure the
 #: whole floor argument turns on. If the suite really took 30s the floor would
 #: drop toward 40s, the 58s run could have executed tests, and the headline
 #: would weaken.
-SUITE_SECONDS = 51
+SUITE_SECONDS = 46
 
+
+#: **Every name the probe will read a token from.** One list, because
+#: `gitea_token()` and the subprocess filter drifted apart: the filter stripped
+#: SAMYAMA_GITEA_TOKEN while the reader preferred GITEA_TOKEN, so the common
+#: path was the leaking one. Derived from the same tuple now, so they cannot
+#: disagree again.
+TOKEN_NAMES = ("GITEA_TOKEN", "SAMYAMA_GITEA_TOKEN")
 
 #: Set while the probe shells out to pytest, so a probe run started FROM the
 #: suite cannot start another one. Without it a test that called `measure()`
@@ -123,16 +132,18 @@ def time_the_suite() -> dict:
     # function is in the middle of producing, so before a first successful run
     # it fails, the exit code is non-zero, and the timing is discarded — the
     # measurement can never bootstrap. The exclusion is recorded, and it is
-    # one module of 86 — counted, not estimated: the difference it makes to
+    # one module of the ~90 in tests/ — the exact count is recorded as
+    # `of_modules` rather than written here, because the last hand-written
+    # figure went stale in the same commit that added a module
     # the figure is far below the run-to-run variance of the figure itself.
     excluded = "tests/test_ci_history_doc.py"
     command = [sys.executable, "-m", "pytest", "-q", "--deselect", excluded]
-    # The token is REMOVED. The suite does not need a credential to time
-    # itself, and passing the whole environment to a subprocess puts it
-    # somewhere it has no reason to be. Output is captured and discarded, so
-    # the exposure was small — but small is not a reason to keep it.
-    environment = {k: v for k, v in os.environ.items()
-                   if k not in ("SAMYAMA_GITEA_TOKEN",)}
+    # EVERY token name is removed, from the same tuple the reader uses. The
+    # first version named one of the two, and named the one the reader tries
+    # SECOND — so the ordinary path handed the credential straight through.
+    # The suite does not need one to time itself. Output is captured and
+    # discarded, so the exposure was small; small is not a reason to keep it.
+    environment = {k: v for k, v in os.environ.items() if k not in TOKEN_NAMES}
     environment[REENTRY] = "1"
     start = time.monotonic()
     try:
@@ -153,7 +164,7 @@ def time_the_suite() -> dict:
     return {"seconds": elapsed, "measured": True,
             "command": f"python -m pytest -q --deselect {excluded}",
             "excluded": excluded,
-            # COUNTED. The page said "one module of roughly two hundred" and
-            # there are 86 — the only figure on it not drawn from the record.
+            # COUNTED. The page said "one module of roughly two hundred"
+            # and it was the only figure on it not drawn from the record.
             "of_modules": len(list((ROOT / "tests").glob("test_*.py"))),
             "why_excluded": "it asserts the figure this run produces"}

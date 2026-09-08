@@ -47,7 +47,15 @@ def stated(pattern: str) -> str:
 
 def test_the_run_count_and_the_zero_are_the_measured_ones():
     """The two numbers the whole page exists for."""
-    assert int(stated(r"`ci\.yml` has run \*\*(\d+) times")) == CI["runs"]
+    # The date is anchored INTO the headline, not looked for anywhere on the
+    # page. As a bare substring it held only while the date appeared once; a
+    # second mention would leave the headline effectively unchecked.
+    headline = re.search(
+        r"`ci\.yml` has run \*\*(\d+) times since ([\d-]+) and succeeded",
+        PAGE)
+    assert headline, "the headline sentence no longer parses"
+    assert int(headline.group(1)) == CI["runs"]
+    assert headline.group(2) == CI["first"][:10]
     assert int(stated(r"times since [\d-]+ and succeeded\s+(\d+) times")) == \
         CI["success"]
     assert CI["success"] == 0, (
@@ -189,8 +197,14 @@ def test_the_page_does_not_conclude_past_its_evidence():
 # bound, by `test_the_prose_figures_the_record_holds_are_pinned_too`, against
 # the record's own `first`. Two guards, each on the thing it can actually
 # check.
+#: Every way this page can emphasise a figure. `**x**` was the only one
+#: matched, so `__777 runs__` — valid CommonMark, and what some editors emit —
+#: and `<strong>888</strong>` both passed a full run.
+BOLD_SPAN = re.compile(r"\*\*([^*]+)\*\*|__([^_]+)__|<strong>(.*?)</strong>",
+                       re.S)
 BOLDED = sorted({int(n)
-                 for span in re.findall(r"\*\*([^*]+)\*\*", PAGE)
+                 for match in BOLD_SPAN.findall(PAGE)
+                 for span in match if span
                  for n in re.findall(r"\d+", re.sub(r"\d{4}-\d\d-\d\d", "", span))})
 
 
@@ -258,10 +272,19 @@ def test_the_suite_duration_was_measured_not_asserted():
         f"argument rests on a constant again. Re-run the probe without "
         f"--no-time-suite.")
     assert suite["command"], "no command recorded to point at"
-    assert suite["seconds"] < VERDICT["floor_seconds"], (
+    # A MARGIN, not a bare `<`. At 59s against a 60s floor the old assertion
+    # passed and the page still claimed a floor — while the floor's whole
+    # justification is that CI additionally pulls a container image, which is
+    # not timed here. The margin is what stands in for that pull, so it is
+    # named rather than left implied.
+    IMAGE_PULL_ALLOWANCE = 10
+    margin = VERDICT["floor_seconds"] - suite["seconds"]
+    assert margin >= IMAGE_PULL_ALLOWANCE, (
         f"the suite takes {suite['seconds']}s and the floor is "
-        f"{VERDICT['floor_seconds']}s; the floor must exceed the suite it "
-        f"bounds, or it bounds nothing")
+        f"{VERDICT['floor_seconds']}s — a margin of {margin}s. The floor "
+        f"exists to cover the suite PLUS an untimed container pull, and "
+        f"{IMAGE_PULL_ALLOWANCE}s is the least that is credible. Raise the "
+        f"floor, or time the pull.")
     assert suite["command"] in PAGE, (
         "the page must show the command that produced this figure")
 
@@ -321,3 +344,28 @@ def test_the_narrative_section_is_marked_as_narrative():
         "the incident section must say its figures come from git, not from "
         "the probe — otherwise the page's opening claim covers them and is "
         "false")
+
+
+def test_the_opening_claim_is_scoped_to_what_the_probe_prints():
+    """It opened "every figure below was printed by the probe" and retracted
+    that 113 lines later at the incident section. The marker was a real
+    improvement, but the order is wrong for a reader who stops at the table."""
+    opening = PAGE[:PAGE.index("## ")]
+    assert "except where a section says otherwise" in opening, (
+        "the opening claim covers sections it cannot cover; scope it where "
+        "the reader meets it, not where it is retracted")
+
+
+def test_the_causal_claim_is_backed_by_more_than_one_run():
+    """It was stated flat at n=1. The diagnostic is workflow_dispatch, so the
+    honest fix was more runs rather than softer wording."""
+    without = VERDICT["without_actions"]
+    assert without["runs"] >= 5, (
+        f"the action-free comparison rests on {without['runs']} run(s); the "
+        f"page states a cause and one observation does not support it")
+    assert without["failure"] == 0, (
+        f"{without['failure']} action-free run(s) have failed; the page's "
+        f"causal sentence no longer follows")
+    assert "not a controlled experiment" in PAGE, (
+        "the page must still name the other differences between the two "
+        "workflows — trigger, step count, step tolerance")

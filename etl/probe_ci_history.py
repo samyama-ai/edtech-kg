@@ -15,7 +15,8 @@ Three things are measured:
 
   * **Every ci.yml run, with its outcome and duration.** A count of successes
     is the whole finding; the durations say whether the suite could even have
-    started. The repo's own suite takes ~51s locally against a loaded engine,
+    started. The suite is TIMED by the probe (`etl.durations`) rather than
+    asserted,
     and CI additionally pulls a container image — so a run that ENDS in 14s
     did not run tests, whatever step it died on.
   * **The diagnostic workflow's outcome.** `runner-diagnostic.yml` (#167) was
@@ -25,7 +26,7 @@ Three things are measured:
     than assumed, so the comparison above is grounded in what the files say.
 
 Reading this needs a token, unlike every other probe here, because the Actions
-API is not public on a private repo. `SAMYAMA_GITEA_TOKEN` or `--token`. The
+API is not public on a private repo. `GITEA_TOKEN` or `SAMYAMA_GITEA_TOKEN` — env only, never a flag, so the secret stays out of `/proc/<pid>/cmdline` and shell history. The
 record is committed, so the tests read the record and never the network.
 """
 
@@ -42,8 +43,8 @@ import urllib.request
 
 from etl.identity import USER_AGENT
 from etl.provenance import write_record
-from etl.durations import (SUITE_SECONDS, _instant, _median, seconds,
-                           time_the_suite)
+from etl.durations import (SUITE_SECONDS, TOKEN_NAMES, _instant, _median,
+                           seconds, time_the_suite)
 from etl.workflow_files import dependencies
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -55,10 +56,16 @@ RECORD_NOTE = ("Measured by `python -m etl.probe_ci_history --record`. Run "
 
 API = "https://git.samyama.ai/api/v1/repos/Samyama.ai/edtech-kg"
 
-#: The suite takes ~51s locally with an engine already up. CI additionally
-#: pulls a container image and polls for it. A run that ENDED faster than this
-#: cannot have executed the tests, whichever step reported the failure — which
-#: is what makes the durations usable without a log.
+#: A run that ENDED faster than this cannot have executed the tests, whichever
+#: step reported the failure — which is what makes the durations usable
+#: without a log.
+#:
+#: The figure it must clear is `verdict.suite.seconds`, which the probe
+#: MEASURES (`etl.durations.time_the_suite`) rather than asserting, plus an
+#: untimed container pull. This comment used to justify the floor with a typed
+#: `~51s` — the figure that was later measured at 46 and retracted — so the
+#: constant's own explanation rested on the number the page exists to reject.
+#: `tests/test_ci_history_doc.py` asserts the margin.
 FLOOR_SECONDS = 60
 
 
@@ -132,6 +139,10 @@ def runs(token: str, limit: int = 250) -> list[dict]:
             total = body.get("total_count")
         fresh = 0
         for run in batch:
+            # Two keyspaces, deliberately: `id` when the API gives one and
+            # `run_number` as a fallback. They could in principle collide —
+            # and the `total != len(seen)` guard below catches that loudly,
+            # which is only true while that guard stays UNCONDITIONAL. It is.
             key = run.get("id", run.get("run_number"))
             if key is None:
                 raise Unreachable(
@@ -241,7 +252,7 @@ def tally(found: list[dict]) -> dict:
         seen["median_seconds"] = _median(took)
         seen["max_seconds"] = took[-1] if took else None
         # The count that carries the argument: a run cannot have executed a
-        # ~51s suite plus an image pull inside FLOOR_SECONDS.
+        # measured suite plus an image pull inside FLOOR_SECONDS.
         # Counted within `took`, which holds only runs whose stamps parsed.
         # The page said "0 of 218 RUNS reached that floor" over a numerator
         # computed across the timed ones — so a run with an unusable stamp
@@ -269,10 +280,17 @@ def verdict(by_workflow: dict, deps: dict, suite: dict) -> dict:
     def group(names):
         """Every named workflow's runs added together.
 
-        The first version compared ONE action-free workflow against ci.yml,
-        and the history holds two — `runner-diagnostics.yml` preceded
-        `runner-diagnostic.yml` and also succeeded. Reporting 1/1 where the
-        evidence is 2/2 understates the very comparison the page rests on.
+        **This does NOT include `runner-diagnostics.yml`, and that is
+        deliberate.** An earlier version of this docstring argued the
+        opposite — that reporting 1/1 where the evidence is 2/2 understates
+        the comparison — and the file was then changed to exclude it while
+        this paragraph was left arguing for the old behaviour. Anyone reading
+        it would conclude the exclusion is a bug and put it back.
+
+        The reason for the exclusion: that workflow is no longer in the tree,
+        so its `uses:` cannot be read and nothing confirms it fetched no
+        actions. It corroborates and it does not verify. `verdict` reports it
+        separately under `in_history_but_not_committed`.
         """
         present = [by_workflow[n] for n in names if n in by_workflow]
         if not present:
@@ -281,6 +299,12 @@ def verdict(by_workflow: dict, deps: dict, suite: dict) -> dict:
             "workflows": sorted(names),
             "runs": sum(s["runs"] for s in present),
             "success": sum(s["success"] for s in present),
+            # FAILURES separately from "not successes". A run cancelled by the
+            # concurrency group did not fail, and folding it into the
+            # denominator understates a workflow that never failed at all —
+            # which is the shape of the whole comparison here.
+            "failure": sum(s["failure"] for s in present),
+            "other": sum(s["other"] for s in present),
             "uses": sorted({u for n in names
                             for u in deps.get(n, {}).get("uses", [])}),
             "ran_longer_than_the_floor": sum(s["over_floor"] for s in present),
@@ -358,10 +382,12 @@ def report(measured: dict) -> None:
     with_actions, without = check["with_actions"], check["without_actions"]
     if with_actions and without:
         print(f"  With actions ({', '.join(with_actions['uses']) or 'none'}): "
-              f"{with_actions['success']}/{with_actions['runs']} succeeded")
+              f"{with_actions['success']}/{with_actions['runs']} succeeded, "
+              f"{with_actions['failure']} failed")
         print(f"  Without actions "
               f"({', '.join(without['workflows'])}): "
-              f"{without['success']}/{without['runs']} succeeded")
+              f"{without['success']}/{without['runs']} succeeded, "
+              f"{without['failure']} failed")
     if check["in_history_but_not_committed"]:
         print(f"  ran but not committed, so unclassifiable from the tree: "
               f"{', '.join(check['in_history_but_not_committed'])}")
@@ -378,9 +404,24 @@ def report(measured: dict) -> None:
               f"that anything it probed worked. That answer is in the log.")
 
 
+def lost_workflows(measured: dict) -> set[str]:
+    """Workflows the committed record names that a new measurement does not.
+
+    Empty when there is no committed record yet — the first run has nothing
+    to lose. Otherwise this is a ratchet: the record may gain workflows and
+    may only lose them by someone deciding to.
+    """
+    if not measured.get("workflows"):
+        return {"(any workflow at all)"}
+    if not RECORD.exists():
+        return set()
+    committed = json.loads(RECORD.read_text(encoding="utf-8"))
+    return set(committed.get("workflows") or {}) - set(measured["workflows"])
+
+
 def gitea_token() -> str | None:
     """The token, from the environment only — the names the sibling uses."""
-    for name in ("GITEA_TOKEN", "SAMYAMA_GITEA_TOKEN"):
+    for name in TOKEN_NAMES:
         if os.environ.get(name):
             return os.environ[name]
     return None
@@ -431,17 +472,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     report(measured)
-    if args.record and not measured["workflows"]:
-        # REFUSED. A zero-run measurement overwrote the committed record and
-        # exited 0; the doc tests then errored at COLLECTION on a missing key,
-        # which reads as a broken test rather than a destroyed artifact — and
-        # by then it was already gone. The same principle `durations.py`
-        # states for the suite: a probe must not pass an absence off as a
-        # measurement.
-        print("refusing to --record a measurement with no workflows in it; "
-              "the committed record is evidence and this would replace it "
-              "with nothing.", file=sys.stderr)
-        return 4
+    if args.record:
+        # REFUSED on a PARTIAL measurement, not only an empty one. The first
+        # guard was `not measured["workflows"]`, so a run returning
+        # runner-diagnostic.yml and no ci.yml overwrote the record and exited
+        # 0 — and the doc suite then died at COLLECTION on a missing 'ci.yml'
+        # key, which is exactly the "reads as a broken test rather than a
+        # destroyed artifact" failure the guard was written to close.
+        #
+        # Reachable without malice: a token scoped to fewer workflows, a
+        # renamed ci.yml, or an API blip returning a page that is partial and
+        # self-consistent.
+        missing = lost_workflows(measured)
+        if missing:
+            print(f"refusing to --record: the committed record names "
+                  f"{sorted(missing)} and this measurement does not. The "
+                  f"record is evidence; a partial run must not replace it. "
+                  f"If a workflow was genuinely deleted, remove it from the "
+                  f"record deliberately.", file=sys.stderr)
+            return 4
     if args.record:
         # Through the shared writer, so the record carries the commit that
         # produced it (#6). Not `RECORD.write_text` — a record nobody can date
