@@ -35,6 +35,7 @@ import urllib.error
 import urllib.request
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "geography-measured.json"
@@ -181,13 +182,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.record:
-        # `write_record` from #171 is not on this branch. When that merges this
-        # must adopt it, and its guard over every module with a module-level
-        # RECORD will fail loudly if it is not — which is the right way round.
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                                     ensure_ascii=False) + "\n",
-                          encoding="utf-8")
+        # #171 has merged, so this adopts it as its own comment said it must.
+        # The guard failed loudly the moment both landed on main, which is the
+        # right way round — and is the whole of what went wrong here: each
+        # branch was green alone, and nothing ran the pair.
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     elif args.json:
         print(json.dumps(result, indent=2))

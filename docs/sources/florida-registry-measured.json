@@ -50,5 +50,11 @@
       "ceterms:identifier": 350,
       "ceterms:estimatedCost": 50
     }
+  },
+  "code": {
+    "commit": "d14d4c8cf5a49d8b0482d8fb56de3a25903b7e9f",
+    "dirty": false,
+    "package": "0.1.0",
+    "backfilled": "The commit that CONTAINS this record, not the tree the probe ran against — the record predates `write_record`. Weaker than a live stamp: it bounds the code that produced these figures rather than naming it. Re-running the probe replaces this."
   }
 }
