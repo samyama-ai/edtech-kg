@@ -78,11 +78,11 @@ def test_a_workflow_whose_steps_all_tolerate_failure_reports_nothing_by_succeedi
     """
     deps = {"runner-diagnostic.yml": {"uses": [], "count": 0,
                                       "steps": 8, "tolerant_steps": 8}}
-    check = probe.verdict({}, deps, probe.SUITE_SECONDS)
+    check = probe.verdict({}, deps, durations.SUITE_SECONDS)
     assert check["diagnostic_outcome_is_informative"] is False
 
     deps["runner-diagnostic.yml"]["tolerant_steps"] = 7
-    assert probe.verdict({}, deps, probe.SUITE_SECONDS)[
+    assert probe.verdict({}, deps, durations.SUITE_SECONDS)[
         "diagnostic_outcome_is_informative"] is True
 
 
@@ -91,7 +91,7 @@ def test_a_workflow_with_no_steps_is_not_called_informative():
     as informative, and an empty file would be evidence of something."""
     deps = {"runner-diagnostic.yml": {"uses": [], "count": 0,
                                       "steps": 0, "tolerant_steps": 0}}
-    assert probe.verdict({}, deps, probe.SUITE_SECONDS)[
+    assert probe.verdict({}, deps, durations.SUITE_SECONDS)[
         "diagnostic_outcome_is_informative"] is False
 
 

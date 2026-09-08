@@ -107,6 +107,28 @@ def _parse(stamp: str) -> datetime.datetime:
         stamp.replace("Z", "+00:00") if stamp.endswith("Z") else stamp)
 
 
+def test_modules() -> int:
+    """How many test modules the suite holds.
+
+    **Recursive.** A non-recursive `glob` missed anything in a subdirectory
+    of `tests/`, in a figure the page presents as measured — and the page's
+    whole subject is figures that are measured rather than assumed.
+    """
+    return len(list((ROOT / "tests").rglob("test_*.py")))
+
+
+def unmeasured_suite(why: str, **extra) -> dict:
+    """A suite timing that did not happen — the SAME SHAPE as one that did.
+
+    The failure paths returned three keys where success returns seven, so a
+    caller reading `result["command"]` raised KeyError on exactly the path
+    where it most wanted to know what had been run.
+    """
+    return {"seconds": SUITE_SECONDS, "measured": False, "why": why,
+            "command": None, "excluded": None, "why_excluded": None,
+            "of_modules": test_modules(), **extra}
+
+
 def time_the_suite() -> dict:
     """Run the suite and time it. **The floor argument's other half.**
 
@@ -120,18 +142,18 @@ def time_the_suite() -> dict:
     must not pass a guess off as a measurement either.
     """
     if os.environ.get(REENTRY):
-        return {"seconds": SUITE_SECONDS, "measured": False,
-                "why": "re-entered from inside a suite run"}
+        return unmeasured_suite("re-entered from inside a suite run")
 
     # **Deselect the module that reads this record.** Timing the whole suite
     # is circular: `tests/test_ci_history_doc.py` asserts the figure this
     # function is in the middle of producing, so before a first successful run
     # it fails, the exit code is non-zero, and the timing is discarded — the
     # measurement can never bootstrap. The exclusion is recorded, and it is
-    # one module of the ~90 in tests/ — the exact count is recorded as
+    # one module of the ~90 in tests/. The exact count is recorded as
     # `of_modules` rather than written here, because the last hand-written
-    # figure went stale in the same commit that added a module
-    # the figure is far below the run-to-run variance of the figure itself.
+    # figure went stale in the same commit that added a module — and the
+    # difference one module makes is far below the run-to-run variance of the
+    # timing itself.
     excluded = "tests/test_ci_history_doc.py"
     command = [sys.executable, "-m", "pytest", "-q", "--deselect", excluded]
     # EVERY token name is removed, from the same tuple the reader uses. The
@@ -146,21 +168,22 @@ def time_the_suite() -> dict:
         finished = subprocess.run(command, cwd=str(ROOT), env=environment,
                                   capture_output=True, timeout=1800)
     except (OSError, subprocess.SubprocessError) as gone:
-        return {"seconds": SUITE_SECONDS, "measured": False, "why": str(gone)}
+        return unmeasured_suite(str(gone))
     elapsed = round(time.monotonic() - start)
 
     if finished.returncode != 0:
         # A FAILING suite's duration is not the figure the argument wants —
         # pytest can stop early, and a run that died in collection takes no
         # time at all and would drop the floor to nothing.
-        return {"seconds": SUITE_SECONDS, "measured": False,
-                "why": f"the suite exited {finished.returncode}; a failing "
-                       f"run's duration does not bound a passing one",
-                "observed_seconds": elapsed}
+        return unmeasured_suite(
+            f"the suite exited {finished.returncode}; a failing run's "
+            f"duration does not bound a passing one",
+            observed_seconds=elapsed, command=" ".join(command),
+            excluded=excluded)
     return {"seconds": elapsed, "measured": True,
             "command": f"python -m pytest -q --deselect {excluded}",
             "excluded": excluded,
             # COUNTED. The page said "one module of roughly two hundred"
             # and it was the only figure on it not drawn from the record.
-            "of_modules": len(list((ROOT / "tests").glob("test_*.py"))),
+            "of_modules": test_modules(),
             "why_excluded": "it asserts the figure this run produces"}
