@@ -1,6 +1,6 @@
-"""The schema file against the documents that describe it.
+"""The schema files against the documents that describe them.
 
-`schema/edtech_kg.cypher` and `docs/schema.md` must agree in BOTH directions —
+The schema files and `docs/schema.md` must agree in BOTH directions —
 a label in the cypher nobody documented is a label nobody can use, and a label
 the doc promises that the ontology does not declare is a promise nothing keeps.
 Counts stated in prose are compared as integers against the documents they are
@@ -16,8 +16,8 @@ engine are in `tests/test_schema_engine.py`.
 
 import re
 
-from tests.schema_source import (QUESTIONS, SCHEMA, SCHEMA_DOC, edges,
-                                 first_column, labels, section)
+from tests.schema_source import (SCHEMA_FILES, QUESTIONS, SCHEMA_DOC, edges,
+                                 first_column, labels, section, schema_text)
 from tests.questions_document import marks
 from tests.spelling import spelled
 
@@ -95,18 +95,25 @@ def test_the_competency_gap_count_agrees_with_the_questions():
                if "competency" in parts[i + 1].lower()]
     # Anchored on the competency-gap sentence itself. A looser pattern matched
     # an unrelated "those questions was blocked" elsewhere on the page.
-    for path, pattern in ((SCHEMA_DOC, r"([\w-]+) questions?[^.]*?blocked on one thing"),
-                          (SCHEMA, r"competency gap — ([\w-]+) questions")):
-        stated = re.search(pattern, path.read_text().lower())
-        assert stated, f"{path.name} no longer states a competency-gap count"
+    # Read as TEXT, not as a path: the schema is two files since #157 and the
+    # competency-gap sentence sits in the tier-2 one. A (path, pattern) pair
+    # would have gone on passing while checking only tier 1 — the stale-figure
+    # class this test exists to catch, moved one file along.
+    for name, text, pattern in (
+            ("schema.md", SCHEMA_DOC.read_text(),
+             r"([\w-]+) questions?[^.]*?blocked on one thing"),
+            ("the schema", schema_text(),
+             r"competency gap — ([\w-]+) questions")):
+        stated = re.search(pattern, text.lower())
+        assert stated, f"{name} no longer states a competency-gap count"
         assert spelled(stated.group(1)) == len(blocked), (
-            f"{path.name} says {stated.group(1)!r}, but questions.md blocks "
+            f"{name} says {stated.group(1)!r}, but questions.md blocks "
             f"{len(blocked)}: {blocked}")
 
 
 def test_what_it_does_not_claim_is_written_down():
     """The house standard: limits stated before anyone finds them."""
-    for document in (SCHEMA.read_text(), SCHEMA_DOC.read_text()):
+    for document in (schema_text(), SCHEMA_DOC.read_text()):
         assert "does not claim" in document.lower()
 
 
@@ -160,8 +167,13 @@ def test_no_document_calls_960_a_course_count():
     does NOT claim" section — the stale-figure-one-file-over class this repo
     has now corrected three times.
     """
-    for path in (SCHEMA_DOC, SCHEMA):
-        flat = " ".join(path.read_text(errors="replace").split())
+    # Every schema file, not SCHEMA -- which is tier 1 only. The section this
+    # guards ("what this schema does NOT claim") moved to the tier-2 file in
+    # #157, so reading SCHEMA left it unchecked: the very
+    # stale-figure-one-file-over failure this docstring is about, repeated by
+    # the change that split the file.
+    for path in (SCHEMA_DOC, *SCHEMA_FILES):
+        flat = " ".join(path.read_text(encoding="utf-8", errors="replace").split())
         assert "960 courses" not in flat, (
             f"{path.name} still calls 960 a course count; it is the sitemap "
             f"page count, and the course count is 791")

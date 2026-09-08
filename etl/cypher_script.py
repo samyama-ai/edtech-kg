@@ -18,7 +18,46 @@ from pathlib import Path
 
 from etl.engine import Engine
 
-SCHEMA = Path(__file__).resolve().parent.parent / "schema" / "edtech_kg.cypher"
+_SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schema"
+
+#: **The** declaration of what "the schema" is. Every reader — the loader, the
+#: parse tests, the document guards — imports this one tuple. There is no
+#: second copy anywhere, by design.
+#:
+#: #157 split the schema in two and this tuple was written four more times
+#: while doing it: here, in `tests/schema_source.py`, in `tests/test_load_pwcs`
+#: and as a `sorted(schema/*.cypher)` glob in two more modules. Nothing
+#: asserted the five agreed, so the drift #157 exists to close had only moved:
+#: from "one file read" to "one file list". Measured — adding a third tier file
+#: carrying a real CREATE CONSTRAINT left the suite green at 1,396 passed while
+#: the loader never applied it. A whole tier undeclared, silently.
+#:
+#: `tests/test_the_declared_schema.py::test_the_declared_schema_is_every_schema_file`
+#: holds this tuple to the directory, so a new file fails loudly here until
+#: someone declares it. It is a hand-written list rather than the glob itself
+#: on purpose: the glob would apply any `.cypher` file dropped in `schema/` to
+#: a production graph without anyone deciding to.
+#:
+#: Tier 1 then tier 2, **and the order is pinned** — not by the engine, where
+#: constraints are independent, but by
+#: `test_the_declared_schema_is_every_schema_file`, which asserts this tuple
+#: is in tier-banner order. Swapping it fails there and nowhere else: the
+#: banner test goes through `sole_file_stating` and is order-blind, which is
+#: that fix working. Two earlier versions of this comment were wrong in
+#: opposite directions — one said the order did not matter, the next named
+#: the banner test — so the claim is measured now rather than asserted.
+SCHEMA_FILES = (_SCHEMA_DIR / "edtech_kg.cypher",
+                _SCHEMA_DIR / "edtech_kg_tier2.cypher")
+
+
+def schema_text() -> str:
+    """Both schema files, concatenated in tier order.
+
+    Anything applying or parsing "the schema" must use this rather than reading
+    one file, or tier 2 silently stops being applied — a failure that shows up
+    as a missing constraint nobody declared missing.
+    """
+    return "\n".join(f.read_text(encoding="utf-8") for f in SCHEMA_FILES)
 
 
 def strip_comment(line: str) -> str:
@@ -77,13 +116,16 @@ def split_statements(text: str) -> list[str]:
 
 def apply_schema(engine: Engine, quiet: bool = False,
                  schema: Path | None = None) -> int:
-    """The constraints, from the schema file — not retyped here.
+    """The constraints, from the schema FILES — not retyped here.
 
     A copy would drift from the file the tests execute, which is the defect
     this repo keeps finding: two things that should be one, with only one
     maintained.
     """
-    text = (schema or SCHEMA).read_text()
+    # Both tiers unless the caller names one file. Reading SCHEMA here would
+    # have applied tier 1 only, and every tier-2 constraint would have gone
+    # quietly undeclared — the load still succeeds, so nothing would say so.
+    text = schema.read_text(encoding="utf-8") if schema else schema_text()
     statements = split_statements(
         "\n".join(strip_comment(line) for line in text.splitlines()))
     for statement in statements:

@@ -17,8 +17,25 @@ import re
 
 import pytest
 
+from tests.schema_source import (SCHEMA_FILES, declaring_file,
+                                 sole_file_stating)
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOC = "docs/sources/pathway-identity.md"
+#: "the schema" is two files since #157. Naming one of them in a check is how a
+#: guard keeps passing after the sentence it guards moves to the other — the
+#: 960-course guard did exactly that, and the NEGATIVE assertions below are the
+#: shape where it is silent rather than loud.
+#:
+#: This was a `sorted(schema/*.cypher)` glob joined into one string, which had
+#: three problems the join hid. The glob was a fifth independent definition of
+#: "the schema" and agreed with the other four only by luck; an empty or
+#: renamed `schema/` made it `""`, so the NEGATIVE tests passed on having read
+#: nothing; and every failure message said `schema/*.cypher` rather than the
+#: file to go and open. Each schema file is now read and asserted on its own.
+SCHEMA = "schema/*.cypher"
+
+
 RECORD = json.loads((ROOT / "docs" / "sources"
                      / "pathway-identity-measured.json").read_text("utf-8"))
 
@@ -39,13 +56,13 @@ QUOTATIONS = [
     (DOC, WEB["shared_values"], r"\*\*(?:Four|(\d+)) pages are each published"),
     (DOC, CTID["present"], r"\| \*\*(\d+) / 98\*\* \| 98 \| 0 \|"),
 
-    ("schema/edtech_kg.cypher", RECORD["pathways"],
+    (SCHEMA, RECORD["pathways"],
      r"argued: all (\d+)\n// Registry pathways read"),
-    ("schema/edtech_kg.cypher", WEB["absent"],
+    (SCHEMA, WEB["absent"],
      r"`subjectWebpage` leaves (\d+) nulls"),
-    ("schema/edtech_kg.cypher", WEB["collides"],
+    (SCHEMA, WEB["collides"],
      r"AND merges (\d+) onto \d+ shared pages"),
-    ("schema/edtech_kg.cypher", WEB["shared_values"],
+    (SCHEMA, WEB["shared_values"],
      r"merges \d+ onto (\d+) shared pages"),
 
     ("docs/schema.md", RECORD["pathways"],
@@ -66,11 +83,50 @@ QUOTATIONS = [
 SPELLED = {"Twenty": 20, "Seven": 7, "seven": 7, "Four": 4}
 
 
+def sources(path: str) -> list[tuple[str, str]]:
+    """(name, text) for each file `path` names — one for a doc, N for SCHEMA.
+
+    Every check below runs against each of these separately. Joining them was
+    what turned "the schema states X" into "one of the schema files states X",
+    and what let a failure report `schema/*.cypher` instead of a filename.
+    """
+    if path == SCHEMA:
+        return [(f"schema/{f.name}", f.read_text(encoding="utf-8"))
+                for f in SCHEMA_FILES]
+    return [(path, (ROOT / path).read_text(encoding="utf-8"))]
+
+
+def pathway_key_source() -> str:
+    """The schema file that declares the Pathway key, as `schema/<name>`.
+
+    **The four schema-sourced rows below belong to THIS file, not to whichever
+    schema file happens to quote them.** Before the split they were pinned to
+    `schema/edtech_kg.cypher`; the fan-out over both files replaced that with
+    "some schema file says it", which is strictly weaker.
+
+    Measured on this branch: moving the "all 98 Registry pathways" block out
+    of tier 1 and appending it to tier 2 — so the measured reasoning for the
+    Pathway key sat in a tier declaring no Pathway — left the suite at 1,383
+    passed and nothing noticed.
+
+    `test_the_verdict_is_stated_wherever_the_key_is_declared` was rewritten to
+    stop asking the weaker question. Leaving this one asking it put both
+    policies in one module.
+    """
+    # Through `declaring_file`, not a literal declaration string: that is the
+    # line-local test `constraint_line()` exists to replace, and reflowing the
+    # declaration across two lines turned six tests red with "no schema file
+    # states the Pathway key" — loud, but the wrong diagnosis.
+    return f"schema/{declaring_file('Pathway').name}"
+
+
 def read(path: str) -> str:
+    """One named document. Deliberately refuses SCHEMA — see `sources`."""
+    assert path != SCHEMA, "read one schema file at a time; use sources()"
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def stated(path: str, pattern: str):
+def stated(path: str, pattern: str, text: str | None = None):
     """The figure a sentence states, and the sentence, so a failure shows both.
 
     A pattern that matches nothing is a FAILURE, never a pass — that is the
@@ -78,7 +134,7 @@ def stated(path: str, pattern: str):
     wording returns no match after a harmless reflow, and every assertion
     downstream of it passes on an empty set.
     """
-    found = re.search(pattern, read(path))
+    found = re.search(pattern, read(path) if text is None else text)
     assert found, f"{path} no longer states this — pattern {pattern!r} matched nothing"
     digits = next((g for g in found.groups() if g), None)
     if digits is None:
@@ -95,7 +151,26 @@ def stated(path: str, pattern: str):
     "path, expected, pattern", QUOTATIONS,
     ids=[f"{p.split('/')[-1]}-{e}" for p, e, _ in QUOTATIONS])
 def test_a_quoted_figure_matches_the_record(path, expected, pattern):
-    said, sentence = stated(path, pattern)
+    # For SCHEMA, the figure must be in the file that DECLARES the Pathway
+    # key — the reasoning has to sit with the constraint it justifies. For a
+    # document, the document itself.
+    wanted = pathway_key_source() if path == SCHEMA else path
+    quoting = [(name, text) for name, text in sources(path)
+               if re.search(pattern, text)]
+    assert quoting, (
+        f"no file behind {path} states this — pattern {pattern!r} matched "
+        f"nothing in {', '.join(n for n, _ in sources(path))}")
+    assert [n for n, _ in quoting] == [wanted], (
+        f"{pattern!r} is stated in {[n for n, _ in quoting]}; it belongs in "
+        f"{wanted}, the file that declares the key this figure decides. A "
+        f"figure that drifts into a tier declaring no Pathway is the stale-"
+        f"figure risk this module exists for.")
+    for name, text in quoting:
+        said, sentence = stated(name, pattern, text)
+        _matches(name, said, expected, sentence)
+
+
+def _matches(path, said, expected, sentence):
     assert said == expected, (
         f"{path} says {said}; the record measured {expected}.\n"
         f"  sentence: {sentence}\n"
@@ -105,8 +180,15 @@ def test_a_quoted_figure_matches_the_record(path, expected, pattern):
 
 def test_the_verdict_is_stated_wherever_the_key_is_declared():
     """A decision recorded in one file and not the others is how #85 arose in
-    the first place: the schema said `ctid`, the loader wrote `url`."""
-    for path in ("schema/edtech_kg.cypher", "docs/schema.md", DOC):
+    the first place: the schema said `ctid`, the loader wrote `url`.
+
+    "Wherever the key is DECLARED" is the schema file carrying the Pathway
+    constraint, not either schema file. The joined read asked the weaker
+    question — whether one of the two mentioned it — and would have passed with
+    the verdict in tier 2 and the constraint it explains in tier 1.
+    """
+    declares = declaring_file("Pathway")
+    for path in (f"schema/{declares.name}", "docs/schema.md", DOC):
         text = read(path)
         assert '"<space>|<identifier>"' in text or \
                '`Pathway.id = "<space>|<identifier>"`' in text, \
@@ -120,12 +202,20 @@ def test_the_parse_direction_is_stated_with_the_key_not_only_in_the_doc():
     the first loader reads the schema, so the warning has to be there and not
     only in a source document they may never open.
     """
-    schema = read("schema/edtech_kg.cypher")
+    # Both anchors out of the one file that carries them. Sliced across the
+    # join, a `// Pathway — ` heading in the other tier would silently make
+    # this block span a file boundary.
+    heading = sole_file_stating("// Pathway — ", "the Pathway heading")
+    declares = declaring_file("Pathway")
+    assert heading == declares, (
+        f"the Pathway commentary is in {heading.name} and the constraint it "
+        f"explains is in {declares.name}")
+    schema = heading.read_text(encoding="utf-8")
     block = schema[schema.index("// Pathway — "):
                    schema.index("CREATE CONSTRAINT ON (pw:Pathway)")]
     assert "LEFT" in block and "rpartition" in block, (
-        "the Pathway block must say the id parses from the LEFT and name "
-        "Level's rpartition as the wrong rule to copy")
+        f"{heading.name}: the Pathway block must say the id parses from the "
+        f"LEFT and name Level's rpartition as the wrong rule to copy")
 
 
 def test_the_case_the_verdict_does_not_settle_is_stated_as_unsettled():
@@ -143,5 +233,19 @@ def test_the_case_the_verdict_does_not_settle_is_stated_as_unsettled():
 def test_no_document_still_claims_the_key_question_is_undecided():
     """#85's own words, which three files carried before it was answered."""
     stale = "not a decision\nto take on one publisher's evidence"
-    for path in ("schema/edtech_kg.cypher", "docs/schema.md"):
-        assert stale not in read(path), f"{path} still defers the decision"
+    # Each schema file on its own, so the failure names the file. A plain
+    # loop: the first version asserted inside a comprehension via a helper
+    # that always returned False, so the count below held by construction and
+    # said nothing. The vacuous case it was written against — a renamed
+    # `schema/` yielding "" — cannot reach here either, because a per-file
+    # read raises FileNotFoundError, which is already loud.
+    checked = []
+    for path in (SCHEMA, "docs/schema.md"):
+        for name, text in sources(path):
+            assert stale not in text, f"{name} still defers the decision"
+            checked.append(name)
+    # The NAMES, not a count. `len(checked) == len(SCHEMA_FILES) + 1` held by
+    # construction — `checked` gains one entry per item `sources()` yields —
+    # which is the shape `_defers` was removed for, one round earlier.
+    assert checked == [f"schema/{f.name}" for f in SCHEMA_FILES] \
+        + ["docs/schema.md"], checked

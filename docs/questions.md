@@ -98,7 +98,7 @@ hidden behind a national phrasing.
 prerequisite? ✅ — 138 measured, and they are not edges
 **Q17.** What does this occupation pay? ⚠️ — source named, not yet measured
 **Q18.** Is this occupation growing or shrinking? ⚠️ — same
-**Q19.** What does this programme cost? ❌ — **re-marked by #22.** The source is named, but nothing in the schema holds a cost: `grep -ci cost schema/edtech_kg.cypher` returns 0, so there is no node or property to write a traversal against. It was marked answerable-once-measured; it is not answerable until a `Cost` node is declared, which is a schema change and not a loader
+**Q19.** What does this programme cost? ❌ — **re-marked by #22.** The source is named, but nothing in the schema holds a cost: `grep -ci cost schema/*.cypher` returns 0 across both tier files, so there is no node or property to write a traversal against. It was marked answerable-once-measured; it is not answerable until a `Cost` node is declared, which is a schema change and not a loader
 **Q20.** What is this student's record? ❌ — permanently out of scope (`scope.md` §1)
 
 ## Tier 2 — one hop
