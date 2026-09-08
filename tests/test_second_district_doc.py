@@ -39,7 +39,7 @@ def test_every_district_has_a_row_and_every_row_is_measured():
             continue
         row = re.search(
             rf"\| {re.escape(name)} \| (\d+) \| (\d+) \| (\d+) \| "
-            rf"\*\*([\d.]+)%\*\* \| (\d+)/(\d+) \|", PAGE)
+            rf"\*\*([\d.]+)%\*\* \| (\d+)/(\d+)", PAGE)
         assert row, f"{name}'s row no longer parses"
         assert [int(row.group(1)), int(row.group(2)), int(row.group(3))] == [
             found["published"], found["read"],
@@ -76,10 +76,17 @@ def test_resolution_and_coverage_are_kept_apart():
     """The whole point of the rewrite. A district with one link that resolves
     scores 100% on resolution and nothing on coverage, and reporting only the
     first would say prerequisites generalise when they do not."""
-    said = re.search(r"resolves \((\d+)/(\d+)\)", PAGE)
+    said = re.search(r"resolves — (\d+)/(\d+)\s*at PWCS", PAGE)
     assert said, "the page no longer reports PWCS's resolution rate"
     assert [int(said.group(1)), int(said.group(2))] == [
         PWCS["links_resolving_to_a_published_course"], PWCS["links"]]
+    # EVERY district's, not only PWCS's — "resolution generalises" is a claim
+    # about all of them and one figure cannot carry it.
+    for name, found in DISTRICTS.items():
+        if found["links"]:
+            assert found["percent_of_links_that_resolve"] == 100.0, (
+                f"{name} resolves {found['percent_of_links_that_resolve']}% "
+                f"of its links; the page says resolution generalises")
     assert "Resolution generalises and coverage does not" in PAGE
 
 
@@ -106,11 +113,16 @@ def test_the_sample_ceiling_is_described_as_a_ceiling():
     catalogue read. Calling it "60 pages each" was false for three of five."""
     assert f"Ceiling of {RECORD['sample_per_district']}" in PAGE
     assert "never the ceiling" in PAGE
+    # The sentence about reading whole catalogues is conditional — it applies
+    # only while some district publishes fewer pages than the ceiling. Since
+    # the pager is followed, none does; the sentence is a rule, not a claim
+    # about today, so it stays and this asserts which case we are in.
     smaller = [n for n, f in DISTRICTS.items()
-               if f.get("published") and f["sampled"] < RECORD["sample_per_district"]]
-    assert smaller, (
-        "no district is below the ceiling any more; the sentence about "
-        "reading whole catalogues is now describing nothing")
+               if f.get("published")
+               and f["read"] < RECORD["sample_per_district"]]
+    assert not smaller, (
+        f"{smaller} read fewer pages than the ceiling; the page should say so "
+        f"rather than implying every district was sampled to {RECORD['sample_per_district']}")
 
 
 def test_the_seed_and_the_client_list_are_on_the_page():
@@ -125,19 +137,24 @@ def test_the_enumeration_gap_is_a_measured_figure():
     """"An index crawl finds 73 of 817" lived only in a code comment, which
     is the one place this repo says a figure may not live. Both counts are in
     the record now and both are on the page."""
+    # The CALIBRATION, which is what lets the other four population figures
+    # be read as counts rather than floors. On PWCS both methods work, so the
+    # crawl can be checked against a census.
     said = re.search(
-        r"PWCS publishes (\d+) course pages in a sitemap; an index crawl of "
-        r"the same catalogue finds (\d+)", PAGE)
-    assert said, "the page no longer states the enumeration gap"
-    assert int(said.group(1)) == PWCS["courses_in_sitemap"]
-    assert int(said.group(2)) == PWCS["courses_in_index_crawl"]
+        r"the crawl finds (\d+) of\s+the sitemap's (\d+)", PAGE)
+    assert said, "the page no longer states the crawl's calibration"
+    assert int(said.group(1)) == PWCS["courses_in_index_crawl"]
+    assert int(said.group(2)) == PWCS["courses_in_sitemap"]
+    assert PWCS["courses_in_index_crawl"] > PWCS["courses_in_sitemap"] * 0.9, (
+        f"the crawl finds {PWCS['courses_in_index_crawl']} of "
+        f"{PWCS['courses_in_sitemap']} — no longer close to a census, so the "
+        f"other districts' population figures are floors and the page must "
+        f"say so instead of calling them counts")
 
     without = [n for n, f in DISTRICTS.items() if not f.get("has_sitemap")]
-    stated = re.search(r"\*\*(\d+) of the five publish no sitemap at all\*\*",
-                       PAGE)
+    stated = re.search(r"(\d+) of the five publish no sitemap", PAGE)
     assert stated, "the page no longer counts the districts without a sitemap"
-    assert int(stated.group(1)) == len(without), (
-        f"the page says {stated.group(1)}; {len(without)} publish no sitemap")
+    assert int(stated.group(1)) == len(without)
 
 
 def test_the_page_states_what_it_does_not_establish():
@@ -146,7 +163,21 @@ def test_the_page_states_what_it_does_not_establish():
     US school districts."""
     assert "What this does not establish" in PAGE
     assert "one vendor" in PAGE
-    assert APS["with_a_typed_prerequisite"] == 1, (
-        "Arlington no longer rests on a single observation; the caveat is "
-        "now understating the evidence")
-    assert "single typed prerequisite" in PAGE
+    said = re.search(
+        r"Arlington's figure rests on (\d+) typed\s+prerequisites in (\d+) pages",
+        PAGE)
+    assert said, "the page no longer sizes Arlington's evidence"
+    assert int(said.group(1)) == APS["with_a_typed_prerequisite"]
+    assert int(said.group(2)) == APS["read"]
+
+
+def test_the_correction_is_recorded_not_quietly_replaced():
+    """The first version reported Arlington at 1.7% and Clover Park with 51
+    pages, because the crawl was not following the catalogue's pager — it read
+    the first page of each index and sampled from that, a BIASED subset rather
+    than a small one. A page that silently swapped the numbers would leave the
+    next reader with no way to know the method changed."""
+    assert "not following the catalogue's pager" in PAGE
+    assert "1.7%" in PAGE and "51 pages" in PAGE, (
+        "the superseded figures must be named, or the correction is invisible")
+    assert str(APS["published"]) in PAGE

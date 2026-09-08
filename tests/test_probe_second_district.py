@@ -77,14 +77,45 @@ def test_a_link_to_a_page_the_catalogue_does_not_publish_is_not_resolved():
     assert found["resolved"] == ["/maths/algebra-1"]
 
 
-def test_a_typed_field_holding_no_course_link_falls_through_to_prose():
+def test_a_typed_field_holding_no_course_link_is_its_own_answer():
     """The CMS emits `/saml_login` inside the field on every page. A typed
-    field whose only links are navigation states nothing traversable, and
-    counting it as typed would inflate every district including PWCS."""
+    field whose only links are navigation states nothing traversable, so it
+    must not count as typed — that would inflate every district including
+    PWCS.
+
+    But it is not "prose" and it is not "no field" either. Folding it into
+    those reported a district that emits the field and fills it with
+    navigation as one that does not use the field at all, which is a
+    different fact. It gets its own kind.
+    """
     found = probe.classify(
         page(typed='<a href="/saml_login">Log in</a>',
              prose="Teacher recommendation"), PUBLISHED)
-    assert found["kind"] == "prose"
+    assert found["kind"] == "typed but no course link"
+    assert "Log in" in found["text"]
+
+
+def test_an_absolute_link_to_the_same_host_resolves():
+    """Matching only `/…` meant a district linking its prerequisites as
+    `https://catalog.example.edu/x/y` was counted as having none — the
+    finding this probe exists to measure, produced by not looking."""
+    base = "https://catalog.example.edu"
+    found = probe.classify(
+        page(typed=f'<a href="{base}/maths/algebra-1">Algebra I</a>'),
+        PUBLISHED, base)
+    assert found["kind"] == "typed"
+    assert found["resolved"] == ["/maths/algebra-1"]
+
+
+def test_a_link_to_another_host_is_not_a_course_and_not_a_failure():
+    """An off-host link is not a prerequisite this catalogue publishes, and
+    counting it as an unresolved link would understate resolution."""
+    found = probe.classify(
+        page(typed='<a href="https://elsewhere.example/x/y">Elsewhere</a>'
+                   '<a href="/maths/algebra-1">Algebra I</a>'),
+        PUBLISHED, "https://catalog.example.edu")
+    assert found["links"] == ["/maths/algebra-1"]
+    assert found["resolved"] == ["/maths/algebra-1"]
 
 
 def test_none_and_absent_are_different_answers():
@@ -104,14 +135,27 @@ def test_only_two_segment_paths_count_as_courses():
     assert not probe.COURSE_PATH.match("/maths/algebra-1/unit-2")
 
 
-def test_the_sample_is_seeded_so_two_runs_agree():
-    """The issue asks for the same sample size and a recorded seed. Without
-    it a re-run measures a different sample and the comparison drifts."""
-    import random
+def test_two_runs_of_the_probe_read_the_same_pages(monkeypatch):
+    """The issue asks for a recorded seed. Asserted by running `district()`
+    twice and comparing what it FETCHED — the first version compared two calls
+    to `random.Random`, which tests the standard library."""
+    import etl.probe_second_district as module
     paths = [f"/s/c{i}" for i in range(200)]
-    first = random.Random(probe.SEED).sample(paths, 20)
-    second = random.Random(probe.SEED).sample(paths, 20)
-    assert first == second
+    monkeypatch.setattr(module, "course_paths",
+                        lambda base: (paths, {"how": "index crawl",
+                                              "has_sitemap": False,
+                                              "courses_in_sitemap": 0,
+                                              "courses_in_index_crawl": 200}))
+    monkeypatch.setattr(module, "DELAY", 0)
+
+    def run():
+        asked = []
+        monkeypatch.setattr(module, "get",
+                            lambda url: (asked.append(url), page())[1])
+        module.district("D", "https://example.test", sample=15)
+        return asked
+
+    assert run() == run(), "two runs read different pages"
     assert probe.SEED == 19, "the seed is the issue number, recorded on the page"
 
 
@@ -131,19 +175,101 @@ def test_json_and_record_are_refused_together(capsys):
     """Opposite intentions — print without touching the tree, and write to
     the tree. One silently winning is the worse outcome."""
     import etl.probe_second_district as module
+    called = []
     module_measure = module.measure
-    module.measure = lambda *a, **k: {"districts": {}}
+    module.measure = lambda *a, **k: (called.append(1), {"districts": {}})[1]
     try:
         assert module.main(["--json", "--record"]) == 2
         assert "pick one" in capsys.readouterr().err
+        # **The point.** Refusing after `measure()` meant the full
+        # five-district crawl ran first and was then thrown away over a flag
+        # combination knowable at parse time.
+        assert not called, "the crawl ran before the flags were checked"
     finally:
         module.measure = module_measure
 
 
-def test_an_unreachable_page_leaves_the_denominator_honest():
+def test_an_unreachable_page_leaves_the_denominator_honest(monkeypatch):
     """A page that did not answer is not a page that stated nothing. Counting
-    it in `read` would report a network failure as a district's choice."""
-    kinds = {"typed": 1, "no field": 8, "unreachable": 1}
-    read = 10 - kinds["unreachable"]
-    assert read == 9
-    assert round(100 * kinds["typed"] / read, 1) == 11.1
+    it in `read` would report a network failure as a district's choice.
+
+    Driven through `district()`, not asserted as arithmetic. The first version
+    computed `10 - 1 == 9` in the test body and never called the module — it
+    tested Python.
+    """
+    import etl.probe_second_district as module
+    paths = [f"/s/c{i}" for i in range(10)]
+    monkeypatch.setattr(module, "course_paths",
+                        lambda base: (paths, {"how": "index crawl",
+                                              "has_sitemap": False,
+                                              "courses_in_sitemap": 0,
+                                              "courses_in_index_crawl": 10}))
+    monkeypatch.setattr(module, "DELAY", 0)
+
+    def one_refusal(url):
+        if url.endswith("/s/c0"):
+            raise module.Unreachable("the host said no")
+        if url.endswith("/s/c1"):
+            return page(typed='<a href="/s/c2">C2</a>')
+        return page()
+
+    monkeypatch.setattr(module, "get", one_refusal)
+    found = module.district("D", "https://example.test", sample=10)
+    assert found["sampled"] == 10
+    assert found["unreachable"] == 1
+    assert found["read"] == 9, "the refused page is in the denominator"
+    assert found["with_a_typed_prerequisite"] == 1
+    assert found["percent_of_pages_with_a_typed_prerequisite"] == 11.1
+
+
+def test_the_crawl_follows_the_pager(monkeypatch):
+    """**The bug that skewed the whole measurement, and nothing guarded it.**
+
+    Drupal paginates its index with `?page=n`. Reading only the first page
+    found 73 of PWCS's 817 courses — and the sample was then drawn from
+    whatever that page happened to link to, which is a BIASED subset rather
+    than a small one. Arlington measured 101 pages and publishes 698.
+    """
+    import etl.probe_second_district as module
+    monkeypatch.setattr(module, "DELAY", 0)
+    pages = {
+        "https://x.test/courses": '<a href="/s/a">a</a><a href="/s/b">b</a>',
+        "https://x.test/courses?page=1": '<a href="/s/c">c</a>',
+        "https://x.test/courses?page=2": '<a href="/s/d">d</a>',
+        # page 3 repeats page 2 — the end of a Drupal pager
+        "https://x.test/courses?page=3": '<a href="/s/d">d</a>',
+    }
+    asked = []
+
+    def fake(url):
+        asked.append(url)
+        if url in pages:
+            return pages[url]
+        raise module.Unreachable(url)
+
+    monkeypatch.setattr(module, "get", fake)
+    found = module.crawl("https://x.test")
+    assert found == {"/s/a", "/s/b", "/s/c", "/s/d"}, (
+        "the pager was not followed; only the first page's courses were found")
+    assert "https://x.test/courses?page=3" in asked, "page 3 was never asked for"
+    assert "https://x.test/courses?page=4" not in asked, (
+        "a page yielding no NEW course must stop the loop — otherwise a "
+        "server that ignores ?page runs to the cap")
+
+
+def test_the_crawl_stops_rather_than_running_to_the_cap(monkeypatch):
+    """A server ignoring `?page` returns the same index forever."""
+    import etl.probe_second_district as module
+    monkeypatch.setattr(module, "DELAY", 0)
+    asked = []
+
+    def same(url):
+        asked.append(url)
+        return '<a href="/s/a">a</a>'
+
+    monkeypatch.setattr(module, "get", same)
+    assert module.crawl("https://x.test") == {"/s/a"}
+    per_index = [u for u in asked if u.startswith("https://x.test/courses")]
+    assert len(per_index) <= 2, (
+        f"asked for {len(per_index)} pages of one index; a repeat must stop "
+        f"the loop, not the {module.MAX_PAGES}-page cap")

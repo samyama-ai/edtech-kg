@@ -10,7 +10,7 @@
       "how": "sitemap",
       "has_sitemap": true,
       "courses_in_sitemap": 817,
-      "courses_in_index_crawl": 73,
+      "courses_in_index_crawl": 792,
       "published": 817,
       "sampled": 60,
       "read": 60,
@@ -50,39 +50,38 @@
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
-      "courses_in_index_crawl": 101,
-      "published": 101,
+      "courses_in_index_crawl": 698,
+      "published": 698,
       "sampled": 60,
-      "read": 59,
-      "unreachable": 1,
+      "read": 60,
+      "unreachable": 0,
       "kinds": {
-        "prose": 19,
-        "no field": 39,
-        "typed": 1,
-        "unreachable": 1
+        "prose": 28,
+        "no field": 29,
+        "typed": 3
       },
-      "with_a_typed_prerequisite": 1,
-      "percent_of_pages_with_a_typed_prerequisite": 1.7,
-      "links": 1,
-      "links_resolving_to_a_published_course": 1,
+      "with_a_typed_prerequisite": 3,
+      "percent_of_pages_with_a_typed_prerequisite": 5.0,
+      "links": 4,
+      "links_resolving_to_a_published_course": 4,
       "percent_of_links_that_resolve": 100.0,
-      "with_a_nonempty_prose_field": 19,
+      "with_a_nonempty_prose_field": 28,
       "prose_examples": [
         {
-          "path": "/world-languages/american-sign-language-ii-0",
+          "path": "/world-languages/spanish-ii",
           "text": "Students in Arlington Public Schools in grades 7-12 may receive high school world language credit for native language st"
         },
         {
-          "path": "/arts-education/apprentice-fine-arts-ii",
-          "text": "For current school year application materials and submission guidelines, please review the information on the APS websit"
+          "path": "/arts-education/art-history-ap",
+          "text": "Students are required to take the AP exam associated with this course. Students not taking the exam will not earn the ad"
         },
         {
-          "path": "/mathematics-wakefield-immersion-program/algebra-i-immersion",
-          "text": "Students take the Algebra I SOL test at the end of this course. Passing the SOL test and the course earns a verified cre"
+          "path": "/business-information-technology-it/computer-network-software-operations-advanced",
+          "text": "This course may be dual enrolled at Northern Virginia Community College. The NOVA entrance requirements must be met befo"
         },
         {
-          "path": "/english-language-development/english-language-development-eld-4",
-          "text": "This course is not eligible for high school credit."
+          "path": "/science/remedial-independent-self-paced-education-rise-earth-science",
+          "text": "Students will take this class on a pass/fail basis."
         }
       ]
     },
@@ -91,70 +90,91 @@
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
-      "courses_in_index_crawl": 51,
-      "published": 51,
-      "sampled": 51,
-      "read": 51,
+      "courses_in_index_crawl": 1585,
+      "published": 1585,
+      "sampled": 60,
+      "read": 60,
       "unreachable": 0,
       "kinds": {
-        "no field": 51
+        "no field": 59,
+        "prose": 1
       },
       "with_a_typed_prerequisite": 0,
       "percent_of_pages_with_a_typed_prerequisite": 0.0,
       "links": 0,
       "links_resolving_to_a_published_course": 0,
-      "percent_of_links_that_resolve": 0.0,
-      "with_a_nonempty_prose_field": 0,
-      "prose_examples": []
+      "percent_of_links_that_resolve": null,
+      "with_a_nonempty_prose_field": 1,
+      "prose_examples": [
+        {
+          "path": "/human-services/careers-in-education",
+          "text": "Early Childhood Ed"
+        }
+      ]
     },
     "Kenosha (WI)": {
       "base": "https://catalogs.kusd.org",
-      "published": 0,
       "how": "index crawl",
       "has_sitemap": true,
       "courses_in_sitemap": 0,
       "courses_in_index_crawl": 0,
-      "note": "the index published no two-segment course paths; the catalogue is laid out differently and this method does not apply to it"
+      "published": 0,
+      "sampled": 0,
+      "read": 0,
+      "unreachable": 0,
+      "kinds": {},
+      "with_a_typed_prerequisite": 0,
+      "percent_of_pages_with_a_typed_prerequisite": null,
+      "links": 0,
+      "links_resolving_to_a_published_course": 0,
+      "percent_of_links_that_resolve": null,
+      "with_a_nonempty_prose_field": 0,
+      "prose_examples": [],
+      "note": "the catalogue publishes no two-segment course paths — pathway pages only — so there is nothing to attach a prerequisite to and no sample to draw"
     },
     "Central Islip (NY)": {
       "base": "https://hs-catalogue.centralislip.k12.ny.us",
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
-      "courses_in_index_crawl": 53,
-      "published": 53,
-      "sampled": 53,
-      "read": 53,
+      "courses_in_index_crawl": 202,
+      "published": 202,
+      "sampled": 60,
+      "read": 60,
       "unreachable": 0,
       "kinds": {
-        "no field": 48,
-        "prose": 3,
-        "typed": 2
+        "no field": 50,
+        "prose": 5,
+        "typed": 5
       },
-      "with_a_typed_prerequisite": 2,
-      "percent_of_pages_with_a_typed_prerequisite": 3.8,
-      "links": 4,
-      "links_resolving_to_a_published_course": 3,
-      "percent_of_links_that_resolve": 75.0,
-      "with_a_nonempty_prose_field": 3,
+      "with_a_typed_prerequisite": 5,
+      "percent_of_pages_with_a_typed_prerequisite": 8.3,
+      "links": 10,
+      "links_resolving_to_a_published_course": 10,
+      "percent_of_links_that_resolve": 100.0,
+      "with_a_nonempty_prose_field": 5,
       "prose_examples": [
         {
-          "path": "/science/astronomy",
-          "text": "No lab class"
+          "path": "/social-studies/participation-in-government-0",
+          "text": "Students have the option to earn 3 college credits through Farmingdale State College in the honors level."
         },
         {
-          "path": "/visual-arts-education/advanced-creative-crafts",
-          "text": "*Portfolio Development for college placement will be stressed."
+          "path": "/high-school-musical-knowledge-courses/music-theory-ap",
+          "text": "Music Knowledge Courses are acceptable for Regents Diploma Graduation Requirement and Required for the Sequence in Music"
         },
         {
-          "path": "/english/ap-english-literature-and-composition",
-          "text": "For seniors, this course may be taken in lieu of another twelfth grade English course. Students will be prepared for the"
+          "path": "/mathematics/introduction-to-geometry",
+          "text": "Course does not end in a Regents Examination."
+        },
+        {
+          "path": "/science/forensics",
+          "text": "There is a fee for this course."
         }
       ]
     }
   },
   "code": {
-    "commit": "154d83039bf582eca12de162fe96b7effe0ef32e",
+    "commit": "f7a137e9351a126a753f451825b97dc5edcec7ad",
     "dirty": true,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

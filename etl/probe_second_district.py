@@ -90,7 +90,11 @@ TYPED_FIELD = re.compile(
     r'.*?(?=field--name-field(?!-prerequisite)|</footer|\Z)', re.S)
 PROSE_FIELD = re.compile(
     r'field--name-field-pr\b.*?<div class="field__item">(.*?)</div>', re.S)
-HREF = re.compile(r'href="(/[^"#?]*)"')
+#: `href` values, absolute or root-relative. Matching only `/…` meant a
+#: district linking its prerequisites as `https://catalog.example.edu/x/y`
+#: was silently counted as having none — the finding this probe exists to
+#: measure, produced by not looking. `same_host` strips the prefix.
+HREF = re.compile(r'href="([^"#?]+)"')
 COURSE_PATH = re.compile(r"^/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 
 SEED = 19            #: The issue number, so the sample is reproducible and
@@ -146,7 +150,10 @@ def course_paths(base: str) -> tuple[list[str], dict]:
         has_sitemap = True
         time.sleep(DELAY)
         locs = re.findall(r"<loc>([^<]+)</loc>", sitemap)
-        paths = {u.replace(base, "") for u in locs if u.startswith(base)}
+        # PREFIX strip, not replace-everywhere. `str.replace` would also cut
+        # the host out of the middle of a path — harmless on these five and
+        # not a thing to leave in a URL parser.
+        paths = {u[len(base):] for u in locs if u.startswith(base)}
         courses = sorted(p for p in paths if COURSE_PATH.match(p))
         in_sitemap = len(courses)
     except Unreachable:
@@ -167,28 +174,56 @@ def course_paths(base: str) -> tuple[list[str], dict]:
                              "courses_in_index_crawl": len(crawled)}
 
 
+#: Index pages are paginated and the pager is followed. Reading only the
+#: first page found 73 of PWCS's 817 courses — and the sample was then drawn
+#: from whatever the first page happened to link to, which is a biased subset
+#: rather than a small one. The cap is a safety net, not an expectation.
+MAX_PAGES = 40
+
+
 def crawl(base: str) -> set[str]:
-    """Course paths the catalogue's own index pages link to.
+    """Course paths the catalogue's own index pages link to, following the pager.
 
     The districts do not agree on where the index lives, so each candidate is
-    tried and the results pooled. It finds far fewer than a sitemap does —
-    73 against 817 on PWCS — which is why the sitemap is preferred and why
-    both counts are recorded.
+    tried and the results pooled. Drupal paginates with `?page=n` and stops
+    yielding new paths at the end, which is what terminates this — not the
+    cap.
     """
     found: set[str] = set()
     for index in ("/courses", "/high-school-courses", "/middle-school-courses",
                   "/high-school-course-catalog", ""):
-        try:
-            markup = get(f"{base}{index}")
-        except Unreachable:
-            continue
-        time.sleep(DELAY)
-        found.update(path for path in HREF.findall(markup)
-                     if COURSE_PATH.match(path))
+        for page in range(MAX_PAGES):
+            url = f"{base}{index}" + (f"?page={page}" if page else "")
+            try:
+                markup = get(url)
+            except Unreachable:
+                break
+            time.sleep(DELAY)
+            fresh = {path for path in
+                     (same_host(href, base) for href in HREF.findall(markup))
+                     if path} - found
+            if not fresh:
+                # No NEW course on this page: either the pager has run out or
+                # the index does not paginate. Both mean stop.
+                break
+            found |= fresh
     return found
 
 
-def classify(markup: str, published: set[str]) -> dict:
+def same_host(href: str, base: str) -> str | None:
+    """`href` as a path on `base`, or None if it points somewhere else.
+
+    Absolute and root-relative both resolve; anything off-host is not a course
+    in this catalogue and is not a resolution failure either.
+    """
+    if href.startswith(base):
+        href = href[len(base):] or "/"
+    if not href.startswith("/"):
+        return None
+    return href if COURSE_PATH.match(href) else None
+
+
+def classify(markup: str, published: set[str], base: str = "") -> dict:
     """What one course page says about prerequisites, and in which field.
 
     Typed first: a page carrying both is answering the question in the form
@@ -196,11 +231,21 @@ def classify(markup: str, published: set[str]) -> dict:
     """
     typed = TYPED_FIELD.search(markup)
     if typed:
-        links = [href for href in HREF.findall(typed.group(0))
-                 if COURSE_PATH.match(href)]
+        links = [path for path in
+                 (same_host(href, base) for href in HREF.findall(typed.group(0)))
+                 if path]
         if links:
             return {"kind": "typed", "links": links,
                     "resolved": [href for href in links if href in published]}
+        # **A typed field holding no course link is its own answer.** It fell
+        # through to the prose branch, so a district that emits the field and
+        # fills it with navigation or off-host links was reported as not using
+        # it at all. That is a different fact from "no field" and from
+        # "prose", and only this branch can tell them apart.
+        text = re.sub(r"\s+", " ",
+                      re.sub(r"<[^>]+>", " ", typed.group(0))).strip()
+        if text:
+            return {"kind": "typed but no course link", "text": text[:120]}
 
     prose = PROSE_FIELD.search(markup)
     if prose:
@@ -215,10 +260,19 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
     """One district, measured the same way as every other."""
     paths, how = course_paths(base)
     if not paths:
-        return {"base": base, "published": 0, **how,
-                "note": "the index published no two-segment course paths; the "
-                        "catalogue is laid out differently and this method "
-                        "does not apply to it"}
+        # THE SAME KEYS as every other district. A short entry is a KeyError
+        # waiting for the first consumer that iterates the record, and it
+        # reads as a missing measurement rather than a measured zero.
+        return {"base": base, **how, "published": 0, "sampled": 0, "read": 0,
+                "unreachable": 0, "kinds": {},
+                "with_a_typed_prerequisite": 0,
+                "percent_of_pages_with_a_typed_prerequisite": None,
+                "links": 0, "links_resolving_to_a_published_course": 0,
+                "percent_of_links_that_resolve": None,
+                "with_a_nonempty_prose_field": 0, "prose_examples": [],
+                "note": "the catalogue publishes no two-segment course paths "
+                        "— pathway pages only — so there is nothing to attach "
+                        "a prerequisite to and no sample to draw"}
 
     published = set(paths)
     # Seeded and sorted first, so the sample does not depend on the order the
@@ -239,7 +293,7 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
             time.sleep(DELAY)
             continue
         time.sleep(DELAY)
-        found = classify(markup, published)
+        found = classify(markup, published, base)
         kinds[found["kind"]] = kinds.get(found["kind"], 0) + 1
         if found["kind"] == "typed":
             links += len(found["links"])
@@ -271,13 +325,16 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         # district, so the comparison partly measured how chatty each
         # district's notes are.
         "percent_of_pages_with_a_typed_prerequisite": (
-            round(100 * typed / read, 1) if read else 0.0),
+            round(100 * typed / read, 1) if read else None),
         # Kept, and named for what it divides by. Only comparable within
         # itself — it says whether the links a district DOES publish land.
         "links": links,
         "links_resolving_to_a_published_course": resolved,
+        # None on 0/0, not 0.0. A district publishing no links has not had
+        # its links fail — printed as 0.0% it reads as "none of them resolve",
+        # which is the opposite of what the page argues about resolution.
         "percent_of_links_that_resolve": (
-            round(100 * resolved / links, 1) if links else 0.0),
+            round(100 * resolved / links, 1) if links else None),
         # Reported, NOT counted as prerequisites. The field is used for
         # general notes by at least three of the five.
         "with_a_nonempty_prose_field": kinds.get("prose", 0),
@@ -309,10 +366,11 @@ def report(measured: dict) -> None:
         if not found.get("published"):
             print(f"  {name:<34} {'—':>6}  {found.get('note','')[:40]}")
             continue
+        share = found["percent_of_pages_with_a_typed_prerequisite"]
         print(f"  {name:<34} {found['published']:>6} "
               f"{found['read']:>5} "
               f"{found['with_a_typed_prerequisite']:>6} "
-              f"{found['percent_of_pages_with_a_typed_prerequisite']:>6}% "
+              f"{(f'{share}%' if share is not None else '—'):>7} "
               f"{found['links_resolving_to_a_published_course']:>4}/"
               f"{found['links']:<4}")
 
@@ -324,18 +382,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--record", action="store_true")
     args = parser.parse_args(argv)
 
+    if args.json and args.record:
+        # BEFORE `measure()`. Refusing afterwards meant the full five-district
+        # crawl ran first — a few hundred requests to somebody else's servers
+        # — and then the run was thrown away over a flag combination knowable
+        # at parse time. On a politeness-bounded probe that is the expensive
+        # kind of wrong.
+        print("--json and --record ask for different things; pick one.",
+              file=sys.stderr)
+        return 2
+
     try:
         measured = measure(args.sample)
     except Unreachable as gone:
         print(f"unreachable: {gone}", file=sys.stderr)
         return 2
 
-    if args.json and args.record:
-        # REFUSED rather than one silently winning. They are opposite
-        # intentions — print without touching the tree, and write to the tree.
-        print("--json and --record ask for different things; pick one.",
-              file=sys.stderr)
-        return 2
     if args.json:
         print(json.dumps(measured, indent=2, sort_keys=True))
         return 0
