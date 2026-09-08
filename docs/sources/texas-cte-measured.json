@@ -1,0 +1,76 @@
+{
+  "_": "Measured by `python -m etl.probe_texas_cte`. Counts are over the whole published table, not a sample.",
+  "retrieved_at": "2026-09-07",
+  "source": "https://tealprod.tea.state.tx.us/TWEDS/103/1131/2258/0/CodeTable/DownloadAll",
+  "tables_in_download": 130,
+  "courses": {
+    "rows": 1675,
+    "columns": [
+      "Code",
+      "Translation",
+      "Eligible for State HS Credit",
+      "Course Abbreviation",
+      "Course Units",
+      "CTE Course",
+      "Subject",
+      "Subject Area"
+    ],
+    "cte_flag_values": {
+      "": 1142,
+      "M": 2,
+      "H": 531
+    },
+    "cte_courses": 533
+  },
+  "cluster_columns_populated": {
+    "Subject": 0,
+    "Subject Area": 0
+  },
+  "code_shaped_matches": {
+    "C061.csv": {
+      "cip_shaped": 2,
+      "soc_shaped": 0,
+      "samples": [
+        "89.1220"
+      ]
+    },
+    "C062.csv": {
+      "cip_shaped": 27,
+      "soc_shaped": 0,
+      "samples": [
+        "74.1021",
+        "89.1070"
+      ]
+    },
+    "C093.csv": {
+      "cip_shaped": 2,
+      "soc_shaped": 0,
+      "samples": [
+        "89.1207"
+      ]
+    },
+    "C165.csv": {
+      "cip_shaped": 2,
+      "soc_shaped": 0,
+      "samples": [
+        "37.0052",
+        "37.0081"
+      ]
+    },
+    "C215.csv": {
+      "cip_shaped": 2,
+      "soc_shaped": 0,
+      "samples": [
+        "12.1141",
+        "39.0548"
+      ]
+    },
+    "C221.csv": {
+      "cip_shaped": 2,
+      "soc_shaped": 0,
+      "samples": [
+        "89.1207"
+      ]
+    }
+  }
+}
