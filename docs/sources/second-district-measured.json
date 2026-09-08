@@ -13,21 +13,24 @@
       "courses_in_index_crawl": 792,
       "candidate_course_paths": 817,
       "sampled": 60,
-      "read": 60,
-      "unreachable": 0,
+      "read": 59,
+      "unreachable": 1,
       "sampled_but_not_a_course": 0,
       "kinds": {
-        "typed": 17,
+        "typed": 16,
         "says none": 16,
         "no field": 20,
-        "prose": 7
+        "prose": 7,
+        "unreachable": 1
       },
-      "with_a_typed_prerequisite": 17,
-      "percent_of_pages_with_a_typed_prerequisite": 28.3,
-      "links": 18,
-      "links_resolving_to_a_published_course": 18,
+      "with_a_typed_prerequisite": 16,
+      "percent_of_pages_with_a_typed_prerequisite": 27.1,
+      "links": 17,
+      "links_resolving_to_a_published_course": 17,
       "percent_of_links_that_resolve": 100.0,
       "with_a_nonempty_prose_field": 7,
+      "state_a_prerequisite_in_either_field": 23,
+      "percent_stating_in_either_field": 39.0,
       "prose_examples": [
         {
           "path": "/the-governors-school-innovation-park-math/gs-pre-calculus",
@@ -44,6 +47,18 @@
         {
           "path": "/math-advanced-placement/ap-calculus-bc",
           "text": "Precalculus with Trigonometry for BC or AP Precalculus for BC"
+        },
+        {
+          "path": "/english-center-for-fine-and-performing-arts-creative-writing-program/advanced-genre-focus-poetry",
+          "text": "A grade of C or better in Creative Writing Exploration"
+        },
+        {
+          "path": "/technology-and-engineering-education/graphic-communications-systems",
+          "text": "Communication Systems , strongly recommended"
+        },
+        {
+          "path": "/world-languages-modern-non-roman-alphabet/arabic-2",
+          "text": "Arabic 1 or teacher recommendation based on existing language proficiency"
         }
       ]
     },
@@ -70,6 +85,8 @@
       "links_resolving_to_a_published_course": 4,
       "percent_of_links_that_resolve": 100.0,
       "with_a_nonempty_prose_field": 33,
+      "state_a_prerequisite_in_either_field": 36,
+      "percent_stating_in_either_field": 60.0,
       "prose_examples": [
         {
           "path": "/world-languages/spanish-ii",
@@ -86,6 +103,22 @@
         {
           "path": "/international-baccalaureate/ib-visual-arts-part-i-hl",
           "text": "Permission of the instructor upon evaluation and examination of a body of work which demonstrates ability commensurate w"
+        },
+        {
+          "path": "/international-baccalaureate/ib-film-part-i-hl",
+          "text": "Open to all Grade 11 W-L students. NO PRIOR FILM EXPERIENCE REQUIRED."
+        },
+        {
+          "path": "/family-consumer-sciences/family-and-consumer-sciences-exploratory-ii",
+          "text": "None."
+        },
+        {
+          "path": "/career-technical-courses/aircraft-pilot-training-ii",
+          "text": "Prerequisite: Aircraft Pilot Training I (28731) Students must be fifteen years of age."
+        },
+        {
+          "path": "/mathematics/algebra-i-part-i",
+          "text": "None; after successful completion of 23132 or 23130"
         }
       ]
     },
@@ -94,28 +127,24 @@
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
-      "courses_in_index_crawl": 1585,
-      "candidate_course_paths": 1585,
+      "courses_in_index_crawl": 294,
+      "candidate_course_paths": 294,
       "sampled": 60,
       "read": 60,
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
       "kinds": {
-        "no field": 59,
-        "prose": 1
+        "no field": 60
       },
       "with_a_typed_prerequisite": 0,
       "percent_of_pages_with_a_typed_prerequisite": 0.0,
       "links": 0,
       "links_resolving_to_a_published_course": 0,
       "percent_of_links_that_resolve": null,
-      "with_a_nonempty_prose_field": 1,
-      "prose_examples": [
-        {
-          "path": "/human-services/careers-in-education",
-          "text": "Prerequisites Early Childhood Ed"
-        }
-      ]
+      "with_a_nonempty_prose_field": 0,
+      "state_a_prerequisite_in_either_field": 0,
+      "percent_stating_in_either_field": 0.0,
+      "prose_examples": []
     },
     "Kenosha (WI)": {
       "base": "https://catalogs.kusd.org",
@@ -127,7 +156,10 @@
       "sampled": 0,
       "read": 0,
       "unreachable": 0,
+      "sampled_but_not_a_course": 0,
       "kinds": {},
+      "state_a_prerequisite_in_either_field": 0,
+      "percent_stating_in_either_field": null,
       "with_a_typed_prerequisite": 0,
       "percent_of_pages_with_a_typed_prerequisite": null,
       "links": 0,
@@ -159,6 +191,8 @@
       "links_resolving_to_a_published_course": 5,
       "percent_of_links_that_resolve": 100.0,
       "with_a_nonempty_prose_field": 23,
+      "state_a_prerequisite_in_either_field": 28,
+      "percent_stating_in_either_field": 46.7,
       "prose_examples": [
         {
           "path": "/science/physics-lab",
@@ -175,12 +209,28 @@
         {
           "path": "/high-school-musical-exploratory-courses/advanced-piano",
           "text": "Successful Completion of Beginning Piano"
+        },
+        {
+          "path": "/social-studies/participation-in-government-0",
+          "text": "Students must have completed and maintained an 80 or better cumulative average or higher in the following three courses:"
+        },
+        {
+          "path": "/visual-arts-education/advanced-studio-art",
+          "text": "Approval of the High School Principal"
+        },
+        {
+          "path": "/mathematics/geometry-honors",
+          "text": "Successfully complete Algebra in 8th grade."
+        },
+        {
+          "path": "/hs-musical-skills-development-courses/show-choir",
+          "text": "Audition and Teacher Recommendation"
         }
       ]
     }
   },
   "code": {
-    "commit": "7a5a5cd0edf8bfdce7f349ceafa21a9af8c00f82",
+    "commit": "c32fe34fe4847ef09afc2b7579ee8764bfa3a225",
     "dirty": true,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

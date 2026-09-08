@@ -38,16 +38,16 @@ def test_every_district_has_a_row_and_every_row_is_measured():
         if not found.get("candidate_course_paths"):
             continue
         row = re.search(
-            rf"\| {re.escape(name)} \| (\d+) \| (\d+) \| (\d+) \| "
-            rf"\*\*([\d.]+)%\*\* \| (\d+)/(\d+)", PAGE)
+            rf"\| {re.escape(name)} \| (\d+) \| ([\d.]+)% \| "
+            rf"\*\*([\d.]+)%\*\* \| (\d+)/(\d+)[^|]*\| (\d+) \|", PAGE)
         assert row, f"{name}'s row no longer parses"
-        assert [int(row.group(1)), int(row.group(2)), int(row.group(3))] == [
-            found["candidate_course_paths"], found["read"],
-            found["with_a_typed_prerequisite"]]
-        assert float(row.group(4)) == \
+        assert int(row.group(1)) == found["read"]
+        assert float(row.group(2)) == found["percent_stating_in_either_field"]
+        assert float(row.group(3)) == \
             found["percent_of_pages_with_a_typed_prerequisite"]
-        assert [int(row.group(5)), int(row.group(6))] == [
+        assert [int(row.group(4)), int(row.group(5))] == [
             found["links_resolving_to_a_published_course"], found["links"]]
+        assert int(row.group(6)) == found["candidate_course_paths"]
 
 
 def test_the_headline_contrast_is_the_measured_one():
@@ -58,25 +58,39 @@ def test_the_headline_contrast_is_the_measured_one():
     inflated the denominator differently per district, so the comparison
     partly measured how chatty each district's notes are.
     """
+    # **The sentence the finding now turns on**: Arlington states MORE
+    # prerequisites and publishes fewer traversable ones.
     said = re.search(
-        r"\*\*([\d.]+)% of PWCS course pages carry a typed prerequisite "
-        r"against ([\d.]+)% of Arlington's\*\*", PAGE)
-    assert said, "the page no longer states the contrast"
-    assert float(said.group(1)) == \
+        r"Arlington states more of them\s+than PWCS does — ([\d.]+)% of its "
+        r"pages against\s+([\d.]+)%", PAGE)
+    assert said, "the page no longer states the coverage contrast"
+    assert float(said.group(1)) == APS["percent_stating_in_either_field"]
+    assert float(said.group(2)) == PWCS["percent_stating_in_either_field"]
+    assert APS["percent_stating_in_either_field"] > \
+        PWCS["percent_stating_in_either_field"], (
+        "Arlington no longer states more prerequisites than PWCS; the page's "
+        "central sentence needs rewriting rather than re-running")
+
+    traversable = re.search(
+        r"([\d.]+)% of PWCS pages\s+carry a traversable prerequisite against\s+"
+        r"([\d.]+)% of Arlington's", PAGE)
+    assert traversable, "the page no longer states the traversable contrast"
+    assert float(traversable.group(1)) == \
         PWCS["percent_of_pages_with_a_typed_prerequisite"]
-    assert float(said.group(2)) == \
+    assert float(traversable.group(2)) == \
         APS["percent_of_pages_with_a_typed_prerequisite"]
+    # A DIRECTION, not a ratio. Encoding `> 5x` was a tighter bar than the
+    # finding needs — three observations at Arlington do not pin a multiple —
+    # and a re-run at 5.2x would have left a stale "5.7 times" green.
     assert PWCS["percent_of_pages_with_a_typed_prerequisite"] > \
-        APS["percent_of_pages_with_a_typed_prerequisite"] * 5, (
-        "Arlington has caught up with PWCS; the page's conclusion no longer "
-        "follows and needs rewriting rather than re-running")
+        APS["percent_of_pages_with_a_typed_prerequisite"]
 
 
 def test_resolution_and_coverage_are_kept_apart():
     """The whole point of the rewrite. A district with one link that resolves
     scores 100% on resolution and nothing on coverage, and reporting only the
     first would say prerequisites generalise when they do not."""
-    said = re.search(r"resolves — (\d+)/(\d+)\s*at PWCS", PAGE)
+    said = re.search(r"resolves —\s*(\d+)/(\d+) at PWCS", PAGE)
     assert said, "the page no longer reports PWCS's resolution rate"
     assert [int(said.group(1)), int(said.group(2))] == [
         PWCS["links_resolving_to_a_published_course"], PWCS["links"]]
@@ -87,7 +101,7 @@ def test_resolution_and_coverage_are_kept_apart():
             assert found["percent_of_links_that_resolve"] == 100.0, (
                 f"{name} resolves {found['percent_of_links_that_resolve']}% "
                 f"of its links; the page says resolution generalises")
-    assert "Resolution generalises and coverage does not" in PAGE
+    assert "Resolution, meanwhile, generalises completely" in PAGE
 
 
 def test_the_page_states_the_89_percent_is_superseded():
@@ -98,30 +112,83 @@ def test_the_page_states_the_89_percent_is_superseded():
     assert "course-prerequisites.md" in PAGE
 
 
-def test_the_prose_field_is_not_counted_as_prerequisites():
-    """Named for what it is, with the evidence on the page — otherwise the
-    next reader restores the inflated denominator as a bug fix."""
-    assert "not** as" in PAGE or "and **not** as" in PAGE
-    for quoted in ("No lab class", "not eligible for high school credit"):
-        assert quoted in PAGE, (
-            f"the page must show what the prose field actually carries; "
-            f"{quoted!r} is why it is not a prerequisite count")
+def test_every_prose_example_on_the_page_comes_from_the_record():
+    """**The test that had to change most.**
+
+    Its first version asserted two literal strings — "No lab class" and "This
+    course is not eligible for high school credit." — were present in the
+    page, untied to the record. Neither is in the record and neither ever
+    was: they were artifacts of an unbounded pattern reaching into a
+    neighbouring field, and the bug was fixed while the paragraph quoting
+    them stayed. So the only guard on the page's central claim was enforcing
+    the retracted evidence, and correcting the prose would have failed it.
+
+    Bound to the record now, in the direction that matters: a quote on the
+    page must exist in `prose_examples`.
+    """
+    # Whitespace collapsed on BOTH sides. The record holds a literal
+    # `&nbsp;` where the catalogue rendered one, and the page normalises it —
+    # comparing the raw forms made a faithful quote look invented.
+    recorded = {re.sub(r"\s+", " ", e["text"].replace("&nbsp;", " ")).strip()
+                for found in DISTRICTS.values()
+                for e in (found.get("prose_examples") or [])}
+    assert recorded, "no prose examples recorded; the page's quotes rest on air"
+
+    quoted = re.findall(r"\*“([^”]+)”\*", PAGE)
+    assert quoted, "the page quotes no prose example"
+    for said in quoted:
+        assert said in recorded, (
+            f"the page quotes {said!r}, which is in no district's "
+            f"prose_examples. Either the record was re-measured and the page "
+            f"was not, or the quote never came from a measurement.")
+
+
+def test_the_page_records_that_the_notes_field_claim_was_retracted():
+    """A page that silently dropped the claim would leave the next reader to
+    rediscover why prose is counted as prerequisites — and the retracted
+    version is the more intuitive one."""
+    assert "an artifact of the bug" in PAGE
+    assert "No lab class" in PAGE, (
+        "the retracted quote must be named as retracted, or the correction "
+        "is invisible")
+
+
+def test_both_fields_are_counted_as_prerequisites():
+    """The corrected reading. Excluding prose was based on evidence the fix
+    invalidated, and it understated every district except PWCS."""
+    for name, found in DISTRICTS.items():
+        if not found.get("candidate_course_paths"):
+            continue
+        assert found["state_a_prerequisite_in_either_field"] == (
+            found["with_a_typed_prerequisite"]
+            + found["with_a_nonempty_prose_field"]), name
 
 
 def test_the_sample_ceiling_is_described_as_a_ceiling():
     """Districts publishing fewer pages than the ceiling had their whole
     catalogue read. Calling it "60 pages each" was false for three of five."""
     assert f"Ceiling of {RECORD['sample_per_district']}" in PAGE
+    # EVERY district's resolution figure, not only PWCS's.
+    for name, found in DISTRICTS.items():
+        if not found["links"]:
+            continue
+        assert re.search(
+            rf"{found['links_resolving_to_a_published_course']}/{found['links']}",
+            PAGE), f"{name}'s resolution figure is not on the page"
     # The sentence about reading whole catalogues is conditional — it applies
     # only while some district publishes fewer pages than the ceiling. Since
     # the pager is followed, none does; the sentence is a rule, not a claim
     # about today, so it stays and this asserts which case we are in.
-    smaller = [n for n, f in DISTRICTS.items()
-               if f.get("candidate_course_paths")
-               and f["read"] < RECORD["sample_per_district"]]
-    assert not smaller, (
-        f"{smaller} read fewer pages than the ceiling; the page should say so "
-        f"rather than implying every district was sampled to {RECORD['sample_per_district']}")
+    # A district reads fewer than the ceiling when a page did not answer or
+    # turned out not to be a course. That is normal and the TABLE carries it —
+    # the "courses read" column is the denominator, per district. What must
+    # not happen is the page quoting the ceiling as though it were the
+    # denominator.
+    for name, found in DISTRICTS.items():
+        if not found.get("candidate_course_paths"):
+            continue
+        assert found["read"] == (found["sampled"] - found["unreachable"]
+                                 - found["sampled_but_not_a_course"]), name
 
 
 def test_the_seed_and_the_client_list_are_on_the_page():
@@ -162,12 +229,21 @@ def test_the_page_states_what_it_does_not_establish():
     US school districts."""
     assert "What this does not establish" in PAGE
     assert "one vendor" in PAGE
+    # The sample is small and the page has to say so — three observations at
+    # Arlington do not support a ratio quoted to one decimal.
     said = re.search(
-        r"Arlington's figure rests on (\d+) typed\s+prerequisites in (\d+) pages",
-        PAGE)
-    assert said, "the page no longer sizes Arlington's evidence"
-    assert int(said.group(1)) == APS["with_a_typed_prerequisite"]
-    assert int(said.group(2)) == APS["read"]
+        r"([\d.]+)% is\s+(\d+)/(\d+) and\s+([\d.]+)% is\s+(\d+)/(\d+)", PAGE)
+    assert said, "the page no longer shows the counts behind its percentages"
+    assert [int(said.group(2)), int(said.group(3))] == [
+        PWCS["with_a_typed_prerequisite"], PWCS["read"]]
+    assert [int(said.group(5)), int(said.group(6))] == [
+        APS["with_a_typed_prerequisite"], APS["read"]]
+    assert "should not be read to a\ndecimal" in DOC.read_text("utf-8") or \
+        "should not be read to a decimal" in PAGE
+
+    # "Resolves" is set membership, not a fetch. Saying so is the difference
+    # between a measurement and an inference.
+    assert "not a fetch" in PAGE and "HEAD-checked" in PAGE
 
 
 def test_the_correction_is_recorded_not_quietly_replaced():

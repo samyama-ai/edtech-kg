@@ -86,11 +86,36 @@ class Unreachable(RuntimeError):
     """A district did not answer. Distinct from answering with no courses."""
 
 
+class Refused(RuntimeError):
+    """The host asked us to stop. Not a page that stated no prerequisite."""
+
+
 def get(url: str) -> str:
+    """One page, with the politeness delay INSIDE the request.
+
+    The delay used to sit after each successful call, so it was skipped on
+    exactly the paths where a host is struggling: a sitemap 404 fell straight
+    into the crawl with no pause, and five failing index candidates fired five
+    back-to-back requests. Here it is structurally unskippable.
+
+    **An HTTP refusal is distinguished from a transport failure.** `URLError`
+    is `HTTPError`'s parent, so catching it first swallowed a 429 — a district
+    that began rate-limiting mid-sample got 59 more requests, and the
+    throttled page landed in `unreachable`, quietly shrinking the denominator.
+    """
+    time.sleep(DELAY)
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
             return response.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as refused:
+        if refused.code == 429:
+            wait = refused.headers.get("Retry-After")
+            raise Refused(
+                f"{url}: HTTP 429, Retry-After={wait!r}. Stopping rather than "
+                f"finishing the sample — a throttled page counted as "
+                f"unreachable would shrink the denominator silently.")
+        raise Unreachable(f"{url}: HTTP {refused.code}") from refused
     except (urllib.error.URLError, TimeoutError, OSError) as gone:
         raise Unreachable(f"{url}: {gone}") from gone
 
@@ -124,7 +149,6 @@ def course_paths(base: str) -> tuple[list[str], dict]:
     has_sitemap, in_sitemap = False, 0
     try:
         sitemap = get(f"{base}/sitemap.xml")
-        time.sleep(DELAY)
         locs = re.findall(r"<loc>([^<]+)</loc>", sitemap)
         # A 200 IS NOT A SITEMAP. Setting the flag on the status alone made a
         # soft-404 — a themed "not found" page answering 200 — indistinguish-
@@ -187,7 +211,6 @@ def crawl(base: str) -> set[str]:
                 markup = get(url)
             except Unreachable:
                 break
-            time.sleep(DELAY)
             here = {path for path in
                     (same_host(href, base) for href in HREF.findall(markup))
                     if path}
@@ -218,8 +241,11 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         # THE SAME KEYS as every other district. A short entry is a KeyError
         # waiting for the first consumer that iterates the record, and it
         # reads as a missing measurement rather than a measured zero.
-        return {"base": base, **how, "candidate_course_paths": 0, "sampled": 0, "read": 0,
-                "unreachable": 0, "kinds": {},
+        return {"base": base, **how, "candidate_course_paths": 0,
+                "sampled": 0, "read": 0, "unreachable": 0,
+                "sampled_but_not_a_course": 0, "kinds": {},
+                "state_a_prerequisite_in_either_field": 0,
+                "percent_stating_in_either_field": None,
                 "with_a_typed_prerequisite": 0,
                 "percent_of_pages_with_a_typed_prerequisite": None,
                 "links": 0, "links_resolving_to_a_published_course": 0,
@@ -245,9 +271,7 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
             # Sleep on the FAILURE path too. Skipping it meant a host that
             # started refusing got hammered at full speed — the opposite of
             # what politeness is for.
-            time.sleep(DELAY)
             continue
-        time.sleep(DELAY)
         # **A pathway page is not a course**, and the repo already says so.
         # `etl/pwcs_pages.classify` decides by the MARKUP — a page rendering
         # the pathway course-table field is a pathway at any depth — and
@@ -257,7 +281,6 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         # deflated the very percentage the conclusion rests on.
         if PATHWAY_FIELD_PRESENT.search(markup):
             kinds["not a course"] = kinds.get("not a course", 0) + 1
-            time.sleep(DELAY)
             continue
 
         found = classify(markup, published, base)
@@ -265,7 +288,10 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         if found["kind"] == "typed":
             links += len(found["links"])
             resolved += len(found["resolved"])
-        if found["kind"] == "prose" and len(examples) < 4:
+        # EIGHT, not four. The page argues from these about what the prose
+        # field contains, and four is thin evidence for a claim that carries
+        # a conclusion.
+        if found["kind"] == "prose" and len(examples) < 8:
             examples.append({"path": path, "text": found["text"]})
 
     # Pages fetched, answered, AND found to be courses. A pathway page is
@@ -306,9 +332,23 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         # which is the opposite of what the page argues about resolution.
         "percent_of_links_that_resolve": (
             round(100 * resolved / links, 1) if links else None),
-        # Reported, NOT counted as prerequisites. The field is used for
-        # general notes by at least three of the five.
         "with_a_nonempty_prose_field": kinds.get("prose", 0),
+        # **Stated in either field.** An earlier version of this probe
+        # excluded prose from any prerequisite count on the grounds that the
+        # field carried general notes — and the examples that supported that
+        # were artifacts of an unbounded pattern reaching into a neighbouring
+        # field. With the bound in place every prose example recorded is a
+        # real prerequisite, so the exclusion was wrong and the count is
+        # restored beside the typed one.
+        #
+        # It is a count of FIELDS, not a reading of them: a page whose prose
+        # field is non-empty has stated something in the place a prerequisite
+        # goes. `prose_examples` is what lets a reader check that.
+        "state_a_prerequisite_in_either_field":
+            kinds.get("typed", 0) + kinds.get("prose", 0),
+        "percent_stating_in_either_field": (
+            round(100 * (kinds.get("typed", 0) + kinds.get("prose", 0)) / read, 1)
+            if read else None),
         "prose_examples": examples,
     }
 
@@ -346,6 +386,30 @@ def report(measured: dict) -> None:
               f"{found['links']:<4}")
 
 
+def went_empty(measured: dict) -> set[str]:
+    """Districts the committed record found pages for and this run did not.
+
+    **A ratchet, not an emptiness check.** The first guard refused only a
+    wholly empty measurement, so a run where four of five districts timed out
+    — the likely real failure — overwrote the record with a smaller one and
+    exited 0. The record is evidence; it may gain districts and may only lose
+    one by someone deciding to.
+
+    On a first run there is nothing committed and nothing to lose. A
+    measurement with no districts at all is always refused.
+    """
+    found = measured.get("districts") or {}
+    if not any(d.get("candidate_course_paths") for d in found.values()):
+        return {"(any district at all)"}
+    if not RECORD.exists():
+        return set()
+    committed = (json.loads(RECORD.read_text(encoding="utf-8"))
+                 .get("districts") or {})
+    return {name for name, was in committed.items()
+            if was.get("candidate_course_paths")
+            and not found.get(name, {}).get("candidate_course_paths")}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m etl.probe_second_district")
     parser.add_argument("--sample", type=int, default=SAMPLE)
@@ -374,13 +438,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     report(measured)
     if args.record:
-        if not any(d.get("candidate_course_paths")
-                   for d in measured["districts"].values()):
-            print("refusing to --record: no district published a course index, "
-                  "so this measured nothing.", file=sys.stderr)
+        lost = went_empty(measured)
+        if lost:
+            print(f"refusing to --record: {sorted(lost)} had course pages in "
+                  f"the committed record and have none now. A run where some "
+                  f"districts time out must not replace the record with a "
+                  f"smaller one — the all-or-nothing guard this replaces let "
+                  f"exactly that through.", file=sys.stderr)
             return 3
         write_record(RECORD, measured)
-        print(f"\n  -> {RECORD.relative_to(ROOT)}")
+        # `relative_to` raises when RECORD has been repointed outside the
+        # repo, which a test does. The path is for a human either way.
+        try:
+            shown = RECORD.relative_to(ROOT)
+        except ValueError:
+            shown = RECORD
+        print(f"\n  -> {shown}")
     return 0
 
 

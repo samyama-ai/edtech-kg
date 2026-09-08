@@ -48,7 +48,10 @@ FIELD_OPENS = "field--name-field-"
 #:
 #: So a field stops at the next field, or at the end of the article, whichever
 #: comes first — never at the end of the document.
-FIELD_ENDS = re.compile(r"</article|</main|<footer|" + FIELD_OPENS, re.I)
+
+#: Every token `field_ends_at` has to see to keep its depth count honest.
+DIV_OR_BOUNDARY = re.compile(
+    r"<div\b|</div>|</article|</main|<footer|" + FIELD_OPENS, re.I)
 
 
 #: district linking its prerequisites as `https://catalog.example.edu/x/y`
@@ -136,8 +139,7 @@ def field_block(markup: str, name: str) -> str | None:
         if field != name:
             continue
         after = markup.index(">", at) + 1
-        ends = FIELD_ENDS.search(markup, after)
-        stop = ends.start() if ends else len(markup)
+        stop = field_ends_at(markup, after)
         # BACK UP TO THE TAG the boundary sits inside. `field--name-field-X`
         # is a class attribute, so cutting at it leaves a dangling `<div
         # class="` in the block — which `plain()` then renders as text,
@@ -147,6 +149,43 @@ def field_block(markup: str, name: str) -> str | None:
             stop = opened
         return markup[after:stop]
     return None
+
+
+def field_ends_at(markup: str, after: int) -> int:
+    """Where the field opened before `after` closes.
+
+    **Depth-aware.** Stopping at the first `field--name-field-` meant a
+    SUB-field rendered inside a `field__item` — routine in a Drupal
+    entity-reference teaser, where each referenced node brings its own fields
+    — ended the block early. Constructed, a prerequisite list of two courses
+    with a `field-course-number` inside the first item returned one link. That
+    under-counts links, which is the denominator of the "every link resolves"
+    claim, and can turn a multi-prerequisite course into a single-prerequisite
+    one.
+
+    So a boundary only terminates the block at depth zero — that is, once the
+    `<div>`s opened inside the field have closed again. `</article>`,
+    `</main>` and `<footer>` still stop it unconditionally: those close the
+    page region, and a field that reached past them was never bounded at all.
+    """
+    depth = 0
+    for token in DIV_OR_BOUNDARY.finditer(markup, after):
+        text = token.group(0).lower()
+        if text.startswith("<div"):
+            depth += 1
+            continue
+        if text.startswith("</div"):
+            depth -= 1
+            if depth < 0:
+                # The field's own closing tag.
+                return token.start()
+            continue
+        if text.startswith(("</article", "</main", "<footer")):
+            return token.start()
+        # A sibling field, but only once ours has closed its children.
+        if depth <= 0:
+            return token.start()
+    return len(markup)
 
 
 def field_openings(markup: str):
