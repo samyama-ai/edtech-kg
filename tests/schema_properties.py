@@ -2,7 +2,7 @@ r"""What a query can actually reach, and what the schema merely names.
 
 Two different questions, and conflating them is what this module got wrong.
 
-`schema/edtech_kg.cypher` declares **keys** in its constraints and names
+The schema declares **keys** in its constraints and names
 **attributes** in its PROPERTIES block, each with the field a source publishes
 it as (#123). That block is a statement about SOURCES. It is not a claim that
 anything writes them, and it must not be read as one:
@@ -35,7 +35,13 @@ import re
 from etl.engine import upsert
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "schema" / "edtech_kg.cypher"
+
+# One definition of "the schema", in the module whose subject that is. This file
+# had its own copy of SCHEMA_FILES and schema_text() -- the same two lines twice,
+# which is the drift the split was supposed to prevent, reintroduced by the
+# split itself.
+from tests.schema_source import (schema_text,  # noqa: E402
+                                 sole_file_stating)
 
 
 def declared() -> dict[str, set[str]]:
@@ -53,7 +59,7 @@ def declared() -> dict[str, set[str]]:
     `Occupation.name` was undeclared while every source publishes it.
     """
     found: dict[str, set[str]] = {}
-    schema = SCHEMA.read_text(encoding="utf-8")
+    schema = schema_text()
     for var, label, prop in re.findall(
             r"CREATE CONSTRAINT ON \((\w+):(\w+)\) ASSERT \1\.(\w+)", schema):
         found.setdefault(label, set()).add(prop)
@@ -215,18 +221,21 @@ def block(name: str = "PROPERTIES") -> str:
     the end marker starts at the opening one, so the two do not read each
     other however they are ordered in the file.
     """
-    schema = SCHEMA.read_text(encoding="utf-8")
     opening, closing = f"// {name}\n", f"// END {name}"
+    # Sliced out of ONE file, not out of the two joined. On the join,
+    # `str.index` takes the first `// PROPERTIES` and the block silently
+    # becomes whichever file sorts first — so a second marked block, or the
+    # block moving to the other tier, is read as if nothing had changed.
+    # `sole_file_stating` fails loudly on both zero files and two.
+    #
     # A MESSAGE, not `ValueError: substring not found` from `str.index`, which
     # names neither the marker nor the file and sends the reader nowhere.
-    if opening not in schema:
-        raise ValueError(
-            f"{SCHEMA} has no `{opening.strip()}` marker — it was renamed or "
-            f"removed, and every attribute test reads this block through it.")
+    source = sole_file_stating(opening, f"the `{opening.strip()}` block")
+    schema = source.read_text(encoding="utf-8")
     start = schema.index(opening)
     if closing not in schema[start:]:
         raise ValueError(
-            f"{SCHEMA} opens `{opening.strip()}` and never closes it with "
+            f"{source.name} opens `{opening.strip()}` and never closes it with "
             f"`{closing}`, so the block would run to the end of the file.")
     return schema[start:schema.index(closing, start)]
 

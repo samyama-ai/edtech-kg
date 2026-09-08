@@ -65,7 +65,8 @@ def uncommented(text: str) -> str:
 
 
 def schema_text() -> str:
-    return (ROOT / "schema" / "edtech_kg.cypher").read_text(encoding="utf-8")
+    from tests.schema_properties import schema_text
+    return schema_text()
 
 
 def files() -> list[pathlib.Path]:
@@ -166,10 +167,10 @@ def test_every_answerable_question_in_a_covered_tier_has_a_traversal():
 
 
 # --------------------------------------------------------------------------
-# Parsing is a weak check, and this is the half it misses. `schema/
-# edtech_kg.cypher` declares KEYS — measured, it declares no other property at
-# all — so a traversal naming `o.name` on an `Occupation` parses, looks like an
-# answer, and reaches for something no loader writes.
+# Parsing is a weak check, and this is the half it misses. The schema files
+# declare KEYS — measured, they declare no other property at all — so a
+# traversal naming `o.name` on an `Occupation` parses, looks like an answer,
+# and reaches for something no loader writes.
 #
 # Sixteen of tier 1's property accesses are in that state (#123). They are not
 # removed: the questions are answerable once the schema declares them, which is
@@ -340,12 +341,12 @@ def test_only_the_four_loaded_labels_carry_anything_beyond_a_key():
     was the first version and it missed `Credential.ctid`, so the test failed
     on a label nothing writes — a guard reporting the opposite of its subject.
     """
-    from tests.schema_properties import SCHEMA
+    from tests.schema_properties import schema_text
 
     keys: dict[str, set[str]] = {}
     for _, label, prop in re.findall(
             r"CREATE CONSTRAINT ON \((\w+):(\w+)\) ASSERT \1\.(\w+)",
-            SCHEMA.read_text(encoding="utf-8")):
+            schema_text()):
         keys.setdefault(label, set()).add(prop)
 
     beyond = {label: sorted(props - keys.get(label, set()))

@@ -1,4 +1,4 @@
-"""Reading `schema/edtech_kg.cypher` — one view of the file, shared by both
+"""Reading the schema — one view of its FILES, shared by both
 test modules that parse it.
 
 Split out when `tests/test_schema_cypher.py` reached 599 lines and was skipped
@@ -13,20 +13,67 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from etl import cypher_script
+from etl.cypher_script import SCHEMA_FILES  # noqa: F401  (re-exported)
+
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = ROOT / "schema" / "edtech_kg.cypher"
+
+# `SCHEMA_FILES` is re-exported from the loader above, never re-declared. This
+# module used to carry its own copy of the tuple, which is how "the schema"
+# came to have five independent definitions after #157 — see
+# `etl.cypher_script.SCHEMA_FILES` for what that cost.
+#
+# There is deliberately no `SCHEMA` naming one file. It existed through the
+# split as a convenience and was a footgun: every test that reached for it got
+# tier 1 and reported on "the schema", which is how the 960-course guard came
+# to check the file the figure had just moved out of.
+#
+# A plain comment, not `#:` — that form documents the symbol BELOW it and
+# there is none here, so the block was attached to nothing.
 
 
 @lru_cache(maxsize=1)
 def schema_text() -> str:
-    """The schema file, read once.
+    """The schema files, joined — **the loader's own function, cached**.
 
-    `code()`, `patterns()` and `constraint_line()` each re-read it on every
-    call, and `constraint_line()` is called once per label — so a single test
-    run read the same unchanging file dozens of times. Cached, because it is
-    the same file for the life of the process and nothing here writes to it.
+    This was a second copy of the same two-line join. The tuple got one home
+    in this PR and the READER did not, which is the same drift one level down:
+    two joiners that agree today, with nothing asserting they will.
+
+    Cached because `code()`, `patterns()` and `constraint_line()` each re-read
+    on every call and `constraint_line()` runs once per label, so a single
+    test run read the same unchanging files dozens of times. The loader must
+    NOT cache — it is applied to a live engine and the files can change under
+    a long-running process — which is why the cache lives here and not there.
     """
-    return SCHEMA.read_text(encoding="utf-8")
+    return cypher_script.schema_text()
+
+
+def sole_file_stating(needle: str, what: str) -> Path:
+    """The one schema file containing `needle`, or a failure naming the count.
+
+    Reading "the schema" as one joined string is convenient and it is how four
+    separate guards ended up weaker than they read. `str.find` on the join
+    returns the FIRST occurrence, so a heading in tier 1 shadows the real one
+    in tier 2 and the slice between two anchors can silently span the file
+    boundary — the assertion still passes, on the wrong text, and the failure
+    message when it does fail names `schema/*.cypher` rather than a file
+    anyone can open.
+
+    Two anchors that must bracket a block must therefore be found in the SAME
+    file. This returns that file so callers can say so.
+    """
+    carrying = [f for f in SCHEMA_FILES if needle in f.read_text(encoding="utf-8")]
+    assert carrying, (
+        f"no schema file states {what} ({needle!r}) — searched "
+        f"{', '.join(f.name for f in SCHEMA_FILES)}")
+    assert len(carrying) == 1, (
+        f"{what} ({needle!r}) appears in {len(carrying)} schema files "
+        f"({', '.join(f.name for f in carrying)}); a marker in two files means "
+        f"every guard sliced on it reads whichever sorts first")
+    return carrying[0]
+
+
 SCHEMA_DOC = ROOT / "docs" / "schema.md"
 QUESTIONS = ROOT / "docs" / "questions.md"
 
@@ -242,10 +289,24 @@ def constraint_line(label: str, text: str | None = None) -> int | None:
     indistinguishable from "not declared", and the caller's assertion would
     then report the wrong fault.
     """
+    # **Through `code()`, so a COMMENTED-OUT declaration cannot match.** This
+    # split the raw text, and `labels()` — which does walk `code()` — was
+    # already guarded by `test_a_commented_out_constraint_is_not_counted`.
+    # This was the one path that skipped it, and `declaration_site` then
+    # resolved a label to a comment in the wrong file: measured, blanking
+    # Place's documentation in tier 2 and adding
+    # `// CREATE CONSTRAINT ON (pl:Place) …` to tier 1 left the suite green
+    # while two guards read their documentation window from a file declaring
+    # nothing.
+    #
     # `text` for the same reason `code()` takes it: so a test can drive this
     # against a hazard the real file does not contain — here, a declaration
     # wrapped wider than the window.
-    lines = (schema_text() if text is None else text).splitlines()
+    #
+    # Line numbers are preserved because `strip_comment` blanks a comment
+    # rather than dropping its line — so the index this returns still points
+    # at the same line of the ORIGINAL text, which is what callers slice.
+    lines = code(schema_text() if text is None else text).splitlines()
     for end in range(len(lines)):
         window = " ".join(" ".join(lines[max(0, end - WRAP_LIMIT + 1):end + 1]).split())
         for found, _ in DECLARATION.findall(window):
@@ -258,3 +319,49 @@ def constraint_line(label: str, text: str | None = None) -> int | None:
         f"{WRAP_LIMIT} lines — it is wrapped wider than that. Returning None "
         f"here would be indistinguishable from 'not declared at all'.")
     return None
+
+
+def declaring_file(label: str) -> Path:
+    """Which schema file declares `label`. Wrap-tolerant, comment-blind.
+
+    Callers were locating the Pathway declaration with the literal string
+    `"CREATE CONSTRAINT ON (pw:Pathway)"`, which is the line-local test
+    `constraint_line()` exists to replace — reflowing that declaration across
+    two lines turned six tests red saying "no schema file states the Pathway
+    key", which is loud, wrong, and expensive to diagnose.
+    """
+    return declaration_site(label)[0]
+
+
+def declaration_site(label: str) -> tuple[Path, list[str], int]:
+    """The file declaring `label`, its lines, and the 0-indexed line it ends on.
+
+    Callers read a window of comment lines ABOVE a declaration. Indexing into
+    the joined text lets that window reach backwards across the file boundary,
+    so a tier-2 constraint can be "documented" by the tail of tier 1 — latent
+    today only because tier 2's first constraint happens to sit far enough
+    below its own file's top.
+
+    Raises rather than returning None: every caller asserts the label is
+    declared immediately afterwards, and a shared "not found" that each of
+    them re-checks is a check that one of them will eventually forget.
+    """
+    # EXACTLY ONE, not the first. Returning the first hit reintroduced the
+    # shadowing this helper was written to remove — a second declaration in
+    # another file would be invisible, and which one you got would depend on
+    # tuple order. `sole_file_stating` above already refuses that; the two
+    # now differ only in what they return, not in how strict they are.
+    found = []
+    for path in SCHEMA_FILES:
+        text = path.read_text(encoding="utf-8")
+        at = constraint_line(label, text)
+        if at is not None:
+            found.append((path, text.splitlines(), at))
+    assert found, (
+        f"{label} is not declared in any schema file "
+        f"({', '.join(f.name for f in SCHEMA_FILES)})")
+    assert len(found) == 1, (
+        f"{label} is declared in {len(found)} schema files "
+        f"({', '.join(p.name for p, _, _ in found)}). Every guard that reads "
+        f"a documentation window for it would read whichever sorts first.")
+    return found[0]

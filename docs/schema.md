@@ -4,9 +4,13 @@ An education-to-career pathways graph, designed so the questions in
 [`questions.md`](questions.md) are first-class traversals rather than
 multi-table joins.
 
-The executable ontology is [`schema/edtech_kg.cypher`](../schema/edtech_kg.cypher),
-and every statement in it is executed by `tests/test_schema_engine.py`. This
-page is the reasoning; that file is the contract.
+The executable ontology is **two files**, split by tier:
+[`schema/edtech_kg.cypher`](../schema/edtech_kg.cypher) holds tier 1 and
+[`schema/edtech_kg_tier2.cypher`](../schema/edtech_kg_tier2.cypher) holds
+tier 2 — `Credential`, `AwardingBody`, `Level`, `Competency`, `EarningsRecord`
+and `Place`. Every statement in **both** is executed by
+`tests/test_schema_engine.py`. This page is the reasoning; those files are the
+contract, and reading only the first gives you half the ontology.
 
 **Two tiers.** Tier 1 is populated from a source measured by a probe in `etl/`.
 Tier 2 is modelled but empty — the source is identified and not yet ingested, or
@@ -285,7 +289,7 @@ pages carries one, measured after the change rather than assumed.
 
 ## Verified against the engine
 
-Every statement in `schema/edtech_kg.cypher` executes clean on a **fresh
+Every statement in **both schema files** executes clean on a **fresh
 Samyama-Graph 1.1.0** instance — `tests/test_schema_engine.py`, with
 `SAMYAMA_REQUIRE_ENGINE=1` so an unreachable engine fails rather than skips.
 
