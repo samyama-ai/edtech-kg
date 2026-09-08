@@ -18,7 +18,6 @@ import re
 
 import pytest
 
-from etl.cypher_script import strip_comment
 from tests.schema_source import (SCHEMA_FILES, WRAP_LIMIT, code,
                                  constraint_line, declaration_site,
                                  declarations, edges, first_column, labels,
@@ -95,9 +94,13 @@ def test_each_file_ends_terminated(schema_file):
     statement with a TRAILING comment — which a raw read would trip on — does
     not fail here for a reason that is not a defect.
     """
-    text = schema_file.read_text(encoding="utf-8")
-    stripped = "\n".join(strip_comment(line) for line in text.splitlines())
-    body = "\n".join(line for line in stripped.splitlines() if line.strip())
+    # Through `code()`, not `strip_comment` directly. `code()` refuses a
+    # `/* … */` block comment, which the engine accepts and a line-by-line
+    # strip would pass straight through — and importing the loader's stripper
+    # into a schema test contradicts this suite's own isolation rule.
+    body = "\n".join(line for line
+                     in code(schema_file.read_text(encoding="utf-8")).splitlines()
+                     if line.strip())
     assert body.rstrip().endswith(";"), (
         f"{schema_file.name}: the last statement is not terminated. Its tail "
         f"will merge with the first statement of the next file and one "
@@ -241,12 +244,13 @@ def test_the_equivalence_edge_states_its_direction():
     # In the SAME file, not one marker each. Over the join these could land
     # in different files and still pass, and a reader of either one would see
     # half the rule.
-    stating = [f for f in SCHEMA_FILES
-               if "not symmetric" in f.read_text(encoding="utf-8").lower()]
-    assert len(stating) == 1, (
-        f"'not symmetric' appears in {len(stating)} schema file(s); it must "
-        f"sit once, beside the edge it describes")
-    text = stating[0].read_text(encoding="utf-8").lower()
+    # The literal as the file writes it. `sole_file_stating` matches exactly,
+    # which is right for a marker — the previous hand-rolled version
+    # lowercased and so would have kept passing if the phrase were reworded
+    # to something that merely happened to contain these words.
+    stating = sole_file_stating("NOT symmetric",
+                                "the equivalence edge's direction")
+    text = stating.read_text(encoding="utf-8").lower()
     assert "traverse both" in text, (
         f"{stating[0].name} says the edge is not symmetric and does not say "
         f"a query must traverse both ways — half a rule is worse than none")
@@ -439,9 +443,26 @@ def test_a_label_sits_under_the_tier_banner_it_belongs_to():
 
     # The banner must still open its own file's declarations — otherwise a
     # constraint could sit above it and be classified by the filename alone.
+    #
+    # **The banner must occur ONCE.** `str.index` takes the first match, so a
+    # prose mention quoting the banner verbatim shadowed the real one and
+    # everything between them went uninspected — measured: a preamble comment
+    # quoting `// TIER 2 — modelled, not yet populated` with a
+    # `CREATE CONSTRAINT ON (zz:Zed)` after it left this green.
+    #
+    # `section()` in `schema_source.py` refuses exactly this — "a repeated
+    # heading is REFUSED, not guessed at" — and rewriting off `section()` in
+    # this same PR dropped the protection. Reinstated here rather than
+    # reverting, because the per-file read is what fixed the earlier blocker.
     for banner, path in (("// TIER 1 — uniqueness constraints", tier_one_file),
                          ("// TIER 2 — modelled", tier_two_file)):
         text = path.read_text(encoding="utf-8")
+        occurrences = text.count(banner)
+        assert occurrences == 1, (
+            f"{path.name} mentions {banner.strip('/ ')!r} {occurrences} "
+            f"times. A slice on the first one leaves everything after any "
+            f"other mention uninspected — which is how a declaration hides "
+            f"between a prose mention and the real banner.")
         above = text[:text.index(banner)]
         assert not labels(above), (
             f"{path.name} declares {labels(above)} ABOVE its own "

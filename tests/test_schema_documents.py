@@ -1,6 +1,6 @@
-"""The schema file against the documents that describe it.
+"""The schema files against the documents that describe them.
 
-`schema/edtech_kg.cypher` and `docs/schema.md` must agree in BOTH directions —
+The schema files and `docs/schema.md` must agree in BOTH directions —
 a label in the cypher nobody documented is a label nobody can use, and a label
 the doc promises that the ontology does not declare is a promise nothing keeps.
 Counts stated in prose are compared as integers against the documents they are

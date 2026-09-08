@@ -42,11 +42,20 @@ cached — 1,098 nodes and 1,287 edges. Everything else above is measured at the
 source and **not loaded**.
 
 **Node and edge counts for the other sources are absent, not blank.** No loader
-has run for them. Eight labels are declared and hold nothing: `Programme`,
-`Occupation`, `Institution`, `School`, `District` and `Completion` in
-`schema/edtech_kg.cypher`, and `EarningsRecord` and `Place` in
-`schema/edtech_kg_tier2.cypher`. A count of zero would read as a measurement;
-there has been none.
+has run for them. **Sixteen labels are declared and four are written**, so
+twelve hold nothing:
+
+- `schema/edtech_kg.cypher` declares ten. `etl/load_pwcs.py` writes `Course`,
+  `Subject`, `Pathway` and `Requirement`; `Programme`, `Occupation`,
+  `Institution`, `School`, `District` and `Completion` wait on a loader.
+- `schema/edtech_kg_tier2.cypher` declares six, all empty: `Credential`,
+  `AwardingBody`, `Level`, `Competency`, `EarningsRecord` and `Place`. The
+  four Registry labels among them are blocked on the licence above, not on a
+  loader.
+
+This said "eight" and named six of the twelve, which is what happens when a
+count is maintained by hand beside a schema that grew. A count of zero would
+read as a measurement; there has been none.
 
 ## Licences, and what may be done with each
 

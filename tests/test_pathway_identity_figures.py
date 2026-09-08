@@ -17,7 +17,8 @@ import re
 
 import pytest
 
-from tests.schema_source import SCHEMA_FILES, sole_file_stating
+from tests.schema_source import (SCHEMA_FILES, declaring_file,
+                                 sole_file_stating)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOC = "docs/sources/pathway-identity.md"
@@ -95,7 +96,7 @@ def sources(path: str) -> list[tuple[str, str]]:
     return [(path, (ROOT / path).read_text(encoding="utf-8"))]
 
 
-def declaring_file() -> str:
+def pathway_key_source() -> str:
     """The schema file that declares the Pathway key, as `schema/<name>`.
 
     **The four schema-sourced rows below belong to THIS file, not to whichever
@@ -112,9 +113,11 @@ def declaring_file() -> str:
     stop asking the weaker question. Leaving this one asking it put both
     policies in one module.
     """
-    declaring = sole_file_stating("CREATE CONSTRAINT ON (pw:Pathway)",
-                                  "the Pathway key")
-    return f"schema/{declaring.name}"
+    # Through `declaring_file`, not a literal declaration string: that is the
+    # line-local test `constraint_line()` exists to replace, and reflowing the
+    # declaration across two lines turned six tests red with "no schema file
+    # states the Pathway key" — loud, but the wrong diagnosis.
+    return f"schema/{declaring_file('Pathway').name}"
 
 
 def read(path: str) -> str:
@@ -151,7 +154,7 @@ def test_a_quoted_figure_matches_the_record(path, expected, pattern):
     # For SCHEMA, the figure must be in the file that DECLARES the Pathway
     # key — the reasoning has to sit with the constraint it justifies. For a
     # document, the document itself.
-    wanted = declaring_file() if path == SCHEMA else path
+    wanted = pathway_key_source() if path == SCHEMA else path
     quoting = [(name, text) for name, text in sources(path)
                if re.search(pattern, text)]
     assert quoting, (
@@ -184,8 +187,7 @@ def test_the_verdict_is_stated_wherever_the_key_is_declared():
     question — whether one of the two mentioned it — and would have passed with
     the verdict in tier 2 and the constraint it explains in tier 1.
     """
-    declares = sole_file_stating("CREATE CONSTRAINT ON (pw:Pathway)",
-                                 "the Pathway key")
+    declares = declaring_file("Pathway")
     for path in (f"schema/{declares.name}", "docs/schema.md", DOC):
         text = read(path)
         assert '"<space>|<identifier>"' in text or \
@@ -204,8 +206,7 @@ def test_the_parse_direction_is_stated_with_the_key_not_only_in_the_doc():
     # join, a `// Pathway — ` heading in the other tier would silently make
     # this block span a file boundary.
     heading = sole_file_stating("// Pathway — ", "the Pathway heading")
-    declares = sole_file_stating("CREATE CONSTRAINT ON (pw:Pathway)",
-                                 "the Pathway key")
+    declares = declaring_file("Pathway")
     assert heading == declares, (
         f"the Pathway commentary is in {heading.name} and the constraint it "
         f"explains is in {declares.name}")
@@ -243,4 +244,8 @@ def test_no_document_still_claims_the_key_question_is_undecided():
         for name, text in sources(path):
             assert stale not in text, f"{name} still defers the decision"
             checked.append(name)
-    assert len(checked) == len(SCHEMA_FILES) + 1, checked
+    # The NAMES, not a count. `len(checked) == len(SCHEMA_FILES) + 1` held by
+    # construction — `checked` gains one entry per item `sources()` yields —
+    # which is the shape `_defers` was removed for, one round earlier.
+    assert checked == [f"schema/{f.name}" for f in SCHEMA_FILES] \
+        + ["docs/schema.md"], checked

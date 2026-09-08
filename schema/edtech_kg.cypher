@@ -5,17 +5,25 @@
 // here. The reuse verdict for each external term — adopt, align or mint — is
 // docs/ontology-reuse.md; the measured source behind each is docs/sources/.
 //
-// Two tiers:
+// TWO TIERS, TWO FILES. This file is tier 1 only.
 //   TIER 1  populated from a source measured by a probe in etl/
+//           — this file, schema/edtech_kg.cypher
 //   TIER 2  modelled, not yet populated (source identified but not ingested,
 //           or the data provably does not exist yet)
+//           — schema/edtech_kg_tier2.cypher, SIX more keys and two indexes
+//
+// Reading this file alone shows a complete-looking schema and is not one.
+// `etl.cypher_script.SCHEMA_FILES` is the declaration of what "the schema"
+// is; everything that applies or parses it goes through there.
 //
 // SYNTAX — the `ON (n:L) ASSERT` constraint form is used throughout. The
 // Neo4j-5 `CREATE CONSTRAINT <name> IF NOT EXISTS FOR (n:L) REQUIRE` form does
 // NOT parse in Samyama-Graph 1.1.0, despite appearing in the engine's
 // CYPHER_COMPATIBILITY.md. Do not "modernise" these back.
-// tests/test_schema_engine.py executes every statement here against a live
-// instance; tests/test_schema_cypher.py checks this file against the documents.
+// tests/test_schema_engine.py executes every statement in BOTH files against
+// a live instance; tests/test_schema_documents.py checks them against the
+// documents. (tests/test_schema_cypher.py parses them and reaches neither an
+// engine nor a document — its own docstring says so.)
 //
 // WHAT 1.1.0 DOES AND DOES NOT ACCEPT HERE — measured against the engine, not
 // assumed, because each of these is a review reflex from other Cypher engines:

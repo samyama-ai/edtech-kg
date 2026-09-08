@@ -167,10 +167,10 @@ def test_every_answerable_question_in_a_covered_tier_has_a_traversal():
 
 
 # --------------------------------------------------------------------------
-# Parsing is a weak check, and this is the half it misses. `schema/
-# edtech_kg.cypher` declares KEYS — measured, it declares no other property at
-# all — so a traversal naming `o.name` on an `Occupation` parses, looks like an
-# answer, and reaches for something no loader writes.
+# Parsing is a weak check, and this is the half it misses. The schema files
+# declare KEYS — measured, they declare no other property at all — so a
+# traversal naming `o.name` on an `Occupation` parses, looks like an answer,
+# and reaches for something no loader writes.
 #
 # Sixteen of tier 1's property accesses are in that state (#123). They are not
 # removed: the questions are answerable once the schema declares them, which is

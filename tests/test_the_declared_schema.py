@@ -17,6 +17,10 @@ going unapplied. Then for the LIST — "the schema" had quietly acquired five
 independent definitions, and adding a third tier file left the suite green
 while the loader never applied it.
 
+It also holds the tests for LOCATING a declaration — `constraint_line` and
+`declaration_site`. Those answer "which file declares this label", which is
+the same question as "what is the schema made of", one label at a time.
+
 Nothing here reaches an engine.
 """
 
@@ -27,7 +31,10 @@ import re
 from etl.cypher_script import split_statements, strip_comment
 from etl import cypher_script
 from tests import schema_source
-from tests.schema_source import ROOT, schema_text
+import pytest
+
+from tests.schema_source import (ROOT, SCHEMA_FILES, constraint_line,
+                                 declaration_site, schema_text)
 
 
 def test_the_declared_schema_is_every_schema_file():
@@ -50,14 +57,16 @@ def test_the_declared_schema_is_every_schema_file():
     the directory it claims to describe.
     """
     on_disk = tuple(sorted((ROOT / "schema").glob("*.cypher")))
-    # IN ORDER, not as sets. `etl/cypher_script.py` says the tuple is written
-    # tier 1 first and that the order matters to the banner guards — swapping
-    # it fails `test_a_label_sits_under_the_tier_banner_it_belongs_to`. A set
-    # comparison left that sentence unexecutable, which is how a comment
-    # becomes decoration. `sorted()` puts `edtech_kg.cypher` before
-    # `edtech_kg_tier2.cypher`, which is tier order; a tier whose filename
-    # broke that would fail here and should.
-    assert tuple(cypher_script.SCHEMA_FILES) == on_disk, (
+    # MEMBERSHIP as sets, ORDER by the tier each file declares.
+    #
+    # Comparing tuples against `sorted()` was wrong in a way that only shows
+    # up on the third tier: `sorted()` is lexicographic, so
+    # `edtech_kg_tier10.cypher` lands BETWEEN tier 1 and tier 2, and any
+    # non-`_tier` name sorts early. Someone adding a tier would have had to
+    # declare it in lexicographic order, and the message told them to add it
+    # to SCHEMA_FILES without saying where. Order is asserted below against
+    # the banner each file actually carries, which is what the order means.
+    assert set(cypher_script.SCHEMA_FILES) == set(on_disk), (
         f"schema/ holds {[f.name for f in on_disk]} and the loader declares "
         f"{[f.name for f in cypher_script.SCHEMA_FILES]}. A file here that "
         f"nothing declares is never applied; a file declared and missing "
@@ -66,6 +75,28 @@ def test_the_declared_schema_is_every_schema_file():
     assert schema_source.SCHEMA_FILES is cypher_script.SCHEMA_FILES, (
         "tests/schema_source must re-export the loader's tuple, not restate "
         "it — two lists that agree today are the drift this test exists for")
+
+    # **Order, by the banner each file declares.** `etl/cypher_script.py` says
+    # the tuple is in tier order and that the order is pinned here; this is
+    # what pins it. Read off the file rather than off the filename, so a third
+    # tier can be called anything and still has to be declared in its place.
+    declared = []
+    for path in cypher_script.SCHEMA_FILES:
+        text = path.read_text(encoding="utf-8")
+        banners = re.findall(r"^// TIER (\d+)", text, re.M)
+        assert banners, (
+            f"{path.name} carries no `// TIER n` banner, so nothing says where "
+            f"it belongs in the order. Add one, as both tiers have.")
+        assert len(set(banners)) == 1, (
+            f"{path.name} carries banners for tiers {sorted(set(banners))}; "
+            f"one file, one tier — that is what 'tier is the file a "
+            f"declaration lives in' means.")
+        declared.append(int(banners[0]))
+    assert declared == sorted(declared), (
+        f"SCHEMA_FILES declares tiers in the order {declared}. It is applied "
+        f"and read in this order, and both files are written to be read in "
+        f"tier order. Note this is NOT lexicographic: a tier 10 file sorts "
+        f"between 1 and 2 by name, which is why the banner decides.")
 
 
 def test_both_tiers_are_actually_read():
@@ -128,9 +159,17 @@ def test_both_tiers_are_actually_read():
     # `strip_comment` the loader uses, so a splitter that dropped or merged
     # statements would drop or merge them on both sides and stay invisible.
     # Counting the declaration keyword is independent of how the text is cut.
+    # UNANCHORED on both sides, over comment-stripped text. The raw side was
+    # anchored with `^\s*` and the sent side was not, so two valid statements
+    # sharing a line — `…; CREATE INDEX ON :Completion(year);` — counted once
+    # against twice and failed with "points AT the splitter" when the splitter
+    # was right and this counter was wrong. Stripping comments keeps the one
+    # independence that matters: this does not use `split_statements`.
     declared = sum(
-        len(re.findall(r"^\s*CREATE (?:CONSTRAINT|INDEX)\b",
-                       f.read_text(encoding="utf-8"), re.M | re.I))
+        len(re.findall(r"CREATE (?:CONSTRAINT|INDEX)\b",
+                       "\n".join(strip_comment(line) for line
+                                 in f.read_text(encoding="utf-8").splitlines()),
+                       re.I))
         for f in cypher_script.SCHEMA_FILES)
     sent_declarations = len(re.findall(
         r"CREATE (?:CONSTRAINT|INDEX)\b", "\n".join(recorder.sent), re.I))
@@ -144,3 +183,82 @@ def test_both_tiers_are_actually_read():
         assert label in sent, (
             f"apply_schema sent nothing mentioning {label} — {tier} is not "
             f"reaching the engine")
+
+
+def test_the_dataset_card_counts_the_labels_that_hold_nothing():
+    """DATASET-CARD said eight and named six of the twelve.
+
+    That is what happens when a count is maintained by hand beside a schema
+    that grew — the card was written when tier 2 held less. Derived from
+    SCHEMA_FILES minus what the loaders write, so it cannot drift again
+    without this failing.
+    """
+    from tests.schema_source import labels
+
+    declared = {label for path in cypher_script.SCHEMA_FILES
+                for label in labels(path.read_text(encoding="utf-8"))}
+    loaders = sorted((ROOT / "etl").glob("load_*.py"))
+    assert loaders, "no loaders found; the subtraction below would be vacuous"
+    written = {label for loader in loaders
+               for label in re.findall(r"\(\s*\w+:(\w+)",
+                                       loader.read_text(encoding="utf-8"))
+               if label in declared}
+    empty = declared - written
+
+    card = (ROOT / "DATASET-CARD.md").read_text(encoding="utf-8")
+    said = re.search(r"\*\*(\w+) labels are declared and (\w+) are written\*\*",
+                     card)
+    assert said, "the card no longer states the declared/written counts"
+    words = {"four": 4, "six": 6, "eight": 8, "ten": 10, "twelve": 12,
+             "sixteen": 16}
+    assert words.get(said.group(1).lower()) == len(declared), (
+        f"the card says {said.group(1)} labels are declared; the schema "
+        f"declares {len(declared)}")
+    assert words.get(said.group(2).lower()) == len(written), (
+        f"the card says {said.group(2)} are written; the loaders write "
+        f"{len(written)}: {sorted(written)}")
+
+    for label in sorted(empty):
+        assert label in card, (
+            f"{label} is declared and no loader writes it, and the card does "
+            f"not name it among those holding nothing")
+
+
+def test_a_commented_out_declaration_does_not_locate_a_label():
+    """`constraint_line` split raw text, so a `//`-commented declaration
+    matched — and `declaration_site` then resolved a label to a comment in the
+    WRONG file, silently.
+
+    Measured before the fix: blanking Place's documentation in tier 2 and
+    adding `// CREATE CONSTRAINT ON (pl:Place) …` to tier 1 left the suite
+    green, while two guards read their documentation window from a file that
+    declares nothing.
+
+    `labels()` already walked `code()` and
+    `test_a_commented_out_constraint_is_not_counted` covered it there. This
+    was the one path that skipped it.
+    """
+    live = "CREATE CONSTRAINT ON (a:Alpha) ASSERT a.id IS UNIQUE;"
+    decoy = "// CREATE CONSTRAINT ON (b:Beta) ASSERT b.id IS UNIQUE;"
+
+    assert constraint_line("Alpha", f"{decoy}\n{live}") == 1, (
+        "the live declaration is on line 1 and the comment on line 0")
+    assert constraint_line("Beta", f"{decoy}\n{live}") is None, (
+        "a commented-out declaration located a label")
+
+
+def test_a_label_declared_in_two_files_is_refused_not_picked():
+    """`declaration_site` returned the FIRST hit, so a second declaration in
+    another file was invisible and which one you got depended on tuple order —
+    the shadowing this helper exists to remove."""
+    real = declaration_site("Course")[0]
+    other = next(f for f in SCHEMA_FILES if f != real)
+    original = other.read_text(encoding="utf-8")
+    try:
+        other.write_text(
+            original + "\nCREATE CONSTRAINT ON (c:Course) ASSERT c.url IS UNIQUE;\n",
+            encoding="utf-8")
+        with pytest.raises(AssertionError, match="declared in 2 schema files"):
+            declaration_site("Course")
+    finally:
+        other.write_text(original, encoding="utf-8")

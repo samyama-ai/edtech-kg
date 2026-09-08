@@ -38,13 +38,14 @@ _SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schema"
 #: on purpose: the glob would apply any `.cypher` file dropped in `schema/` to
 #: a production graph without anyone deciding to.
 #:
-#: Tier 1 then tier 2, **and the order is load-bearing** — not for the engine,
-#: where constraints are independent, but for the guards: swapping the tuple
-#: fails `test_a_label_sits_under_the_tier_banner_it_belongs_to`. This comment
-#: used to say the opposite, while
-#: `test_the_declared_schema_is_every_schema_file` compared SETS — so nothing
-#: pinned the order either. That test compares tuples now, and this sentence
-#: is executable.
+#: Tier 1 then tier 2, **and the order is pinned** — not by the engine, where
+#: constraints are independent, but by
+#: `test_the_declared_schema_is_every_schema_file`, which asserts this tuple
+#: is in tier-banner order. Swapping it fails there and nowhere else: the
+#: banner test goes through `sole_file_stating` and is order-blind, which is
+#: that fix working. Two earlier versions of this comment were wrong in
+#: opposite directions — one said the order did not matter, the next named
+#: the banner test — so the claim is measured now rather than asserted.
 SCHEMA_FILES = (_SCHEMA_DIR / "edtech_kg.cypher",
                 _SCHEMA_DIR / "edtech_kg_tier2.cypher")
 
@@ -53,8 +54,8 @@ def schema_text() -> str:
     """Both schema files, concatenated in tier order.
 
     Anything applying or parsing "the schema" must use this rather than reading
-    SCHEMA, or tier 2 silently stops being applied — a failure that shows up as
-    a missing constraint nobody declared missing.
+    one file, or tier 2 silently stops being applied — a failure that shows up
+    as a missing constraint nobody declared missing.
     """
     return "\n".join(f.read_text(encoding="utf-8") for f in SCHEMA_FILES)
 
@@ -115,7 +116,7 @@ def split_statements(text: str) -> list[str]:
 
 def apply_schema(engine: Engine, quiet: bool = False,
                  schema: Path | None = None) -> int:
-    """The constraints, from the schema file — not retyped here.
+    """The constraints, from the schema FILES — not retyped here.
 
     A copy would drift from the file the tests execute, which is the defect
     this repo keeps finding: two things that should be one, with only one
