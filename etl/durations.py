@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 #: Fallback only, for `--no-time-suite`. The suite is TIMED by default — see
-#: `time_the_suite`. This was a typed `51`, disclosed as an assertion, and a
+#: `time_the_suite`, which measures ~46s. This was a typed `51`, disclosed as
+#: an assertion, and a
 #: review was right that disclosure is not measurement: CONTRIBUTING says
 #: "every figure in a document is printed by a probe, never typed. If you
 #: cannot point at the command, delete the figure", and this is the figure the
@@ -58,7 +59,14 @@ def seconds(started: str, ended: str) -> int | None:
     # `fromisoformat` handles offsets and fractions. It rejects a trailing
     # `Z` before 3.11, so that is normalised first rather than assumed.
     try:
-        return int((_parse(ended) - _parse(started)).total_seconds())
+        elapsed = int((_parse(ended) - _parse(started)).total_seconds())
+        if elapsed < 0:
+            # `updated_at` before `run_started_at` gave a negative, which
+            # flows into the median and can only pull `max_seconds` DOWN —
+            # making the floor argument look stronger than the data. Unusable,
+            # not small.
+            return None
+        return elapsed
     except (ValueError, TypeError, AttributeError):
         # TypeError/AttributeError too: a non-string stamp — null, a number, a
         # nested object — raised out of `tally` rather than being read as the
@@ -78,6 +86,9 @@ def _median(values: list[int]) -> float | None:
     """The middle value, averaging the two middles on an even count."""
     if not values:
         return None
+    # `sorted()` is load-bearing: `tally` collects in API order, which is
+    # newest-first. Deleting it passed the entire suite because all three
+    # median tests fed pre-sorted lists.
     ordered = sorted(values)
     middle = len(ordered) // 2
     if len(ordered) % 2:
@@ -112,11 +123,17 @@ def time_the_suite() -> dict:
     # function is in the middle of producing, so before a first successful run
     # it fails, the exit code is non-zero, and the timing is discarded — the
     # measurement can never bootstrap. The exclusion is recorded, and it is
-    # one module of ~200: the difference it makes to the figure is far below
-    # the run-to-run variance of the figure itself.
+    # one module of 86 — counted, not estimated: the difference it makes to
+    # the figure is far below the run-to-run variance of the figure itself.
     excluded = "tests/test_ci_history_doc.py"
     command = [sys.executable, "-m", "pytest", "-q", "--deselect", excluded]
-    environment = {**os.environ, REENTRY: "1"}
+    # The token is REMOVED. The suite does not need a credential to time
+    # itself, and passing the whole environment to a subprocess puts it
+    # somewhere it has no reason to be. Output is captured and discarded, so
+    # the exposure was small — but small is not a reason to keep it.
+    environment = {k: v for k, v in os.environ.items()
+                   if k not in ("SAMYAMA_GITEA_TOKEN",)}
+    environment[REENTRY] = "1"
     start = time.monotonic()
     try:
         finished = subprocess.run(command, cwd=str(ROOT), env=environment,

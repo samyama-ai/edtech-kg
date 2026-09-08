@@ -1,4 +1,4 @@
-"""`docs/sources/ci-history.md` held to the record that produced it.
+"""`docs/ci-history.md` held to the record that produced it.
 
 The page opens "every figure below was printed by the probe". This is what
 makes that true rather than aspirational: every number it states is read back
@@ -60,8 +60,21 @@ def test_the_floor_argument_matches_the_record():
     the floor, how many runs reached it, and the longest run there has been."""
     assert int(stated(r"\*\*(\d+) seconds\n?is a floor")) == \
         VERDICT["floor_seconds"]
-    assert int(stated(r"\*\*(\d+) of \d+ runs reached that floor")) == \
-        CI["over_floor"]
+    # BOTH numbers. The denominator was an unanchored `\d+`, so the page
+    # could say "0 of 218 runs" over a numerator computed across the TIMED
+    # ones — a run with an unusable stamp dropping out of the evidence while
+    # the sentence claimed full coverage.
+    floor_line = re.search(r"\*\*(\d+) of (\d+) timed runs reached that floor",
+                           PAGE)
+    assert floor_line, (
+        "the page must say TIMED runs — the count is over runs whose stamps "
+        "parsed, not over every run")
+    assert int(floor_line.group(1)) == CI["over_floor"]
+    assert int(floor_line.group(2)) == CI["timed"]
+    assert CI["untimed"] == 0, (
+        f"{CI['untimed']} run(s) have unusable stamps and are outside the "
+        f"floor evidence entirely. The page must say how many, or the "
+        f"probe must be taught to read that stamp format.")
     assert int(stated(r"longest run\s+in the repo's history is (\d+)s")) == \
         CI["max_seconds"]
     assert CI["max_seconds"] < VERDICT["floor_seconds"], (
@@ -167,8 +180,18 @@ def test_the_page_does_not_conclude_past_its_evidence():
             start = at + 1
 
 
-BOLDED = sorted({int(n) for n in
-                 re.findall(r"\*\*(\d+)(?:s| of| times)?", PAGE)})
+# Every number inside a bold span, not only ones the span STARTS with.
+# `**999 times**` was caught and `**over 999 runs**` and `**nearly 40%**` both
+# passed a full run — and a leading word is the natural way a fudged claim
+# gets written.
+# DATES are removed first. A bold span containing `2026-08-21` otherwise
+# contributes 2026, 08 and 21 as if they were measurements — and the date IS
+# bound, by `test_the_prose_figures_the_record_holds_are_pinned_too`, against
+# the record's own `first`. Two guards, each on the thing it can actually
+# check.
+BOLDED = sorted({int(n)
+                 for span in re.findall(r"\*\*([^*]+)\*\*", PAGE)
+                 for n in re.findall(r"\d+", re.sub(r"\d{4}-\d\d-\d\d", "", span))})
 
 
 def test_the_sweep_has_something_to_sweep():
@@ -263,3 +286,38 @@ def test_the_third_workflow_row_is_bound_too():
         "the row must say the workflow is no longer in the tree, or a reader "
         "will look for a file that is not there")
     assert VERDICT["in_history_but_not_committed"] == ["runner-diagnostics.yml"]
+
+
+def test_the_prose_figures_the_record_holds_are_pinned_too():
+    """Three figures sat in prose that the record holds and nothing compared.
+
+    Each was confirmed by mutation: the headline start date passed as
+    2024-01-01 because `stated()` matched `[\\d-]+` rather than comparing;
+    the diagnostic's duration and the module count likewise. The module count
+    is the one that will actually drift — this PR adds two modules.
+    """
+    assert CI["first"][:10] in PAGE, (
+        f"the page no longer states the first run's date ({CI['first'][:10]}) "
+        f"— it was matched as a pattern and never compared")
+    assert f"One module of {VERDICT['suite']['of_modules']}." in PAGE, (
+        f"the page's module count is not {VERDICT['suite']['of_modules']}")
+    diagnostic = RECORD["workflows"]["runner-diagnostic.yml"]
+    # `:g` — the page writes 5, not 5.0. The median is a float since it
+    # averages two middles on an even count, and prose does not carry a
+    # trailing zero.
+    assert f"{diagnostic['median_seconds']:g}-second" in PAGE, (
+        "the diagnostic's duration is quoted in prose and unbound; it is the "
+        "figure behind 'equally consistent with every probe failing at once'")
+
+
+def test_the_narrative_section_is_marked_as_narrative():
+    """The page opens "every figure below was printed by the probe", and the
+    incident section carries PR numbers, "five failures" and "two hours later"
+    — none in the record, none producible by the probe, and outside both the
+    sweep and the named-sentence tests. CONTRIBUTING's rule is bidirectional,
+    so the scope has to be stated rather than assumed."""
+    assert "printed by" in PAGE
+    assert "read from the merge history" in PAGE, (
+        "the incident section must say its figures come from git, not from "
+        "the probe — otherwise the page's opening claim covers them and is "
+        "false")

@@ -16,7 +16,7 @@ cannot report, so the probe times it directly and records the command.
 
 | workflow | runs | succeeded | median | longest | `uses:` |
 |---|---|---|---|---|---|
-| `ci.yml` | 218 | **0** | 7.0s | 58s | 2 |
+| `ci.yml` | 219 | **0** | 7.0s | 58s | 2 |
 | `runner-diagnostic.yml` | 1 | 1 | 5.0s | 5s | 0 |
 | `runner-diagnostics.yml` | 1 | 1 | 6.0s | 6s | not committed |
 
@@ -31,7 +31,11 @@ an earlier draft of this page said leaving it out "halved the action-free
 evidence" while the comparison said 1 of 1, which is the page contradicting
 itself about its own central claim.
 
-`ci.yml` has run **218 times since 2026-08-21 and succeeded
+Of those, **219 have usable timestamps** and 0 do not — the
+floor count below is over the timed ones, because a run whose stamps will not
+parse has no duration and an absent duration is not a small one.
+
+`ci.yml` has run **219 times since 2026-08-21 and succeeded
 0 times.**
 
 ## The tests have never executed — and that is a stronger claim than "CI fails"
@@ -56,7 +60,7 @@ figure derived from it, because the image pull is not timed here. A run that
 *ended* faster than that cannot have run the tests,
 whatever step it reported.
 
-**0 of 218 runs reached that floor.** The longest run
+**0 of 219 timed runs reached that floor.** The longest run
 in the repo's history is 58s.
 
 That is what makes the red tick misleading rather than merely unhelpful. A red
@@ -67,7 +71,7 @@ meant *the tests did not run*, and those look identical on the PR page.
 
 Two workflows, same runner, same repository, same week:
 
-- **0 of 218** runs succeeded for the workflow that fetches
+- **0 of 219** runs succeeded for the workflow that fetches
   actions (`actions/checkout@v4`, `actions/setup-python@v5`).
 - **1 of 1** runs succeeded for the workflow that fetches
   nothing at all.
@@ -109,7 +113,11 @@ action registry — is answered by one person reading the diagnostic's log.
 
 ## What it cost, once, this week
 
-Not hypothetical. On 2026-09-07 four PRs merged in sequence — #172, #171, #173,
+Not hypothetical. **The figures in this section are read from the merge history, not printed by
+the probe** — the opening claim above covers the measurements, and this is an
+account of one incident.
+
+On 2026-09-07 four PRs merged in sequence — #172, #171, #173,
 #175 — each green on its own branch, none conflicting textually with any other.
 `main` went red on the fourth merge with five failures that had appeared on no
 branch: #171 added a guard requiring every probe to write its record through a
@@ -123,7 +131,7 @@ by running the suite locally two hours later, for an unrelated reason.
 
 The fix is a separate change. What belongs here is the cost: **the repository
 was merging into a broken `main` with a red tick that had meant nothing for
-218 runs, and no signal distinguished that from any other day.**
+219 runs, and no signal distinguished that from any other day.**
 
 Until then, **the tick on a PR in this repo means nothing**, and the suite has
 to be run locally before merging:

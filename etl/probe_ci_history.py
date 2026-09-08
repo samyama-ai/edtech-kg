@@ -114,7 +114,13 @@ def runs(token: str, limit: int = 250) -> list[dict]:
     # would hard-fail the day it passed 250 — it is at 220 now. Measured: this
     # instance returns every run when no `page` is given and honours `limit`
     # only alongside `page`, which is exactly what hid the missing loop.
-    found, page, total = [], 1, None
+    # **DISTINCT runs, keyed on id.** Counting collected items lets a page
+    # that repeats a run satisfy the total while a different run is never
+    # fetched at all — pages [1,2] then [2] against total 3 gave three items,
+    # two of them the same run, and both this loop and the guard below
+    # passed. "0 successes in 218 runs" is only evidence if 218 is the whole
+    # history, and a duplicate makes it 217 plus a repeat.
+    found, seen, page, total = [], set(), 1, None
     while True:
         body = json.loads(
             get(f"{API}/actions/tasks?limit={limit}&page={page}", token))
@@ -124,13 +130,26 @@ def runs(token: str, limit: int = 250) -> list[dict]:
                 "the Actions API answered without a workflow_runs key")
         if total is None:
             total = body.get("total_count")
-        found.extend(batch)
-        if not batch or len(found) >= (total or 0):
+        fresh = 0
+        for run in batch:
+            key = run.get("id", run.get("run_number"))
+            if key is None:
+                raise Unreachable(
+                    "a run carries neither `id` nor `run_number`, so pages "
+                    "cannot be deduplicated and a repeat would read as "
+                    "coverage")
+            if key not in seen:
+                seen.add(key)
+                found.append(run)
+                fresh += 1
+        # No NEW runs on this page means the pager has stopped advancing —
+        # a non-empty page of repeats would otherwise loop to the cap.
+        if not batch or not fresh or len(seen) >= (total or 0):
             break
         page += 1
         if page > 200:
             raise Unreachable(
-                f"stopped after 200 pages with {len(found)} of {total} runs; "
+                f"stopped after 200 pages with {len(seen)} of {total} runs; "
                 f"the pager is not advancing")
 
     if total is None:
@@ -144,11 +163,14 @@ def runs(token: str, limit: int = 250) -> list[dict]:
             "cannot be checked for truncation. It may be in an "
             "X-Total-Count header on this build — read it there rather than "
             "deleting this check.")
-    if total != len(found):
+    if total != len(seen):
         raise Unreachable(
-            f"the API reports {total} runs and returned {len(found)}. Every "
-            f"figure here is a count over the whole history, so a truncated "
-            f"page would understate the successes as easily as the failures.")
+            f"the API reports {total} runs and {len(seen)} distinct ones were "
+            f"collected over {page} page(s). Every figure here is a count "
+            f"over the whole history, so a short page understates the "
+            f"successes as easily as the failures — and a page repeating a "
+            f"run would satisfy an item count while leaving another "
+            f"unfetched.")
 
     conclusions = [r for r in found if "conclusion" in r]
     if conclusions:
@@ -220,7 +242,14 @@ def tally(found: list[dict]) -> dict:
         seen["max_seconds"] = took[-1] if took else None
         # The count that carries the argument: a run cannot have executed a
         # ~51s suite plus an image pull inside FLOOR_SECONDS.
+        # Counted within `took`, which holds only runs whose stamps parsed.
+        # The page said "0 of 218 RUNS reached that floor" over a numerator
+        # computed across the timed ones — so a run with an unusable stamp
+        # dropped out of the evidence while the sentence claimed full
+        # coverage. `durations.py` says an absent duration is not a small one;
+        # this is where that has to reach the page.
         seen["over_floor"] = sum(1 for t in took if t >= FLOOR_SECONDS)
+        seen["untimed"] = seen["runs"] - len(took)
     return by_workflow
 
 
@@ -349,31 +378,47 @@ def report(measured: dict) -> None:
               f"that anything it probed worked. That answer is in the log.")
 
 
+def gitea_token() -> str | None:
+    """The token, from the environment only — the names the sibling uses."""
+    for name in ("GITEA_TOKEN", "SAMYAMA_GITEA_TOKEN"):
+        if os.environ.get(name):
+            return os.environ[name]
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m etl.probe_ci_history")
-    parser.add_argument("--token", default=os.environ.get("SAMYAMA_GITEA_TOKEN"),
-                        help="Gitea token; defaults to $SAMYAMA_GITEA_TOKEN.")
+    # **No `--token` flag.** It put the secret in `/proc/<pid>/cmdline` and in
+    # shell history, and the sibling `etl/probe_review_cost.py` is env-only —
+    # two probes against the same host disagreeing about how to take a
+    # credential is the drift, one level up from the code.
+    
     parser.add_argument("--no-time-suite", action="store_true",
                         help="Skip timing the suite and fall back to the "
                              "recorded constant. The record then says "
                              "measured: false, and the floor argument is "
                              "weaker for it.")
+    parser.add_argument("--json", action="store_true",
+                        help="Print the measurement instead of writing it — "
+                             "what lets someone diff a fresh run against the "
+                             "committed record without touching the tree.")
     parser.add_argument("--record", action="store_true",
                         help=f"Write {RECORD.relative_to(ROOT)}.")
     args = parser.parse_args(argv)
 
-    if not args.token:
+    token = gitea_token()
+    if not token:
         # NAMED, not a stack trace from a None in a header. Unlike every other
         # probe here this one cannot run against a public endpoint, and the
         # reader deserves to know that is why rather than assuming a bug.
         print("no token: the Actions API is not public on a private repo.\n"
-              "  export SAMYAMA_GITEA_TOKEN=... , or pass --token",
+              "  export GITEA_TOKEN=... or SAMYAMA_GITEA_TOKEN=...",
               file=sys.stderr)
         return 2
 
     try:
         measured = measure(
-            args.token,
+            token,
             suite_seconds=({"seconds": SUITE_SECONDS, "measured": False,
                             "why": "--no-time-suite"}
                            if args.no_time_suite else None))
@@ -381,7 +426,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"unreachable: {gone}", file=sys.stderr)
         return 1
 
+    if args.json:
+        print(json.dumps(measured, indent=2, sort_keys=True))
+        return 0
+
     report(measured)
+    if args.record and not measured["workflows"]:
+        # REFUSED. A zero-run measurement overwrote the committed record and
+        # exited 0; the doc tests then errored at COLLECTION on a missing key,
+        # which reads as a broken test rather than a destroyed artifact — and
+        # by then it was already gone. The same principle `durations.py`
+        # states for the suite: a probe must not pass an absence off as a
+        # measurement.
+        print("refusing to --record a measurement with no workflows in it; "
+              "the committed record is evidence and this would replace it "
+              "with nothing.", file=sys.stderr)
+        return 4
     if args.record:
         # Through the shared writer, so the record carries the commit that
         # produced it (#6). Not `RECORD.write_text` — a record nobody can date

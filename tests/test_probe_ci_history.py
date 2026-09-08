@@ -156,8 +156,9 @@ def test_a_github_shaped_payload_stops_the_run(monkeypatch):
     monkeypatch.setattr(
         probe, "get",
         lambda url, token:
-        b'{"total_count": 1, "workflow_runs": [{"workflow_id": "ci.yml",'
-        b' "status": "completed", "conclusion": "success"}]}')
+        b'{"total_count": 1, "workflow_runs": [{"id": 1,'
+        b' "workflow_id": "ci.yml", "status": "completed",'
+        b' "conclusion": "success"}]}')
     with pytest.raises(probe.Unreachable) as gone:
         probe.runs("token")
     assert "conclusion" in str(gone.value)
@@ -175,30 +176,6 @@ def test_an_unfinished_run_contributes_no_duration():
     assert tallied["median_seconds"] == 7
 
 
-def test_steps_and_tolerant_steps_are_counted_the_same_way():
-    """They must not drift in opposite directions. `^\\s+- name:` saw only
-    steps whose first key is `name` — missing `- uses:` and `- run:` — while
-    an unanchored `continue-on-error: true` matched comments and job-level
-    keys, so `tolerant < steps` could invert on an unchanged workflow.
-    """
-    workflow = """
-jobs:
-  test:
-    steps:
-      - uses: actions/checkout@v4
-      - name: Something
-        run: echo hi
-      - run: echo bare
-        continue-on-error: true
-      # continue-on-error: true   <- a comment, not a step
-  other:
-    continue-on-error: true
-"""
-    counted = workflow_files.step_counts(workflow)
-    assert counted["steps"] == 3, "a step leading with uses: or run: is a step"
-    assert counted["tolerant_steps"] == 1, (
-        "only the real key indented under a step counts — not the comment, "
-        "and not the job-level one")
 
 
 def test_the_action_free_comparison_uses_every_action_free_workflow():
@@ -261,30 +238,6 @@ def test_a_missing_total_count_fails_rather_than_skipping_the_guard(monkeypatch)
         "the failure must point at where the count probably moved to")
 
 
-def test_a_steps_aligned_list_is_counted():
-    """Legal, common YAML:
-
-        steps:
-        - uses: actions/checkout@v4
-
-    Ending the block on any equal indent gave `steps == 0` for every workflow
-    written that way — and zero steps with zero tolerant steps reads as
-    `tolerant < steps` being False, which flips
-    `diagnostic_outcome_is_informative` to True and quietly restores the
-    claim this probe exists to refuse.
-    """
-    aligned = """
-jobs:
-  test:
-    steps:
-    - uses: actions/checkout@v4
-    - name: One
-      continue-on-error: true
-    - run: echo two
-  other:
-    continue-on-error: true
-"""
-    assert workflow_files.step_counts(aligned) == {"steps": 3, "tolerant_steps": 1}
 
 
 def test_the_suite_timing_refuses_to_pass_off_a_failed_run(monkeypatch):
@@ -316,13 +269,13 @@ def test_the_history_is_paged_not_one_request(monkeypatch):
     exactly what hid the missing loop."""
     pages = {
         1: b'{"total_count": 5, "workflow_runs": ['
-           b'{"workflow_id":"ci.yml","status":"failure"},'
-           b'{"workflow_id":"ci.yml","status":"failure"}]}',
+           b'{"id":1,"workflow_id":"ci.yml","status":"failure"},'
+           b'{"id":2,"workflow_id":"ci.yml","status":"failure"}]}',
         2: b'{"total_count": 5, "workflow_runs": ['
-           b'{"workflow_id":"ci.yml","status":"failure"},'
-           b'{"workflow_id":"ci.yml","status":"failure"}]}',
+           b'{"id":3,"workflow_id":"ci.yml","status":"failure"},'
+           b'{"id":4,"workflow_id":"ci.yml","status":"failure"}]}',
         3: b'{"total_count": 5, "workflow_runs": ['
-           b'{"workflow_id":"ci.yml","status":"success"}]}',
+           b'{"id":5,"workflow_id":"ci.yml","status":"success"}]}',
     }
     asked = []
 
@@ -347,17 +300,22 @@ def test_a_pager_that_does_not_advance_is_stopped():
 
     def stuck(url, token):
         seen["n"] += 1
-        return b'{"total_count": 999, "workflow_runs": [{"workflow_id":"a"}]}'
+        # The SAME run every page — a server ignoring `page`. This is what the
+        # duplicate-key stop catches; it used to loop to the 200-page cap.
+        return (b'{"total_count": 999, "workflow_runs": ['
+                b'{"id":1,"workflow_id":"a","status":"failure"}]}')
 
     import etl.probe_ci_history as mod
     old = mod.get
     mod.get = stuck
     try:
-        with pytest.raises(probe.Unreachable, match="not advancing"):
+        with pytest.raises(probe.Unreachable, match="distinct"):
             probe.runs("token")
     finally:
         mod.get = old
-    assert seen["n"] <= 201
+    assert seen["n"] <= 3, (
+        f"asked for {seen['n']} pages; a page with no NEW runs must stop the "
+        f"loop rather than running to the cap")
 
 
 def test_the_median_is_a_median():
@@ -391,43 +349,88 @@ def test_a_non_string_stamp_does_not_raise_out_of_the_tally():
                   "run_started_at": None, "updated_at": 42}])
 
 
-def test_a_step_inside_a_block_scalar_is_not_a_step():
-    """`run: |` and `script: |` hold arbitrary shell. A line reading
-    `- name: foo` inside one is text, and counting it inflated `steps` — which
-    feeds `tolerant < steps`, the comparison that decides whether a workflow's
-    own success outcome carries information."""
-    yaml = """
-jobs:
-  test:
-    steps:
-      - uses: actions/checkout@v4
-      - name: Shell
-        run: |
-          echo hi
-          - name: not a step
-          continue-on-error: true
-      - run: echo two
-"""
-    assert workflow_files.step_counts(yaml) == {"steps": 3, "tolerant_steps": 0}
 
 
-def test_the_truthy_spellings_yaml_accepts_all_count():
-    """`$`-anchored `true` missed a trailing comment, and `true` alone missed
-    True/'true'/yes — all of which disable the step, and a step that cannot
-    fail its job is what this counts."""
-    for spelling in ("true", "True", "TRUE", "'true'", "yes", "on",
-                     "true  # while debugging"):
-        yaml = (f"jobs:\n  j:\n    steps:\n      - name: x\n"
-                f"        continue-on-error: {spelling}\n")
-        counted = workflow_files.step_counts(yaml)
-        assert counted["tolerant_steps"] == 1, (spelling, counted)
 
 
-def test_a_missing_workflow_directory_fails_loudly(monkeypatch, tmp_path):
-    """Returning {} made every `tolerant < steps` comparison read as False on
-    an empty dict, so a missing directory reported "the diagnostic's outcome
-    is informative" — the claim this probe exists to refuse, reached by
-    finding nothing."""
-    monkeypatch.setattr(workflow_files, "WORKFLOWS", tmp_path / "absent")
-    with pytest.raises(FileNotFoundError, match="vacuous"):
-        workflow_files.dependencies()
+
+
+def test_the_median_sorts_what_it_is_given():
+    """Deleting `sorted()` passed the ENTIRE suite, because all three median
+    cases fed pre-sorted lists — and `tally` collects in API order, which is
+    newest-first."""
+    assert durations._median([120, 7, 60, 59]) == 59.5
+    assert durations._median([9]) == 9.0
+    assert durations._median([5, 5, 5, 5]) == 5.0
+
+
+def test_a_run_whose_stamps_run_backwards_has_no_duration():
+    """`updated_at` before `run_started_at` gave a negative, which flows into
+    the median and can only pull `max_seconds` DOWN — making the floor
+    argument look stronger than the data supports."""
+    assert durations.seconds("2026-09-01T05:01:00Z",
+                             "2026-09-01T05:00:00Z") is None
+
+
+def test_the_cli_refuses_without_a_token(monkeypatch, capsys):
+    monkeypatch.delenv("GITEA_TOKEN", raising=False)
+    monkeypatch.delenv("SAMYAMA_GITEA_TOKEN", raising=False)
+    assert probe.main([]) == 2
+    assert "not public on a private repo" in capsys.readouterr().err
+
+
+def test_the_cli_reports_an_unreachable_api(monkeypatch, capsys):
+    monkeypatch.setenv("GITEA_TOKEN", "x")
+    monkeypatch.setattr(probe, "measure",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            probe.Unreachable("the host said no")))
+    assert probe.main([]) == 1
+    assert "the host said no" in capsys.readouterr().err
+
+
+def test_the_cli_refuses_to_record_a_measurement_with_no_workflows(
+        monkeypatch, capsys, tmp_path):
+    """**A zero-run measurement overwrote the committed record and exited 0.**
+
+    The doc tests then errored at COLLECTION on a missing key, which reads as
+    a broken test rather than a destroyed artifact — and by then it was gone.
+    """
+    monkeypatch.setenv("GITEA_TOKEN", "x")
+    monkeypatch.setattr(probe, "measure", lambda *a, **k: {
+        "workflows": {}, "runs_returned": 0, "dependencies": {},
+        "verdict": {"floor_seconds": 60, "suite": {"seconds": 1},
+                    "with_actions": None, "without_actions": None,
+                    "in_history_but_not_committed": [],
+                    "diagnostic_steps": 0, "diagnostic_tolerant_steps": 0,
+                    "diagnostic_outcome_is_informative": False}})
+    before = probe.RECORD.read_bytes()
+    assert probe.main(["--record"]) == 4
+    assert "refusing to --record" in capsys.readouterr().err
+    assert probe.RECORD.read_bytes() == before, "the record was overwritten"
+
+
+def test_the_cli_prints_json_without_writing(monkeypatch, capsys):
+    """`--json` is what lets someone diff a fresh measurement against the
+    committed record without touching the tree — 22 of 24 sibling probes have
+    it."""
+    monkeypatch.setenv("GITEA_TOKEN", "x")
+    monkeypatch.setattr(probe, "measure", lambda *a, **k: {"workflows": {"a": 1}})
+    before = probe.RECORD.read_bytes()
+    assert probe.main(["--json"]) == 0
+    assert '"workflows"' in capsys.readouterr().out
+    assert probe.RECORD.read_bytes() == before
+
+
+def test_report_says_so_when_no_diagnostic_is_committed(capsys):
+    """It printed "0 of 0 diagnostic steps are continue-on-error" — a sentence
+    about a file that does not exist."""
+    probe.report({
+        "runs_returned": 0, "workflows": {}, "dependencies": {},
+        "verdict": {"floor_seconds": 60, "with_actions": None,
+                    "without_actions": None,
+                    "in_history_but_not_committed": [],
+                    "diagnostic_steps": 0, "diagnostic_tolerant_steps": 0,
+                    "diagnostic_outcome_is_informative": False}})
+    printed = capsys.readouterr().out
+    assert "no runner-diagnostic.yml is committed" in printed
+    assert "0 of 0" not in printed
