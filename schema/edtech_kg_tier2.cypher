@@ -155,7 +155,7 @@ CREATE CONSTRAINT ON (cp:Competency) ASSERT cp.id IS UNIQUE;
 // publishers report earnings for overlapping populations, and a row from
 // College Scorecard is not a row from BLS even where both name the same
 // occupation and year. Tier 2; the components firm up when the first source
-// is loaded (edtech-kg#21, #37).
+// is loaded (edtech-kg#21, edtech-kg#37).
 //
 // id = sha1("<subject kind>|<subject id>|<cohort>|<year>|<source>"), where
 // subject kind is "occupation" or "programme" and subject id is its SOC or
@@ -174,7 +174,8 @@ CREATE INDEX ON :EarningsRecord(year);
 // abbreviation, not the FIPS code (Virginia is FIPS 51), and calling all three
 // federal invited a loader author to look for a number that is not what the
 // example shows. The kind is carried because a bare code is not unique across
-// kinds — 51 is Virginia as a state FIPS and something else as a county. Tier 2 and blocked on #44, which is the question of
+// kinds — 51 is Virginia as a state FIPS and something else as a county.
+// Tier 2 and blocked on edtech-kg#44, which is the question of
 // what "near me" has to mean before any of this is worth loading.
 CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 
@@ -197,7 +198,9 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 //    so this is a property of one publisher's catalogue software, not of US
 //    education data. #19 asks whether a second district resolves as cleanly.
 //
-// 3. NO Course -> Programme edge. See above: no public source links them.
+// 3. NO Course -> Programme edge. No public source links them — see the
+//    prerequisite note in schema/edtech_kg.cypher, which the split moved
+//    away from this line.
 //
 // 4. NO inferred competency equivalence. See the competency gap.
 //
@@ -212,7 +215,9 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 // -----------------------------------------------------------------------------
 // Attributes — edtech-kg#123
 // -----------------------------------------------------------------------------
-// Every constraint above declares a KEY. Until now the schema declared nothing
+// Every constraint in BOTH tier files declares a KEY — this block was
+// written when the schema was one file and "above" meant all of them.
+// Until now the schema declared nothing
 // else, so a traversal naming `o.name` on an Occupation parsed, returned null,
 // and looked like an answer — and #22 found fifteen of those across the six
 // tiers. `Q2. What occupation does this SOC code name?` is entirely the name,
@@ -268,7 +273,8 @@ CREATE CONSTRAINT ON (pl:Place) ASSERT pl.id IS UNIQUE;
 //
 //   EarningsRecord.median, .year, .source, .employment — no loader exists and
 //   the key's own note above says the components firm up when the first source
-//   is loaded (#21, #37). Declaring them now would fix a shape before anything
+//   is loaded (edtech-kg#21, edtech-kg#37). Declaring them now would fix a
+//   shape before anything
 //   has been read, which is the mistake `Pathway` already made once when it
 //   was keyed on `ctid` and left empty.
 //

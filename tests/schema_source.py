@@ -1,4 +1,4 @@
-"""Reading `schema/edtech_kg.cypher` — one view of the file, shared by both
+"""Reading the schema — one view of its FILES, shared by both
 test modules that parse it.
 
 Split out when `tests/test_schema_cypher.py` reached 599 lines and was skipped
@@ -13,6 +13,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from etl import cypher_script
 from etl.cypher_script import SCHEMA_FILES  # noqa: F401  (re-exported)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,14 +31,19 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @lru_cache(maxsize=1)
 def schema_text() -> str:
-    """The schema file, read once.
+    """The schema files, joined — **the loader's own function, cached**.
 
-    `code()`, `patterns()` and `constraint_line()` each re-read it on every
-    call, and `constraint_line()` is called once per label — so a single test
-    run read the same unchanging file dozens of times. Cached, because it is
-    the same file for the life of the process and nothing here writes to it.
+    This was a second copy of the same two-line join. The tuple got one home
+    in this PR and the READER did not, which is the same drift one level down:
+    two joiners that agree today, with nothing asserting they will.
+
+    Cached because `code()`, `patterns()` and `constraint_line()` each re-read
+    on every call and `constraint_line()` runs once per label, so a single
+    test run read the same unchanging files dozens of times. The loader must
+    NOT cache — it is applied to a live engine and the files can change under
+    a long-running process — which is why the cache lives here and not there.
     """
-    return "\n".join(f.read_text(encoding="utf-8") for f in SCHEMA_FILES)
+    return cypher_script.schema_text()
 
 
 def sole_file_stating(needle: str, what: str) -> Path:
@@ -296,3 +302,26 @@ def constraint_line(label: str, text: str | None = None) -> int | None:
         f"{WRAP_LIMIT} lines — it is wrapped wider than that. Returning None "
         f"here would be indistinguishable from 'not declared at all'.")
     return None
+
+
+def declaration_site(label: str) -> tuple[Path, list[str], int]:
+    """The file declaring `label`, its lines, and the 0-indexed line it ends on.
+
+    Callers read a window of comment lines ABOVE a declaration. Indexing into
+    the joined text lets that window reach backwards across the file boundary,
+    so a tier-2 constraint can be "documented" by the tail of tier 1 — latent
+    today only because tier 2's first constraint happens to sit far enough
+    below its own file's top.
+
+    Raises rather than returning None: every caller asserts the label is
+    declared immediately afterwards, and a shared "not found" that each of
+    them re-checks is a check that one of them will eventually forget.
+    """
+    for path in SCHEMA_FILES:
+        text = path.read_text(encoding="utf-8")
+        at = constraint_line(label, text)
+        if at is not None:
+            return path, text.splitlines(), at
+    raise AssertionError(
+        f"{label} is not declared in any schema file "
+        f"({', '.join(f.name for f in SCHEMA_FILES)})")

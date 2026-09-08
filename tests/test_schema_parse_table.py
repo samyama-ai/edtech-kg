@@ -1,7 +1,7 @@
 """The six-row parse table in `docs/schema.md`, executed rather than believed.
 
 It was the one substantive claim in that file nothing ran. Every constraint in
-`schema/edtech_kg.cypher` is executed against a live engine by
+The schema files are executed against a live engine by
 `tests/test_schema_engine.py`; this table was measured by hand and written
 down, which is the shape of claim the file's own argument says not to trust.
 

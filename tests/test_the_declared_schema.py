@@ -1,4 +1,9 @@
-"""What "the schema" IS — the file list, and that every tier is applied.
+"""What "the schema" IS — the declared file list, and that every tier is applied.
+
+Named for the declaration, not for a count. It was `test_schema_is_two_files`,
+which baked into a filename the very assumption
+`test_the_declared_schema_is_every_schema_file` exists to stop anyone relying
+on — and a third tier is meant to be an ordinary thing to add.
 
 Split from `tests/test_schema_cypher.py` when it passed the 500-line review
 limit. Split by SUBJECT, not by length: everything there asserts what the
@@ -16,6 +21,8 @@ Nothing here reaches an engine.
 """
 
 from __future__ import annotations
+
+import re
 
 from etl.cypher_script import split_statements, strip_comment
 from etl import cypher_script
@@ -43,7 +50,14 @@ def test_the_declared_schema_is_every_schema_file():
     the directory it claims to describe.
     """
     on_disk = tuple(sorted((ROOT / "schema").glob("*.cypher")))
-    assert set(cypher_script.SCHEMA_FILES) == set(on_disk), (
+    # IN ORDER, not as sets. `etl/cypher_script.py` says the tuple is written
+    # tier 1 first and that the order matters to the banner guards — swapping
+    # it fails `test_a_label_sits_under_the_tier_banner_it_belongs_to`. A set
+    # comparison left that sentence unexecutable, which is how a comment
+    # becomes decoration. `sorted()` puts `edtech_kg.cypher` before
+    # `edtech_kg_tier2.cypher`, which is tier order; a tier whose filename
+    # broke that would fail here and should.
+    assert tuple(cypher_script.SCHEMA_FILES) == on_disk, (
         f"schema/ holds {[f.name for f in on_disk]} and the loader declares "
         f"{[f.name for f in cypher_script.SCHEMA_FILES]}. A file here that "
         f"nothing declares is never applied; a file declared and missing "
@@ -99,10 +113,31 @@ def test_both_tiers_are_actually_read():
     per_file = [len(split_statements("\n".join(
         strip_comment(line) for line in f.read_text(encoding="utf-8").splitlines())))
         for f in cypher_script.SCHEMA_FILES]
-    assert len(per_file) == 2, "the schema is two files"
+    # NOT `== 2`. That fought `test_the_declared_schema_is_every_schema_file`
+    # in this same module: declaring a well-formed tier 3 — the thing that
+    # test exists to force — failed here with `assert 3 == 2`. The sum below
+    # carries the weight, and it does so for any number of files.
+    assert len(per_file) == len(cypher_script.SCHEMA_FILES)
     assert len(recorder.sent) == sum(per_file), (
-        f"apply_schema SENT {len(recorder.sent)} statements; the two schema "
-        f"files hold {sum(per_file)} ({' + '.join(map(str, per_file))})")
+        f"apply_schema SENT {len(recorder.sent)} statements; the "
+        f"{len(per_file)} schema files hold {sum(per_file)} "
+        f"({' + '.join(map(str, per_file))})")
+
+    # A SECOND count that does not go through the splitter. The comparison
+    # above computes what it expects with the same `split_statements` and
+    # `strip_comment` the loader uses, so a splitter that dropped or merged
+    # statements would drop or merge them on both sides and stay invisible.
+    # Counting the declaration keyword is independent of how the text is cut.
+    declared = sum(
+        len(re.findall(r"^\s*CREATE (?:CONSTRAINT|INDEX)\b",
+                       f.read_text(encoding="utf-8"), re.M | re.I))
+        for f in cypher_script.SCHEMA_FILES)
+    sent_declarations = len(re.findall(
+        r"CREATE (?:CONSTRAINT|INDEX)\b", "\n".join(recorder.sent), re.I))
+    assert sent_declarations == declared, (
+        f"the files declare {declared} constraints/indexes and apply_schema "
+        f"sent {sent_declarations}. Counted without the splitter, so this "
+        f"disagreeing with the statement count above points AT the splitter.")
 
     sent = "\n".join(recorder.sent)
     for label, tier in (("Course", "tier 1"), ("EarningsRecord", "tier 2")):

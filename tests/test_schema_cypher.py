@@ -1,6 +1,6 @@
 """The cypher file itself — its syntax, its structure, and how it is read.
 
-`schema/edtech_kg.cypher` is the executable ontology, not prose. The same test
+The schema files are the executable ontology, not prose. The same test
 in `regulatory-affairs-kg` caught both a constraint collision and a syntax form
 the engine does not parse — neither of which two rounds of reading had found.
 
@@ -18,9 +18,12 @@ import re
 
 import pytest
 
-from tests.schema_source import (WRAP_LIMIT, code, constraint_line,
+from etl.cypher_script import strip_comment
+from tests.schema_source import (SCHEMA_FILES, WRAP_LIMIT, code,
+                                 constraint_line, declaration_site,
                                  declarations, edges, first_column, labels,
-                                 section, statements, schema_text)
+                                 schema_text, section, sole_file_stating,
+                                 statements)
 
 
 def test_every_label_is_constrained_once():
@@ -75,18 +78,30 @@ def test_a_commented_out_constraint_is_not_counted():
         "a commented-out constraint is being counted, or the text argument is ignored"
 
 
-def test_the_file_ends_terminated():
+@pytest.mark.parametrize("schema_file", SCHEMA_FILES, ids=lambda p: p.name)
+def test_each_file_ends_terminated(schema_file):
     """An unterminated statement merges with the next one, and the merged text
     still starts with CREATE — so the check above cannot see a missing
     semicolon. This can.
 
-    Through `code()`, like everything else here. It re-read the raw file and
-    filtered whole-comment lines itself — so a file ending in a statement with
-    a TRAILING comment, which `code()` handles and this did not, would have
-    failed here for a reason that is not a defect.
+    **Per file, not over the join.** Reading `code()` asserted the end of the
+    LAST file only. Measured on this branch: dropping the `;` from tier 1's
+    Pathway constraint left this green — the unterminated tail merged with
+    tier 2's first constraint and one malformed statement went to the engine.
+    The only thing that reddened was a statement COUNT, whose message says
+    nothing about a semicolon.
+
+    Through the same comment-stripping `code()` uses, so a file ending in a
+    statement with a TRAILING comment — which a raw read would trip on — does
+    not fail here for a reason that is not a defect.
     """
-    body = "\n".join(line for line in code().splitlines() if line.strip())
-    assert body.rstrip().endswith(";"), "the last statement is not terminated"
+    text = schema_file.read_text(encoding="utf-8")
+    stripped = "\n".join(strip_comment(line) for line in text.splitlines())
+    body = "\n".join(line for line in stripped.splitlines() if line.strip())
+    assert body.rstrip().endswith(";"), (
+        f"{schema_file.name}: the last statement is not terminated. Its tail "
+        f"will merge with the first statement of the next file and one "
+        f"malformed statement will be sent to the engine.")
 
 
 def test_a_reflowed_table_still_yields_its_names():
@@ -179,9 +194,16 @@ def test_the_url_key_states_how_it_is_normalised():
     case-sensitive by spec and lower-casing it merges pages a server may
     distinguish.
     """
-    text = schema_text()
+    # Both anchors out of ONE file. `sole_file_stating` was added in this
+    # same PR for exactly this hazard and `test_pwcs_source.py` was fixed
+    # while this was not: on the join, `.*?` can run from tier 1's heading
+    # into tier 2's first constraint, so the slice spans the boundary and the
+    # rule being checked is partly a different file's prose.
+    rule_file = sole_file_stating("NORMALISATION", "the URL normalisation rule")
+    text = rule_file.read_text(encoding="utf-8")
     marker = re.search(r"NORMALISATION.*?CREATE CONSTRAINT", text, re.S)
-    assert marker, "the URL key states no normalisation rule"
+    assert marker, (
+        f"{rule_file.name} states no normalisation rule above a constraint")
     rule = marker.group().lower()
 
     # Each part, and what is DONE to it, ON THE SAME LINE. Searching the whole
@@ -216,9 +238,18 @@ def test_the_equivalence_edge_states_its_direction():
     """Directed and not symmetric: one body asserting an equivalence is a
     different fact from the other asserting the converse, and only one may
     exist. Unstated, a query would traverse one way and silently miss half."""
-    text = schema_text()
-    assert "not symmetric" in text.lower()
-    assert "traverse both" in text.lower()
+    # In the SAME file, not one marker each. Over the join these could land
+    # in different files and still pass, and a reader of either one would see
+    # half the rule.
+    stating = [f for f in SCHEMA_FILES
+               if "not symmetric" in f.read_text(encoding="utf-8").lower()]
+    assert len(stating) == 1, (
+        f"'not symmetric' appears in {len(stating)} schema file(s); it must "
+        f"sit once, beside the edge it describes")
+    text = stating[0].read_text(encoding="utf-8").lower()
+    assert "traverse both" in text, (
+        f"{stating[0].name} says the edge is not symmetric and does not say "
+        f"a query must traverse both ways — half a rule is worse than none")
 
 
 def test_a_url_in_a_string_literal_survives_comment_stripping():
@@ -246,16 +277,17 @@ def test_every_tier_two_key_says_how_it_is_composed():
     """`Requirement`, `Completion` and `Level` state their id formula; three
     tier-2 keys said only `id`. An unpopulated label whose key is undefined is
     a decision deferred without a record that it was deferred."""
-    lines = schema_text().splitlines()
     for label in ("AwardingBody", "EarningsRecord", "Place"):
         # `constraint_line`, not a line-local substring, for the reason the
         # composite-key test below gives: a wrapped declaration is invisible
         # to `f":{label})" in line` and the check then passes on nothing.
-        line = constraint_line(label)
-        assert line is not None, f"{label} is no longer declared in the schema"
-        preceding = "\n".join(lines[max(0, line - 8):line])
+        # The window comes out of the DECLARING FILE. Sliced from the join it
+        # can reach back over the file boundary, so a tier-2 constraint would
+        # be "documented" by the tail of tier 1.
+        path, file_lines, line = declaration_site(label)
+        preceding = "\n".join(file_lines[max(0, line - 8):line])
         assert "id =" in preceding or "id is" in preceding.lower(), \
-            f"{label}'s key composition is not stated"
+            f"{path.name}: {label}'s key composition is not stated"
 
 
 def test_a_trailing_comment_on_the_last_line_still_reads_as_terminated():
@@ -266,7 +298,7 @@ def test_a_trailing_comment_on_the_last_line_still_reads_as_terminated():
     for ending in ("CREATE INDEX ON :C(year);",
                    "CREATE INDEX ON :C(year);  // rebuilt annually"):
         body = "\n".join(line for line in code(ending).splitlines()
-                        if line.strip())
+                         if line.strip())
         assert body.rstrip().endswith(";"), ending
 
 
@@ -308,7 +340,6 @@ def test_every_composite_key_names_its_components():
     loader's key auditable, and it is asserted rather than left to whoever
     reads the comments.
     """
-    lines = schema_text().splitlines()
 
     # Through `declarations()`, which collapses whitespace first. Selecting by
     # the line-local substring `f":{label})"` misses a declaration wrapped
@@ -323,9 +354,8 @@ def test_every_composite_key_names_its_components():
     formula = re.compile(r'(?:sha1\(")?<[^>]+>(?:\|<[^>]+>)*')
     undocumented = []
     for label in opaque:
-        at = constraint_line(label)
-        assert at is not None, f"{label} is declared but cannot be located"
-        preceding = "\n".join(lines[max(0, at - 14):at])
+        _, file_lines, at = declaration_site(label)
+        preceding = "\n".join(file_lines[max(0, at - 14):at])
         if not formula.search(preceding):
             undocumented.append(label)
     assert not undocumented, (
@@ -377,8 +407,6 @@ def test_a_declaration_wrapped_wider_than_the_window_raises_rather_than_vanishin
     assert constraint_line("Absent", "CREATE INDEX ON :C(year);") is None
 
 
-
-
 def test_a_label_sits_under_the_tier_banner_it_belongs_to():
     """`Pathway` carried a comment reading "TIER 1" while the declaration sat
     physically under the `TIER 2 — modelled, not yet populated` banner. Both
@@ -388,14 +416,37 @@ def test_a_label_sits_under_the_tier_banner_it_belongs_to():
     Only the markdown doc was guarded, so nothing checked the cypher itself —
     which is the file that executes, and the one a loader author reads.
     """
-    text = schema_text()
+    # **Tier is the FILE a declaration lives in**, not a slice of the join.
+    # Slicing ran from tier 1's banner across the file boundary into tier 2's
+    # preamble, so a constraint inserted into the tier-2 file ABOVE its banner
+    # was classified as tier 1 with the suite green — the "reader believed
+    # whichever banner it reached first" failure this test exists for,
+    # relocated one file over.
+    #
     # Declarations, via `labels()` — not any mention of the label. Both tiers
     # name each other's labels in edge patterns, so a substring test reports
     # `(:Course)-[:DEVELOPS]->(:Competency)` as a Course declaration.
-    declared_in_tier_one = set(labels(
-        section(text, "TIER 1 — uniqueness constraints", "TIER 2 — modelled")))
-    declared_in_tier_two = set(labels(section(text, "TIER 2 — modelled")))
+    tier_one_file = sole_file_stating("// TIER 1 — uniqueness constraints",
+                                      "the tier 1 banner")
+    tier_two_file = sole_file_stating("// TIER 2 — modelled",
+                                      "the tier 2 banner")
+    assert tier_one_file != tier_two_file, (
+        f"both banners are in {tier_one_file.name}; the split has been undone "
+        f"and a slice of one file is classifying both tiers again")
+    declared_in_tier_one = set(labels(tier_one_file.read_text(encoding="utf-8")))
+    declared_in_tier_two = set(labels(tier_two_file.read_text(encoding="utf-8")))
     assert declared_in_tier_one and declared_in_tier_two, "the banners moved"
+
+    # The banner must still open its own file's declarations — otherwise a
+    # constraint could sit above it and be classified by the filename alone.
+    for banner, path in (("// TIER 1 — uniqueness constraints", tier_one_file),
+                         ("// TIER 2 — modelled", tier_two_file)):
+        text = path.read_text(encoding="utf-8")
+        above = text[:text.index(banner)]
+        assert not labels(above), (
+            f"{path.name} declares {labels(above)} ABOVE its own "
+            f"{banner.strip('/ ')} banner, so the banner no longer says which "
+            f"tier the file's declarations belong to")
 
     for label in ("Course", "Subject", "Pathway", "Requirement"):
         assert label in declared_in_tier_one, (

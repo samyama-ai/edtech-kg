@@ -95,6 +95,28 @@ def sources(path: str) -> list[tuple[str, str]]:
     return [(path, (ROOT / path).read_text(encoding="utf-8"))]
 
 
+def declaring_file() -> str:
+    """The schema file that declares the Pathway key, as `schema/<name>`.
+
+    **The four schema-sourced rows below belong to THIS file, not to whichever
+    schema file happens to quote them.** Before the split they were pinned to
+    `schema/edtech_kg.cypher`; the fan-out over both files replaced that with
+    "some schema file says it", which is strictly weaker.
+
+    Measured on this branch: moving the "all 98 Registry pathways" block out
+    of tier 1 and appending it to tier 2 — so the measured reasoning for the
+    Pathway key sat in a tier declaring no Pathway — left the suite at 1,383
+    passed and nothing noticed.
+
+    `test_the_verdict_is_stated_wherever_the_key_is_declared` was rewritten to
+    stop asking the weaker question. Leaving this one asking it put both
+    policies in one module.
+    """
+    declaring = sole_file_stating("CREATE CONSTRAINT ON (pw:Pathway)",
+                                  "the Pathway key")
+    return f"schema/{declaring.name}"
+
+
 def read(path: str) -> str:
     """One named document. Deliberately refuses SCHEMA — see `sources`."""
     assert path != SCHEMA, "read one schema file at a time; use sources()"
@@ -126,15 +148,20 @@ def stated(path: str, pattern: str, text: str | None = None):
     "path, expected, pattern", QUOTATIONS,
     ids=[f"{p.split('/')[-1]}-{e}" for p, e, _ in QUOTATIONS])
 def test_a_quoted_figure_matches_the_record(path, expected, pattern):
-    # For SCHEMA this is every file that quotes the figure, checked one by one.
-    # At least one must — a figure quoted in NO schema file is the stale-figure
-    # risk this module exists for, and the joined read could not tell the
-    # difference between that and an empty `schema/`.
+    # For SCHEMA, the figure must be in the file that DECLARES the Pathway
+    # key — the reasoning has to sit with the constraint it justifies. For a
+    # document, the document itself.
+    wanted = declaring_file() if path == SCHEMA else path
     quoting = [(name, text) for name, text in sources(path)
                if re.search(pattern, text)]
     assert quoting, (
         f"no file behind {path} states this — pattern {pattern!r} matched "
         f"nothing in {', '.join(n for n, _ in sources(path))}")
+    assert [n for n, _ in quoting] == [wanted], (
+        f"{pattern!r} is stated in {[n for n, _ in quoting]}; it belongs in "
+        f"{wanted}, the file that declares the key this figure decides. A "
+        f"figure that drifts into a tier declaring no Pathway is the stale-"
+        f"figure risk this module exists for.")
     for name, text in quoting:
         said, sentence = stated(name, pattern, text)
         _matches(name, said, expected, sentence)
@@ -205,15 +232,15 @@ def test_the_case_the_verdict_does_not_settle_is_stated_as_unsettled():
 def test_no_document_still_claims_the_key_question_is_undecided():
     """#85's own words, which three files carried before it was answered."""
     stale = "not a decision\nto take on one publisher's evidence"
-    # Each schema file on its own, so the failure names the file. A negative
-    # assertion over a glob-and-join is the shape that passes on having read
-    # nothing at all: rename `schema/` and `"" `contains no stale sentence.
-    checked = [name for path in (SCHEMA, "docs/schema.md")
-               for name, text in sources(path)
-               if not _defers(name, text, stale)]
+    # Each schema file on its own, so the failure names the file. A plain
+    # loop: the first version asserted inside a comprehension via a helper
+    # that always returned False, so the count below held by construction and
+    # said nothing. The vacuous case it was written against — a renamed
+    # `schema/` yielding "" — cannot reach here either, because a per-file
+    # read raises FileNotFoundError, which is already loud.
+    checked = []
+    for path in (SCHEMA, "docs/schema.md"):
+        for name, text in sources(path):
+            assert stale not in text, f"{name} still defers the decision"
+            checked.append(name)
     assert len(checked) == len(SCHEMA_FILES) + 1, checked
-
-
-def _defers(name, text, stale):
-    assert stale not in text, f"{name} still defers the decision"
-    return False

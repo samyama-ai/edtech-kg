@@ -2,7 +2,7 @@ r"""What a query can actually reach, and what the schema merely names.
 
 Two different questions, and conflating them is what this module got wrong.
 
-`schema/edtech_kg.cypher` declares **keys** in its constraints and names
+The schema declares **keys** in its constraints and names
 **attributes** in its PROPERTIES block, each with the field a source publishes
 it as (#123). That block is a statement about SOURCES. It is not a claim that
 anything writes them, and it must not be read as one:

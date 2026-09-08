@@ -32,14 +32,19 @@ _SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schema"
 #: carrying a real CREATE CONSTRAINT left the suite green at 1,396 passed while
 #: the loader never applied it. A whole tier undeclared, silently.
 #:
-#: `tests/test_schema_cypher.py::test_the_declared_schema_is_every_schema_file`
+#: `tests/test_the_declared_schema.py::test_the_declared_schema_is_every_schema_file`
 #: holds this tuple to the directory, so a new file fails loudly here until
 #: someone declares it. It is a hand-written list rather than the glob itself
 #: on purpose: the glob would apply any `.cypher` file dropped in `schema/` to
 #: a production graph without anyone deciding to.
 #:
-#: Tier 1 then tier 2. Order is not load-bearing (constraints are independent)
-#: but it is the order both files are written to be read in.
+#: Tier 1 then tier 2, **and the order is load-bearing** — not for the engine,
+#: where constraints are independent, but for the guards: swapping the tuple
+#: fails `test_a_label_sits_under_the_tier_banner_it_belongs_to`. This comment
+#: used to say the opposite, while
+#: `test_the_declared_schema_is_every_schema_file` compared SETS — so nothing
+#: pinned the order either. That test compares tuples now, and this sentence
+#: is executable.
 SCHEMA_FILES = (_SCHEMA_DIR / "edtech_kg.cypher",
                 _SCHEMA_DIR / "edtech_kg_tier2.cypher")
 
@@ -119,7 +124,7 @@ def apply_schema(engine: Engine, quiet: bool = False,
     # Both tiers unless the caller names one file. Reading SCHEMA here would
     # have applied tier 1 only, and every tier-2 constraint would have gone
     # quietly undeclared — the load still succeeds, so nothing would say so.
-    text = schema.read_text() if schema else schema_text()
+    text = schema.read_text(encoding="utf-8") if schema else schema_text()
     statements = split_statements(
         "\n".join(strip_comment(line) for line in text.splitlines()))
     for statement in statements:
