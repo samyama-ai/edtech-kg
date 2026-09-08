@@ -16,16 +16,22 @@ cannot report, so the probe times it directly and records the command.
 
 | workflow | runs | succeeded | median | longest | `uses:` |
 |---|---|---|---|---|---|
-| `ci.yml` | 214 | **0** | 7s | 58s | 2 |
-| `runner-diagnostic.yml` | 1 | 1 | 5s | 5s | 0 |
-| `runner-diagnostics.yml` | 1 | 1 | 6s | 6s | not committed |
+| `ci.yml` | 218 | **0** | 7.0s | 58s | 2 |
+| `runner-diagnostic.yml` | 1 | 1 | 5.0s | 5s | 0 |
+| `runner-diagnostics.yml` | 1 | 1 | 6.0s | 6s | not committed |
 
-`runner-diagnostics.yml` — the plural — is an earlier diagnostic that has
-since been deleted. It ran once and succeeded. It is in the table because it
-is in the record, and leaving it out would have quietly halved the
-action-free evidence.
+`runner-diagnostics.yml` — the plural — is an earlier diagnostic, since
+deleted. It ran once and succeeded, and it is in the table because it is in
+the record.
 
-`ci.yml` has run **214 times since 2026-08-21 and succeeded
+**It is not counted in the comparison below.** Its `uses:` cannot be read: the
+file is not in the tree, so nothing can confirm it fetched no actions. It
+corroborates and it does not verify, and the two must not be added together —
+an earlier draft of this page said leaving it out "halved the action-free
+evidence" while the comparison said 1 of 1, which is the page contradicting
+itself about its own central claim.
+
+`ci.yml` has run **218 times since 2026-08-21 and succeeded
 0 times.**
 
 ## The tests have never executed — and that is a stronger claim than "CI fails"
@@ -42,13 +48,15 @@ argument turns on: if the suite took 30s the floor would drop toward 40s, the
 
 `tests/test_ci_history_doc.py` is deselected from that timing because it asserts
 this very figure — timing the whole suite is circular and could never
-bootstrap. One module of roughly two hundred.
+bootstrap. One module of 86.
 
 CI additionally pulls a container image and polls for it. So **60 seconds
-is a floor**: a run that *ended* faster than that cannot have run the tests,
+is a floor** — a chosen round number above the measured suite time, not a
+figure derived from it, because the image pull is not timed here. A run that
+*ended* faster than that cannot have run the tests,
 whatever step it reported.
 
-**0 of 214 runs reached that floor.** The longest run
+**0 of 218 runs reached that floor.** The longest run
 in the repo's history is 58s.
 
 That is what makes the red tick misleading rather than merely unhelpful. A red
@@ -59,7 +67,7 @@ meant *the tests did not run*, and those look identical on the PR page.
 
 Two workflows, same runner, same repository, same week:
 
-- **0 of 214** runs succeeded for the workflow that fetches
+- **0 of 218** runs succeeded for the workflow that fetches
   actions (`actions/checkout@v4`, `actions/setup-python@v5`).
 - **1 of 1** runs succeeded for the workflow that fetches
   nothing at all.
@@ -115,7 +123,7 @@ by running the suite locally two hours later, for an unrelated reason.
 
 The fix is a separate change. What belongs here is the cost: **the repository
 was merging into a broken `main` with a red tick that had meant nothing for
-214 runs, and no signal distinguished that from any other day.**
+218 runs, and no signal distinguished that from any other day.**
 
 Until then, **the tick on a PR in this repo means nothing**, and the suite has
 to be run locally before merging:

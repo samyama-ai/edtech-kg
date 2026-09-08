@@ -104,10 +104,13 @@ def test_the_incident_paragraph_quotes_the_measured_run_count():
 
 
 def test_the_table_row_figures_are_the_measured_ones():
-    row = re.search(r"\| `ci\.yml` \| (\d+) \| \*\*(\d+)\*\* \| (\d+)s \| (\d+)s \| (\d+) \|",
-                    PAGE)
+    # `[\d.]+` for the medians: they are real medians now and average the two
+    # middles on an even count, so they can carry a decimal.
+    row = re.search(
+        r"\| `ci\.yml` \| (\d+) \| \*\*(\d+)\*\* \| ([\d.]+)s \| (\d+)s \| (\d+) \|",
+        PAGE)
     assert row, "the ci.yml table row no longer parses"
-    assert [int(g) for g in row.groups()] == [
+    assert [float(g) for g in row.groups()] == [
         CI["runs"], CI["success"], CI["median_seconds"], CI["max_seconds"],
         RECORD["dependencies"]["ci.yml"]["count"]]
 
@@ -117,10 +120,10 @@ def test_the_table_row_figures_are_the_measured_ones():
     # at the top of this module and used by nothing, which is exactly what an
     # unchecked table row looks like from the outside.
     other = re.search(
-        r"\| `runner-diagnostic\.yml` \| (\d+) \| (\d+) \| (\d+)s \| (\d+)s \| (\d+) \|",
+        r"\| `runner-diagnostic\.yml` \| (\d+) \| (\d+) \| ([\d.]+)s \| (\d+)s \| (\d+) \|",
         PAGE)
     assert other, "the runner-diagnostic.yml table row no longer parses"
-    assert [int(g) for g in other.groups()] == [
+    assert [float(g) for g in other.groups()] == [
         DIAGNOSTIC["runs"], DIAGNOSTIC["success"], DIAGNOSTIC["median_seconds"],
         DIAGNOSTIC["max_seconds"],
         RECORD["dependencies"]["runner-diagnostic.yml"]["count"]]
@@ -251,10 +254,10 @@ def test_the_third_workflow_row_is_bound_too():
             "the page shows a workflow the record no longer holds")
         return
     row = re.search(
-        r"\| `runner-diagnostics\.yml` \| (\d+) \| (\d+) \| (\d+)s \| (\d+)s \|",
+        r"\| `runner-diagnostics\.yml` \| (\d+) \| (\d+) \| ([\d.]+)s \| (\d+)s \|",
         PAGE)
     assert row, "the runner-diagnostics.yml row no longer parses"
-    assert [int(g) for g in row.groups()] == [
+    assert [float(g) for g in row.groups()] == [
         old["runs"], old["success"], old["median_seconds"], old["max_seconds"]]
     assert "not committed" in PAGE, (
         "the row must say the workflow is no longer in the tree, or a reader "

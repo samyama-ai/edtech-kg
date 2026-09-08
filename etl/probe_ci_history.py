@@ -36,14 +36,14 @@ import datetime
 import json
 import os
 import pathlib
-import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
 
 from etl.identity import USER_AGENT
 from etl.provenance import write_record
+from etl.durations import (SUITE_SECONDS, _instant, _median, seconds,
+                           time_the_suite)
 from etl.workflow_files import dependencies
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -61,20 +61,7 @@ API = "https://git.samyama.ai/api/v1/repos/Samyama.ai/edtech-kg"
 #: is what makes the durations usable without a log.
 FLOOR_SECONDS = 60
 
-#: Fallback only, for `--no-time-suite`. The suite is TIMED by default — see
-#: `time_the_suite`. This was a typed `51`, disclosed as an assertion, and a
-#: review was right that disclosure is not measurement: CONTRIBUTING says
-#: "every figure in a document is printed by a probe, never typed. If you
-#: cannot point at the command, delete the figure", and this is the figure the
-#: whole floor argument turns on. If the suite really took 30s the floor would
-#: drop toward 40s, the 58s run could have executed tests, and the headline
-#: would weaken.
-SUITE_SECONDS = 51
 
-#: Set while the probe shells out to pytest, so a probe run started FROM the
-#: suite cannot start another one. Without it a test that called `measure()`
-#: would fork a suite that forks a suite.
-REENTRY = "SAMYAMA_TIMING_THE_SUITE"
 
 
 class Unreachable(RuntimeError):
@@ -93,28 +80,6 @@ def get(url: str, token: str) -> bytes:
         raise Unreachable(f"{url}: {gone}") from gone
 
 
-def seconds(started: str, ended: str) -> int | None:
-    """Wall-clock seconds for one run, or None if either stamp is missing.
-
-    None rather than 0: a run still in flight has no duration, and folding it
-    in as zero would drag the floor comparison below toward a conclusion the
-    data does not support.
-    """
-    if not started or not ended:
-        return None
-    # **Not one hard-coded format.** `%Y-%m-%dT%H:%M:%SZ` matches this
-    # instance and nothing else: a fractional second or a `+00:00` offset —
-    # both legal ISO-8601 and both emitted by other Gitea builds — returned
-    # None, and every None quietly left the duration evidence emptier. The
-    # floor argument is a claim about durations, so silently having none is
-    # the worst possible failure here.
-    #
-    # `fromisoformat` handles offsets and fractions. It rejects a trailing
-    # `Z` before 3.11, so that is normalised first rather than assumed.
-    try:
-        return int((_parse(ended) - _parse(started)).total_seconds())
-    except ValueError:
-        return None
 
 
 #: Terminal outcomes. A run not in this set has not finished, and its stamps
@@ -122,10 +87,10 @@ def seconds(started: str, ended: str) -> int | None:
 TERMINAL = {"success", "failure", "cancelled"}
 
 
-def _parse(stamp: str) -> datetime.datetime:
-    """One ISO-8601 timestamp, `Z` or offset, with or without fractions."""
-    return datetime.datetime.fromisoformat(
-        stamp.replace("Z", "+00:00") if stamp.endswith("Z") else stamp)
+
+
+
+
 
 
 def runs(token: str, limit: int = 250) -> list[dict]:
@@ -145,12 +110,29 @@ def runs(token: str, limit: int = 250) -> list[dict]:
     accident. This instance has no `conclusion` key on any run — asserted
     below, so the day one appears the probe stops instead of miscounting.
     """
-    body = json.loads(get(f"{API}/actions/tasks?limit={limit}", token))
-    found = body.get("workflow_runs")
-    if found is None:
-        raise Unreachable("the Actions API answered without a workflow_runs key")
+    # **Paged.** A single `?limit=250` WAS the whole history, so the probe
+    # would hard-fail the day it passed 250 — it is at 220 now. Measured: this
+    # instance returns every run when no `page` is given and honours `limit`
+    # only alongside `page`, which is exactly what hid the missing loop.
+    found, page, total = [], 1, None
+    while True:
+        body = json.loads(
+            get(f"{API}/actions/tasks?limit={limit}&page={page}", token))
+        batch = body.get("workflow_runs")
+        if batch is None:
+            raise Unreachable(
+                "the Actions API answered without a workflow_runs key")
+        if total is None:
+            total = body.get("total_count")
+        found.extend(batch)
+        if not batch or len(found) >= (total or 0):
+            break
+        page += 1
+        if page > 200:
+            raise Unreachable(
+                f"stopped after 200 pages with {len(found)} of {total} runs; "
+                f"the pager is not advancing")
 
-    total = body.get("total_count")
     if total is None:
         # **An absent total is a failure, not a pass.** The guard was written
         # `if total is not None and ...`, so the day the key moved — Gitea
@@ -214,9 +196,16 @@ def tally(found: list[dict]) -> dict:
         else:
             seen["unfinished"] = seen.get("unfinished", 0) + 1
         started = run.get("run_started_at")
-        if started:
-            seen["first"] = min(seen["first"] or started, started)
-            seen["last"] = max(seen["last"] or started, started)
+        # Compared as INSTANTS, not strings. String min/max is right for a
+        # uniform `…Z` format and silently wrong the moment a stamp carries an
+        # offset — the tolerance `_parse` exists for, contradicted two
+        # functions later.
+        moment = _instant(started)
+        if moment is not None:
+            if seen["first"] is None or moment < _instant(seen["first"]):
+                seen["first"] = started
+            if seen["last"] is None or moment > _instant(seen["last"]):
+                seen["last"] = started
 
     for seen in by_workflow.values():
         # Present on every workflow, not only those that had one — an absent
@@ -224,7 +213,10 @@ def tally(found: list[dict]) -> dict:
         seen.setdefault("unfinished", 0)
         took = sorted(seen.pop("durations"))
         seen["timed"] = len(took)
-        seen["median_seconds"] = took[len(took) // 2] if took else None
+        # A REAL median. This was `took[len // 2]` — the upper of the two
+        # middles — and called a median. The figure reaches a published
+        # table, and a name covering two conventions stops being reproducible.
+        seen["median_seconds"] = _median(took)
         seen["max_seconds"] = took[-1] if took else None
         # The count that carries the argument: a run cannot have executed a
         # ~51s suite plus an image pull inside FLOOR_SECONDS.
@@ -299,52 +291,6 @@ def verdict(by_workflow: dict, deps: dict, suite: dict) -> dict:
     }
 
 
-def time_the_suite() -> dict:
-    """Run the suite and time it. **The floor argument's other half.**
-
-    Shelled out rather than imported: the figure that matters is what a person
-    gets from the documented command, and an in-process run would not include
-    interpreter start-up or collection, which CI pays for too.
-
-    Returns the seconds AND the command, so the page can point at it. On any
-    failure it returns `measured: False` with the reason and the fallback
-    constant — a probe must not die because it could not time itself, but it
-    must not pass a guess off as a measurement either.
-    """
-    if os.environ.get(REENTRY):
-        return {"seconds": SUITE_SECONDS, "measured": False,
-                "why": "re-entered from inside a suite run"}
-
-    # **Deselect the module that reads this record.** Timing the whole suite
-    # is circular: `tests/test_ci_history_doc.py` asserts the figure this
-    # function is in the middle of producing, so before a first successful run
-    # it fails, the exit code is non-zero, and the timing is discarded — the
-    # measurement can never bootstrap. The exclusion is recorded, and it is
-    # one module of ~200: the difference it makes to the figure is far below
-    # the run-to-run variance of the figure itself.
-    excluded = "tests/test_ci_history_doc.py"
-    command = [sys.executable, "-m", "pytest", "-q", "--deselect", excluded]
-    environment = {**os.environ, REENTRY: "1"}
-    start = time.monotonic()
-    try:
-        finished = subprocess.run(command, cwd=str(ROOT), env=environment,
-                                  capture_output=True, timeout=1800)
-    except (OSError, subprocess.SubprocessError) as gone:
-        return {"seconds": SUITE_SECONDS, "measured": False, "why": str(gone)}
-    elapsed = round(time.monotonic() - start)
-
-    if finished.returncode != 0:
-        # A FAILING suite's duration is not the figure the argument wants —
-        # pytest can stop early, and a run that died in collection takes no
-        # time at all and would drop the floor to nothing.
-        return {"seconds": SUITE_SECONDS, "measured": False,
-                "why": f"the suite exited {finished.returncode}; a failing "
-                       f"run's duration does not bound a passing one",
-                "observed_seconds": elapsed}
-    return {"seconds": elapsed, "measured": True,
-            "command": f"python -m pytest -q --deselect {excluded}",
-            "excluded": excluded,
-            "why_excluded": "it asserts the figure this run produces"}
 
 
 def measure(token: str, suite_seconds: dict | None = None) -> dict:
@@ -390,7 +336,13 @@ def report(measured: dict) -> None:
     if check["in_history_but_not_committed"]:
         print(f"  ran but not committed, so unclassifiable from the tree: "
               f"{', '.join(check['in_history_but_not_committed'])}")
-    if not check["diagnostic_outcome_is_informative"]:
+    # Only when there IS a diagnostic. With the workflow deleted this printed
+    # "0 of 0 diagnostic steps are continue-on-error" — a sentence about a
+    # file that does not exist.
+    if not check["diagnostic_steps"]:
+        print("\n  NOTE: no runner-diagnostic.yml is committed, so nothing "
+              "here isolates fetching an action as the variable.")
+    elif not check["diagnostic_outcome_is_informative"]:
         print(f"\n  NOTE: {check['diagnostic_tolerant_steps']} of "
               f"{check['diagnostic_steps']} diagnostic steps are "
               f"continue-on-error, so its SUCCESS means the job ran — not "

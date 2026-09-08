@@ -32,8 +32,20 @@ def dependencies() -> dict:
     Read with a regex rather than a YAML parser on purpose: the suite has no
     third-party dependency beyond pytest, and adding one to count six lines
     would be a heavier price than the parse is worth. The pattern is anchored
-    to a list item so a `uses:` inside a comment or a string does not count.
+    to a list item OR its continuation — the dash is optional, because a step
+    written `- name: x` / `  uses: y` puts the `uses:` on a line with no dash
+    at all. A `uses:` inside a comment is not excluded by this pattern and
+    never has been; the docstring used to claim it was.
     """
+    if not WORKFLOWS.is_dir():
+        # LOUD. Returning {} made every `tolerant < steps` comparison read as
+        # False on an empty dict, so a missing workflow directory reported
+        # "the diagnostic's outcome is informative" — the exact claim this
+        # probe exists to refuse, arrived at by finding nothing.
+        raise FileNotFoundError(
+            f"{WORKFLOWS} does not exist, so no workflow can be classified. "
+            f"Every comparison built on `uses:` counts would be vacuous.")
+
     found = {}
     # `.yaml` too. A workflow saved under the other spelling is one the runner
     # runs and this function does not see, and its absence here would read as
@@ -58,11 +70,14 @@ def step_counts(text: str) -> dict:
     test that decides whether the diagnostic's outcome means anything — could
     invert on a workflow nobody had touched.
 
-    A step is a list item under `steps:`, whatever key it leads with. A
-    tolerant step is the key itself, indented under one, not the words
-    appearing anywhere.
+    A step is a list item under `steps:`, whatever key it leads with, and NOT
+    inside a `run: |` block scalar — those hold arbitrary shell, and a line
+    reading `- name: foo` in one is text. A tolerant step is the key itself,
+    indented under one, in any spelling YAML reads as true, with or without a
+    trailing comment.
     """
     steps = tolerant = 0
+    scalar_at = None
     #: The column `steps:` sits at. The block ends at the first non-blank line
     #: indented no further than that — which is how a SIBLING job's own
     #: `continue-on-error` stops being counted as a step's. Resetting only at
@@ -94,8 +109,27 @@ def step_counts(text: str) -> dict:
             continue
         if at_column is None:
             continue
+        # **Not inside a block scalar.** `run: |` and `script: |` hold
+        # arbitrary shell, and a line like `- name: foo` inside one is text,
+        # not a step. The block runs until the indent returns to at most the
+        # key's own, so its contents are skipped wholesale.
+        if scalar_at is not None:
+            if indent > scalar_at:
+                continue
+            scalar_at = None
+        if re.search(r":\s*[|>][-+]?\s*$", stripped):
+            scalar_at = indent
+            continue
+
         if re.match(r"^-\s*[\w-]+:", stripped):
             steps += 1
-        if re.match(r"^-?\s*continue-on-error:\s*true$", stripped):
+        # Trailing comments, and the spellings YAML also reads as true. `$`
+        # anchoring missed `continue-on-error: true  # while debugging`, and
+        # `true` alone missed True/'true'/yes — all of which disable the
+        # step, and a step that cannot fail its job is what this counts.
+        truthy = re.match(
+            r"^-?\s*continue-on-error:\s*['\"]?(true|yes|on)['\"]?\s*(#.*)?$",
+            stripped, re.I)
+        if truthy:
             tolerant += 1
     return {"steps": steps, "tolerant_steps": tolerant}

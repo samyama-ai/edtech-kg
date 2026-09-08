@@ -13,6 +13,7 @@ import pytest
 from etl import probe_ci_history as probe
 # The YAML reading lives in its own module since the split — imported
 # from where it lives rather than re-exported through the probe.
+from etl import durations
 from etl import workflow_files
 
 
@@ -58,12 +59,12 @@ def test_the_floor_counts_runs_that_could_have_executed_the_suite():
     tallied = probe.tally(found)["ci.yml"]
     assert tallied["over_floor"] == 2, (
         f"the floor is {probe.FLOOR_SECONDS}s and it must be inclusive")
-    # The UPPER of the two middles on an even count — `took[len // 2]`, not
-    # the mean of the pair. Asserted rather than glossed: the figure reaches a
-    # published document, and "median" covering two different conventions is
-    # how a number becomes unreproducible.
-    assert tallied["median_seconds"] == 60
-    assert probe.tally(found[:3])["ci.yml"]["median_seconds"] == 59
+    # A REAL median: the mean of the two middles on an even count. This was
+    # `took[len // 2]` — the upper of the two — and called a median. The
+    # figure reaches a published table, and a name covering two different
+    # conventions is how a number stops being reproducible.
+    assert tallied["median_seconds"] == 59.5
+    assert probe.tally(found[:3])["ci.yml"]["median_seconds"] == 59.0
 
 
 def test_a_workflow_whose_steps_all_tolerate_failure_reports_nothing_by_succeeding():
@@ -292,9 +293,9 @@ def test_the_suite_timing_refuses_to_pass_off_a_failed_run(monkeypatch):
     reached the floor" true by arithmetic rather than by measurement."""
     class Finished:
         returncode = 1
-    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **k: Finished())
-    monkeypatch.delenv(probe.REENTRY, raising=False)
-    timed = probe.time_the_suite()
+    monkeypatch.setattr(durations.subprocess, "run", lambda *a, **k: Finished())
+    monkeypatch.delenv(durations.REENTRY, raising=False)
+    timed = durations.time_the_suite()
     assert timed["measured"] is False
     assert "exited 1" in timed["why"]
 
@@ -302,7 +303,131 @@ def test_the_suite_timing_refuses_to_pass_off_a_failed_run(monkeypatch):
 def test_the_probe_cannot_fork_a_suite_from_inside_one(monkeypatch):
     """Without the guard, a test that called `measure()` would fork a suite
     that forks a suite."""
-    monkeypatch.setenv(probe.REENTRY, "1")
-    timed = probe.time_the_suite()
+    monkeypatch.setenv(durations.REENTRY, "1")
+    timed = durations.time_the_suite()
     assert timed["measured"] is False
     assert "re-entered" in timed["why"]
+
+
+def test_the_history_is_paged_not_one_request(monkeypatch):
+    """A single `?limit=250` WAS the whole history, so the probe hard-failed
+    the day it passed 250 — it is at 218 now. This instance returns every run
+    when no `page` is given and honours `limit` only alongside it, which is
+    exactly what hid the missing loop."""
+    pages = {
+        1: b'{"total_count": 5, "workflow_runs": ['
+           b'{"workflow_id":"ci.yml","status":"failure"},'
+           b'{"workflow_id":"ci.yml","status":"failure"}]}',
+        2: b'{"total_count": 5, "workflow_runs": ['
+           b'{"workflow_id":"ci.yml","status":"failure"},'
+           b'{"workflow_id":"ci.yml","status":"failure"}]}',
+        3: b'{"total_count": 5, "workflow_runs": ['
+           b'{"workflow_id":"ci.yml","status":"success"}]}',
+    }
+    asked = []
+
+    def fake(url, token):
+        page = int(url.split("page=")[1])
+        asked.append(page)
+        return pages[page]
+
+    monkeypatch.setattr(probe, "get", fake)
+    found = probe.runs("token")
+    assert len(found) == 5, "the loop stopped before the history did"
+    assert asked == [1, 2, 3], asked
+    # The success on the LAST page is the point: a single-request probe would
+    # have reported 0 successes over 2 runs and called it the whole history.
+    assert sum(1 for r in found if r["status"] == "success") == 1
+
+
+def test_a_pager_that_does_not_advance_is_stopped():
+    """A server that ignores `page` would otherwise loop until the process is
+    killed, accumulating the same batch."""
+    seen = {"n": 0}
+
+    def stuck(url, token):
+        seen["n"] += 1
+        return b'{"total_count": 999, "workflow_runs": [{"workflow_id":"a"}]}'
+
+    import etl.probe_ci_history as mod
+    old = mod.get
+    mod.get = stuck
+    try:
+        with pytest.raises(probe.Unreachable, match="not advancing"):
+            probe.runs("token")
+    finally:
+        mod.get = old
+    assert seen["n"] <= 201
+
+
+def test_the_median_is_a_median():
+    """It was `took[len // 2]` — the upper of the two middles — and called a
+    median. The figure reaches a published table."""
+    assert durations._median([7, 59, 60, 120]) == 59.5
+    assert durations._median([7, 59, 60]) == 59.0
+    assert durations._median([]) is None
+
+
+def test_timestamps_are_compared_as_instants_not_strings():
+    """String min/max is right for a uniform `…Z` format and silently wrong
+    the moment a stamp carries an offset — the tolerance `_parse` exists for,
+    contradicted two functions later."""
+    # 10:30+05:30 is 05:00Z — EARLIER than 06:00Z, though it sorts later.
+    found = [run(started="2026-09-01T06:00:00Z", updated="2026-09-01T06:00:07Z"),
+             run(started="2026-09-01T10:30:00+05:30",
+                 updated="2026-09-01T05:00:07+00:00")]
+    tallied = probe.tally(found)["ci.yml"]
+    assert tallied["first"] == "2026-09-01T10:30:00+05:30", (
+        "the earlier instant lost to string comparison")
+
+
+def test_a_non_string_stamp_does_not_raise_out_of_the_tally():
+    """`seconds()` caught only ValueError, so a null or numeric stamp raised
+    AttributeError/TypeError out of `tally` instead of being read as the
+    unusable timestamp it is."""
+    assert durations.seconds(None, "2026-09-01T05:00:07Z") is None
+    assert durations.seconds(12345, "2026-09-01T05:00:07Z") is None
+    probe.tally([{"workflow_id": "ci.yml", "status": "failure",
+                  "run_started_at": None, "updated_at": 42}])
+
+
+def test_a_step_inside_a_block_scalar_is_not_a_step():
+    """`run: |` and `script: |` hold arbitrary shell. A line reading
+    `- name: foo` inside one is text, and counting it inflated `steps` — which
+    feeds `tolerant < steps`, the comparison that decides whether a workflow's
+    own success outcome carries information."""
+    yaml = """
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell
+        run: |
+          echo hi
+          - name: not a step
+          continue-on-error: true
+      - run: echo two
+"""
+    assert workflow_files.step_counts(yaml) == {"steps": 3, "tolerant_steps": 0}
+
+
+def test_the_truthy_spellings_yaml_accepts_all_count():
+    """`$`-anchored `true` missed a trailing comment, and `true` alone missed
+    True/'true'/yes — all of which disable the step, and a step that cannot
+    fail its job is what this counts."""
+    for spelling in ("true", "True", "TRUE", "'true'", "yes", "on",
+                     "true  # while debugging"):
+        yaml = (f"jobs:\n  j:\n    steps:\n      - name: x\n"
+                f"        continue-on-error: {spelling}\n")
+        counted = workflow_files.step_counts(yaml)
+        assert counted["tolerant_steps"] == 1, (spelling, counted)
+
+
+def test_a_missing_workflow_directory_fails_loudly(monkeypatch, tmp_path):
+    """Returning {} made every `tolerant < steps` comparison read as False on
+    an empty dict, so a missing directory reported "the diagnostic's outcome
+    is informative" — the claim this probe exists to refuse, reached by
+    finding nothing."""
+    monkeypatch.setattr(workflow_files, "WORKFLOWS", tmp_path / "absent")
+    with pytest.raises(FileNotFoundError, match="vacuous"):
+        workflow_files.dependencies()
