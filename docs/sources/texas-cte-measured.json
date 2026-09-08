@@ -72,5 +72,11 @@
         "89.1207"
       ]
     }
+  },
+  "code": {
+    "commit": "e9e02e64bf88589f6317c239a6dec65662e84000",
+    "dirty": false,
+    "package": "0.1.0",
+    "backfilled": "The commit that CONTAINS this record, not the tree the probe ran against — the record predates `write_record`. Weaker than a live stamp: it bounds the code that produced these figures rather than naming it. Re-running the probe replaces this."
   }
 }

@@ -39,6 +39,10 @@ EXPECTED_BACKFILL = {
     "florida-registry-measured.json",
     "geography-measured.json",
     "prerequisite-sweep-measured.json",
+    # #174 merged after the stamped-writer guard landed and turned main red —
+    # the same pair-of-green-branches failure, a second time. Its probe is
+    # fixed; the record it already committed is annotated like the others.
+    "texas-cte-measured.json",
 }
 BACKFILLED = [r for r in RECORDS if r.name in EXPECTED_BACKFILL]
 

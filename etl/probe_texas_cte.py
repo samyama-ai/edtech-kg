@@ -32,6 +32,7 @@ import urllib.request
 import zipfile
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "texas-cte-measured.json"
@@ -153,10 +154,11 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     if args.record:
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                                     ensure_ascii=False) + "\n",
-                          encoding="utf-8")
+        # Through the shared writer (#171/#176), so the record carries the
+        # commit that produced it. This branch merged after that guard landed
+        # and turned main red — the same pair-of-green-branches failure the
+        # guard was written for, a second time.
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     elif args.json:
         print(json.dumps(result, indent=2))
