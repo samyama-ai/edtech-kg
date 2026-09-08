@@ -11,9 +11,14 @@ never be.
 
 Three defects, all in the "wrong answer, no error" class:
 
-  * **#163 — `REMOVE` is a silent no-op.** It parses, matches the node, returns
-    it, reports success, and the property is unchanged. `REMOVE p.k RETURN p.k`
-    returns the value it has just claimed to remove.
+  * **#163 — a removed property is gone from the row and still returned by
+    every read.** The issue calls REMOVE a silent no-op; the whole-row read
+    this module's docstring promised, and the first version never took, shows
+    otherwise. `REMOVE` DOES change the stored node — the key disappears from
+    it — while a projection, a projection behind a `WITH`, a projection with
+    no `WHERE`, and a `WHERE p.k = ...` filter all keep answering with the
+    pre-write value. That is worse than the issue describes, not milder: an
+    export shows the property gone while every query still finds it.
   * **#149 — `tenant` is ignored on `/api/query`.** Every tenant sees one
     graph, including a tenant that has never existed. Creating one returns 201
     and dropping one returns 204, so the API accepts the calls and scopes
@@ -42,11 +47,12 @@ import datetime
 import json
 import pathlib
 import sys
-import time
 import urllib.error
 import urllib.request
 
 from etl.engine import Engine, Refused
+from etl.engine_bench import (FULL_SIZES, SIZES,
+                              merge_ignores_the_index)
 from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -60,6 +66,10 @@ RECORD_NOTE = ("Measured by `python -m etl.probe_engine_defects --record` "
 #: a nearly-empty label runs at full speed, so measuring into a label something
 #: else has filled would report the other thing's size.
 LABEL = "DefectProbe"
+
+#: The image these findings were measured against. A DEFAULT for `--image`,
+#: not a fact the probe establishes — nothing in the API reports it.
+DEFAULT_IMAGE = "public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0"
 
 
 class Unusable(RuntimeError):
@@ -115,17 +125,34 @@ def remove_is_a_no_op(engine: Engine) -> dict:
     Read back three ways, because a single projection could be served from a
     cache and the finding would then be about caching rather than about
     REMOVE. A projection, a count-by-value and a whole-row read have to agree.
+
+    The first version of this docstring promised three and `readings()`
+    returned two — the whole-row read was described and never taken.
     """
     key = "probe://remove/1"
     engine.run(f'CREATE (p:{LABEL} {{url: "{key}", kind: "gone-please"}})')
 
     def readings() -> dict:
+        # A whole-row read too. A projection asks the engine for one
+        # property and could be answered from a cache of that projection; the
+        # node itself carries whatever it carries.
+        rows = one(engine, f'MATCH (p:{LABEL}) WHERE p.url = "{key}" RETURN p')
+        node = rows[0][0] if rows and rows[0] else None
+        # The engine returns a node as {id, labels, properties}. Reading
+        # `"kind" in node` looks right and is always False — the first version
+        # did exactly that, and reported REMOVE as FIXED while the printout
+        # above it showed the property plainly surviving. A defect probe
+        # reporting a false ABSENCE is its worst available outcome, and this
+        # one got there by guessing at a payload shape instead of reading it.
+        props = (node or {}).get("properties") if isinstance(node, dict) else None
         return {
             "projection": scalar(
                 engine, f'MATCH (p:{LABEL}) WHERE p.url = "{key}" RETURN p.kind'),
             "count_by_value": scalar(
                 engine, f'MATCH (p:{LABEL}) WHERE p.kind = "gone-please" '
                         f'RETURN count(p)'),
+            "row_has_the_key": isinstance(props, dict) and "kind" in props,
+            "row_value": (props or {}).get("kind"),
         }
 
     before = readings()
@@ -142,7 +169,7 @@ def remove_is_a_no_op(engine: Engine) -> dict:
     engine.run(f'MATCH (p:{LABEL}) WHERE p.url = "{key}" SET p.kind = null')
     after_set_null = readings()
 
-    survived = after_remove["projection"] == before["projection"] is not None
+    stale = reads_disagree_with_the_row(before, after_remove)
     return {
         "issue": 163,
         "before": before,
@@ -151,11 +178,65 @@ def remove_is_a_no_op(engine: Engine) -> dict:
         "after_set_null": after_set_null,
         # The finding, as a boolean, so a fix is a CHANGED RECORD rather than
         # a probe that quietly prints different prose.
-        "property_survives_remove": survived,
-        "property_survives_set_null":
-            after_set_null["projection"] == before["projection"] is not None,
-        "still_defective": survived,
+        # Named for what was measured. "survives" was the issue's framing and
+        # the measurement does not support it — the ROW loses the key while
+        # every read keeps returning the old value.
+        "reads_stale_after_remove": stale,
+        "reads_stale_after_set_null":
+            reads_disagree_with_the_row(before, after_set_null),
+        "row_lost_the_key_on_remove": not after_remove["row_has_the_key"],
+        "remove_is_a_no_op_on_the_row": after_remove["row_has_the_key"]
+                                        and after_remove["row_value"] is not None,
+        # Untestable here: the container mounts no volume, so a restart empties
+        # the graph and the re-read answers about nothing. Recorded as unknown
+        # rather than guessed at.
+        "staleness_survives_restart": None,
+        "still_defective": stale,
     }
+
+
+def reads_disagree_with_the_row(before: dict, after: dict) -> bool:
+    """**The defect, stated the way the measurement actually supports it.**
+
+    #163 says REMOVE "parses, matches, reports success and changes nothing".
+    Adding the whole-row read that this module's docstring had promised and
+    never taken shows that is not what happens. Measured on 1.1.0:
+
+        after CREATE      row: key present, 'keep'   projection 'keep'
+        after REMOVE      row: KEY GONE              projection 'keep'
+        after SET = null  row: key back, null        projection 'keep'
+
+    So REMOVE *does* change the stored node. What does not change is what any
+    property READ returns — a projection, a projection behind a `WITH`, a
+    projection with no `WHERE` at all, and a `WHERE p.kind = ...` filter all
+    keep answering with the pre-write value, while `WHERE p.kind IS NULL`
+    matches nothing.
+
+    That is a worse defect than the issue describes rather than a milder one:
+    the graph and the answers disagree, so an export shows the property gone
+    while every query still finds it.
+
+    **Whether this is a cache is NOT established.** The obvious test — restart
+    and re-read — is void here: the container holds no volume, so a restart
+    empties the graph and the re-read is answering about nothing. It is
+    recorded as unknown rather than guessed at.
+
+    True when a read still reports what the row no longer holds.
+    """
+    if before["projection"] is None:
+        # Nothing was there to survive; the measurement is void, not negative.
+        return False
+
+    # Spelled out, one named condition at a time. The first version of this
+    # was a chained `a == b is not None`, and its replacement was
+    # `A and B and not C or D` — which parses as `(A and B and not C) or D`
+    # and is not what it reads as. Both are the same mistake: a verdict a
+    # reviewer cannot check by looking at it.
+    projection_is_stale = after["projection"] == before["projection"]
+    filter_is_stale = after["count_by_value"] == before["count_by_value"]
+    row_no_longer_holds_it = (not after["row_has_the_key"]
+                              or after["row_value"] is None)
+    return projection_is_stale and filter_is_stale and row_no_longer_holds_it
 
 
 def tenant_is_ignored(url: str, engine: Engine) -> dict:
@@ -171,7 +252,7 @@ def tenant_is_ignored(url: str, engine: Engine) -> dict:
 
     # BOTH `id` and `name`. Sending only `id` returns 422 "missing field
     # `name`" — which the first version of this probe recorded as the API
-    # refusing the call, contradicting #169's report of a 201. The issue was
+    # refusing the call, contradicting #149's report of a 201. The issue was
     # right and the probe was measuring its own bug. A defect probe that
     # reports a false ABSENCE of a defect is the worst outcome available to
     # it, so the payload the engine documents is used and the status is
@@ -209,140 +290,7 @@ def tenant_is_ignored(url: str, engine: Engine) -> dict:
     }
 
 
-#: Label sizes at which the write rate is sampled. #169 measured to 37,141 and
-#: found the fall continues; this stops at 8,000 so a probe run costs about a
-#: minute rather than an hour. **The trend is the finding, not the endpoint** —
-#: a 1/n fall is visible across this range, and `--full` extends it for anyone
-#: re-measuring the published table.
-SIZES = (1000, 4000, 8000, 16000)
-FULL_SIZES = SIZES + (32000,)
-
-#: Writes timed at each size. The first version used 40 and the result was not
-#: usable: MERGE came out FASTER at 2,000 nodes than at 500, which is the
-#: opposite of the finding, because forty round trips is short enough for
-#: process warm-up to dominate. Raised, and every timing is preceded by an
-#: untimed warm-up of the same statement shape.
-BATCH = 150
-WARMUP = 30
-
-
-def rate(engine: Engine, statement, count: int) -> float:
-    """Writes per second for `count` calls of `statement(i)`.
-
-    Wall clock over the whole batch rather than a per-call mean: the figure
-    that matters for a bulk load is throughput, and a mean of per-call times
-    hides the round trip that dominates it.
-    """
-    # Warm up OUTSIDE the timer, with the same statement shape. The engine
-    # caches parsed ASTs and chosen plans, so the first call of a shape pays
-    # for parsing and planning that none of the rest do — and at small batch
-    # sizes that single call decided the rate.
-    for i in range(-WARMUP, 0):
-        engine.run(statement(i))
-    start = time.perf_counter()
-    for i in range(count):
-        engine.run(statement(i))
-    elapsed = time.perf_counter() - start
-    return round(count / elapsed, 1) if elapsed else 0.0
-
-
-def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
-    """#169 — does `MERGE` use the constraint's index?
-
-    Three rates at each size, on the SAME label and the same key:
-
-      * `MERGE` on the constrained property — the one under suspicion
-      * `CREATE` into the label, doing no lookup at all — the floor
-      * `MATCH … WHERE key = …`, which does the same lookup MERGE needs
-
-    If MERGE used the index it would track MATCH. The control that isolates
-    the cause is the fourth: the same MERGE statement against a fresh, nearly
-    empty label. #169 measured that at full speed, which is what shows the
-    cost belongs to the size of the label being merged into rather than to the
-    statement.
-    """
-    engine.run(f"MATCH (n:{LABEL}Bench) DETACH DELETE n")
-    try:
-        engine.run(f"CREATE CONSTRAINT ON (n:{LABEL}Bench) "
-                   f"ASSERT n.id IS UNIQUE")
-    except Refused:
-        # Already declared, or the engine refuses a re-declaration. Either way
-        # the index either exists or does not, and the measurement below is
-        # what decides — so this is not fatal and is recorded, not swallowed.
-        pass
-
-    filled, points = 0, []
-    for size in sizes:
-        # Fill up to `size` with CREATE, which #169 measured as flat — so the
-        # fill itself does not decide the rates being compared.
-        while filled < size:
-            engine.run(f'CREATE (n:{LABEL}Bench {{id: "fill-{filled}"}})')
-            filled += 1
-
-        merge_rate = rate(
-            engine, lambda i, s=size: f'MERGE (n:{LABEL}Bench '
-                                     f'{{id: "m-{s}-{i}"}})', BATCH)
-        create_rate = rate(
-            engine, lambda i, s=size: f'CREATE (n:{LABEL}Bench '
-                                     f'{{id: "c-{s}-{i}"}})', BATCH)
-        match_rate = rate(
-            engine, lambda i, s=size: f'MATCH (n:{LABEL}Bench) '
-                                     f'WHERE n.id = "fill-{i}" '
-                                     f'WITH n RETURN n.id', BATCH)
-        # Every timed CREATE and MERGE above added a node, and so did their
-        # warm-ups. Counted rather than estimated: an undercount here makes
-        # the NEXT size fill fewer nodes than it reports, and the whole table
-        # is a claim about label size.
-        filled += 2 * (BATCH + WARMUP)
-        points.append({"nodes_in_label": size, "merge_per_sec": merge_rate,
-                       "create_per_sec": create_rate,
-                       "match_per_sec": match_rate})
-
-    # The isolating control: identical MERGE, nearly empty label.
-    engine.run(f"MATCH (n:{LABEL}Fresh) DETACH DELETE n")
-    fresh = rate(engine, lambda i: f'MERGE (n:{LABEL}Fresh {{id: "f-{i}"}})',
-                 BATCH)
-
-    first, last = points[0], points[-1]
-    return {
-        "issue": 169,
-        "batch": BATCH,
-        "points": points,
-        "merge_into_a_fresh_label_per_sec": fresh,
-        "merge_fell_by": round(first["merge_per_sec"] / last["merge_per_sec"], 1)
-                         if last["merge_per_sec"] else None,
-        "match_fell_by": round(first["match_per_sec"] / last["match_per_sec"], 1)
-                         if last["match_per_sec"] else None,
-        "still_defective": merge_is_still_defective(points),
-    }
-
-
-def merge_is_still_defective(points: list[dict]) -> bool:
-    """MERGE degraded and MATCH did not. **Both halves are required.**
-
-    A loaded machine slows everything, and that is not this bug — a verdict
-    keyed on MERGE alone would report #169 present on any busy laptop. A
-    verdict keyed on the ratio between them would report it present on an
-    engine where MERGE had been fixed and MATCH had regressed.
-
-    Its own function, not an expression inside the measurement, so the tests
-    can drive THIS logic rather than a copy of it. A test that reimplements
-    the rule it checks agrees with itself and proves nothing.
-
-    Deliberately a shape test and not a threshold on a rate: absolute timings
-    vary run to run, and a probe that fails when the machine is busy would be
-    switched off.
-    """
-    if not points:
-        return False
-    first, last = points[0], points[-1]
-    if not (first["merge_per_sec"] and last["merge_per_sec"]):
-        return False
-    return (last["merge_per_sec"] < first["merge_per_sec"] / 2
-            and last["match_per_sec"] > first["match_per_sec"] / 2)
-
-
-def measure(url: str, full: bool = False) -> dict:
+def measure(url: str, full: bool = False, image: str = DEFAULT_IMAGE) -> dict:
     engine = Engine(url)
     status, body = api(url, "/api/status")
     if status != 200:
@@ -361,12 +309,23 @@ def measure(url: str, full: bool = False) -> dict:
 
     return {
         "_": RECORD_NOTE,
-        "measured_at": datetime.datetime.now(datetime.timezone.utc)
-                               .strftime("%Y-%m-%d"),
-        "image": "public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0",
+        # `retrieved_at` and `engine_version_reported`, matching
+        # `engine-capability-measured.json`. The two records describe the same
+        # engine and were written with different key names for the same two
+        # facts, so a consumer reading both had to know which probe wrote
+        # which.
+        "retrieved_at": datetime.datetime.now(datetime.timezone.utc)
+                                .strftime("%Y-%m-%d"),
+        # **An assertion by whoever ran this, not a measurement.** The engine
+        # does not report the image it came from, so this was a literal in the
+        # source and would have quietly claimed 1.1.0 for a run against any
+        # other build. It is a flag now, and the key says what it is.
+        "image_asserted": image,
         # The tag and the binary disagree, and a figure attributed to a tag
         # cannot be checked against a version the engine does not admit to.
-        "version_reported": (body or {}).get("version"),
+        # This one IS observed.
+        "engine_version_reported": (body or {}).get("version"),
+        "url": url,
         "remove": remove_is_a_no_op(engine),
         "tenant": tenant_is_ignored(url, engine),
         "merge": merge_ignores_the_index(engine,
@@ -375,8 +334,8 @@ def measure(url: str, full: bool = False) -> dict:
 
 
 def report(measured: dict) -> None:
-    print(f"  image tag 1.1.0, engine reports "
-          f"{measured['version_reported']}\n")
+    print(f"  image asserted {measured['image_asserted']}, engine reports "
+          f"{measured['engine_version_reported']}\n")
     for key, title in (("remove", "#163  REMOVE"),
                        ("tenant", "#149  tenant"),
                        ("merge", "#169  MERGE index")):
@@ -385,8 +344,12 @@ def report(measured: dict) -> None:
         print(f"  {title:<22} {verdict}")
 
     remove = measured["remove"]
-    print(f"\n  REMOVE: before {remove['before']['projection']!r}, "
-          f"after {remove['after_remove']['projection']!r}; "
+    after = remove["after_remove"]
+    print(f"\n  REMOVE: the ROW lost the key "
+          f"({remove['row_lost_the_key_on_remove']}), and every READ still "
+          f"returns {after['projection']!r} — "
+          f"projection {after['projection']!r}, "
+          f"filter matched {after['count_by_value']}, "
           f"REMOVE..RETURN gave {remove['remove_then_return_gave']!r}")
 
     tenant = measured["tenant"]
@@ -396,7 +359,7 @@ def report(measured: dict) -> None:
 
     print("\n  nodes in label |    MERGE |   CREATE |    MATCH   (per sec)")
     for point in measured["merge"]["points"]:
-        print(f"  {point['nodes_in_label']:>14,} | {point['merge_per_sec']:>8} "
+        print(f"  {point['nodes_at_start']:>14,} | {point['merge_per_sec']:>8} "
               f"| {point['create_per_sec']:>8} | {point['match_per_sec']:>8}")
     print(f"  MERGE into a fresh label: "
           f"{measured['merge']['merge_into_a_fresh_label_per_sec']}/sec")
@@ -411,11 +374,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--full", action="store_true",
                         help=f"Sample to {FULL_SIZES[-1]:,} nodes rather than "
                              f"{SIZES[-1]:,}. Slow.")
+    parser.add_argument("--image", default=DEFAULT_IMAGE,
+                        help="Recorded as an assertion — the engine does not "
+                             "report which image it came from.")
     parser.add_argument("--record", action="store_true")
     args = parser.parse_args(argv)
 
     try:
-        measured = measure(args.url, full=args.full)
+        measured = measure(args.url, full=args.full, image=args.image)
     except Unusable as gone:
         print(f"unusable: {gone}", file=sys.stderr)
         return 2

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from etl import engine_bench as bench
 from etl import probe_engine_defects as probe
 
 
@@ -37,15 +38,15 @@ def test_merge_degrading_alone_is_not_the_finding():
     """MERGE slowing while MATCH slows too is a slow engine, not this bug.
     The verdict requires MERGE to fall and MATCH to hold."""
     def points(first_merge, last_merge, first_match, last_match):
-        return [{"nodes_in_label": 1000, "merge_per_sec": first_merge,
+        return [{"nodes_at_start": 1000, "nodes_at_end": 1360, "merge_per_sec": first_merge,
                  "create_per_sec": 800.0, "match_per_sec": first_match},
-                {"nodes_in_label": 16000, "merge_per_sec": last_merge,
+                {"nodes_at_start": 16000, "nodes_at_end": 16360, "merge_per_sec": last_merge,
                  "create_per_sec": 800.0, "match_per_sec": last_match}]
 
     # THE PROBE'S OWN function, not a copy of its rule. The first version of
     # this test reimplemented the verdict and so agreed with itself whatever
     # the probe did.
-    verdict = probe.merge_is_still_defective
+    verdict = bench.merge_is_still_defective
 
     # The real shape: MERGE collapses, MATCH holds.
     assert verdict(points(640.0, 68.0, 750.0, 740.0)) is True
@@ -98,10 +99,10 @@ def test_the_warmup_is_not_inside_the_timing():
     """At a batch of 40 with no warm-up, MERGE measured FASTER at 2,000 nodes
     than at 500 — the opposite of the finding, because the first call of a
     statement shape pays for parsing and planning that none of the rest do."""
-    engine = Fake([{"records": []}] * (probe.WARMUP + 5))
-    probe.rate(engine, lambda i: f"CREATE (n {{i: {i}}})", 5)
-    assert len(engine.asked) == probe.WARMUP + 5, (
+    engine = Fake([{"records": []}] * (bench.WARMUP + 5))
+    bench.rate(engine, lambda i: f"CREATE (n {{i: {i}}})", 5)
+    assert len(engine.asked) == bench.WARMUP + 5, (
         "the warm-up must run, and must not be counted in the batch")
-    assert probe.WARMUP > 0 and probe.BATCH >= 100, (
+    assert bench.WARMUP > 0 and bench.BATCH >= 100, (
         "a batch this small is dominated by warm-up; 40 gave a non-monotonic "
         "table that reversed the finding")

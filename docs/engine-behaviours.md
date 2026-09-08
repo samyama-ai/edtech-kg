@@ -42,16 +42,22 @@ edtech-kg#169. The arithmetic and the slice it decides are written up in
 `first-load.md`, which arrives with the branch for edtech-kg#23 and is not
 linked here until it lands.
 
-### `REMOVE` reports success and changes nothing
+### A removed property is gone from the row and still returned by every read
 
-`REMOVE n.p` parses, matches the node, and returns success while leaving the
-property in place. `REMOVE n.p RETURN n.p` returns the value it has just claimed
-to remove. `SET n.p = null` behaves the same, and deleting the node does not
-help — one re-created with the same key comes back carrying the property.
+`REMOVE n.p` parses, matches the node, and returns success. `REMOVE n.p RETURN
+n.p` returns the value it has just claimed to remove, `SET n.p = null` behaves
+the same, and deleting the node does not help — one re-created with the same
+key comes back carrying the property.
 
-So **"this property is absent" is a claim about a graph that has never held it**,
-never about one that has been re-loaded. No loader change fixes this.
-edtech-kg#163 · `etl/engine.py`
+**This entry used to state the opposite — that the property was left in
+place — and that is wrong.** The stored node does change: the key disappears from a whole-row
+read. It is every property READ that stays stale. Measured, with the table, in
+[the probe's section below](#remove--and-a-correction-to-what-this-file-said).
+
+The consequence is unchanged and is the reason this matters: **"this property
+is absent" is a claim about a graph that has never held it**, never about one
+that has been re-loaded. No loader change fixes this.
+edtech-kg#163 · `etl/probe_engine_defects.py`
 
 ### An edge `MERGE` ignores its property map
 
@@ -138,13 +144,33 @@ Every check records `still_defective`, so **an engine upgrade that FIXES one
 shows up as a changed record**, not as a probe that quietly prints something
 else. All three are still present as of the committed run.
 
-### `REMOVE` — measured, not remembered
+### `REMOVE` — and a correction to what this file said
 
-The property survives `REMOVE` (`True`) and survives
-`SET x = null` (`True`). `REMOVE p.kind RETURN p.kind`
-returned `'gone-please'` — the value it had just claimed to
-remove. Read back two ways, a projection and a count-by-value, so the finding
-is not about a cached read.
+**The entry above and #163 both described this as leaving the property
+untouched. That is not what happens.** Adding the whole-row read the probe's docstring had promised —
+and its first version never took — shows the opposite:
+
+| after | the row | a projection | `WHERE kind = 'keep'` |
+|---|---|---|---|
+| `CREATE` | key present, `'keep'` | `'keep'` | matches |
+| `REMOVE p.kind` | **key gone** | `'keep'` | **still matches** |
+| `SET p.kind = null` | key back, `null` | `'keep'` | still matches |
+
+`REMOVE` **does** change the stored node. What does not change is what any
+property read returns: a projection, a projection behind a `WITH`, a
+projection with no `WHERE` at all, and a `WHERE p.kind = …` filter all keep
+answering with the pre-write value, while `WHERE p.kind IS NULL` matches
+nothing.
+
+**This is worse than "REMOVE does nothing", not milder.** If it did nothing,
+the graph and the answers would at least agree. Instead an export shows the
+property gone while every query still finds it — the class of defect this
+file exists for.
+
+**Whether it is a cache is not established.** The obvious test — restart and
+re-read — is void here: the container mounts no volume, so a restart empties
+the graph and the re-read answers about nothing. The record says `null` for
+that rather than guessing.
 
 ### `tenant` — the API accepts and scopes nothing
 

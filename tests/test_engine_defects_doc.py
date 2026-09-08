@@ -39,7 +39,7 @@ def test_the_merge_table_is_the_measured_one():
         f"the page shows {len(rows)} timing rows; the record holds "
         f"{len(MERGE['points'])}")
     for row, point in zip(rows, MERGE["points"]):
-        assert int(row[0].replace(",", "")) == point["nodes_in_label"]
+        assert int(row[0].replace(",", "")) == point["nodes_at_start"]
         assert float(row[1]) == point["merge_per_sec"]
         assert float(row[2]) == point["create_per_sec"]
         assert float(row[3]) == point["match_per_sec"]
@@ -54,12 +54,34 @@ def test_the_isolating_control_is_quoted_and_measured():
         MERGE["merge_fell_by"]
 
 
-def test_the_remove_section_quotes_what_was_observed():
-    assert stated(r"REMOVE p\.kind RETURN p\.kind`\nreturned `'([^']+)'`") == \
-        REMOVE["remove_then_return_gave"]
-    assert REMOVE["property_survives_remove"] is True, (
-        "REMOVE now works — the page and #163 both need rewriting, which is "
-        "the best possible reason for this to fail")
+def test_the_remove_table_states_both_halves_of_the_finding():
+    """The row losing the key AND the reads staying stale. Either alone is a
+    different, milder bug — "REMOVE does nothing" would at least leave the
+    graph and the answers agreeing, which is the point the page now makes."""
+    assert REMOVE["row_lost_the_key_on_remove"] is True, (
+        "REMOVE no longer changes the row; the page's correction is wrong now")
+    assert REMOVE["reads_stale_after_remove"] is True, (
+        "reads are no longer stale — #163 is fixed, and the page and the "
+        "issue both need rewriting. The best possible reason for this to fail")
+    assert "**key gone**" in PAGE and "**still matches**" in PAGE, (
+        "the table must show the row losing the key while the filter keeps "
+        "matching — that contrast IS the finding")
+
+
+def test_the_older_entry_no_longer_contradicts_the_measurement():
+    """The page carried the claim twice, and the probe disproved one of them.
+    A document that states a finding and its opposite in two places is worse
+    than one that states neither."""
+    assert "reports success and changes nothing" not in PAGE, (
+        "the earlier entry still says REMOVE changes nothing; the whole-row "
+        "read shows the key gone")
+
+
+def test_the_restart_question_is_recorded_as_unknown_not_guessed():
+    """The obvious test is void here — no volume, so a restart empties the
+    graph and the re-read answers about nothing. Recorded as null."""
+    assert REMOVE["staleness_survives_restart"] is None
+    assert "not established" in PAGE and "mounts no volume" in PAGE
 
 
 def test_the_tenant_section_quotes_the_status_codes():
