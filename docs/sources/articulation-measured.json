@@ -1,0 +1,209 @@
+{
+  "_": "Measured by `python -m etl.probe_articulation --record` against the Urban Institute Education Data API (ODC-By, cleared in education-data.md). Counts are a census of the year named, not a sample.",
+  "retrieved_at": "2026-09-08",
+  "api": "https://educationdata.urban.org/api/v1",
+  "institution_level": {
+    "year": 2022,
+    "institutions": 6138,
+    "flags": {
+      "ap_credit": {
+        "grants": 3240,
+        "does_not": 2810,
+        "answered": 6050,
+        "missing": {
+          "not reported": 17,
+          "not applicable": 71
+        },
+        "percent_of_answered": 53.6
+      },
+      "dual_credit": {
+        "grants": 2935,
+        "does_not": 3115,
+        "answered": 6050,
+        "missing": {
+          "not reported": 17,
+          "not applicable": 71
+        },
+        "percent_of_answered": 48.5
+      },
+      "credit_for_life": {
+        "grants": 2168,
+        "does_not": 3882,
+        "answered": 6050,
+        "missing": {
+          "not reported": 17,
+          "not applicable": 71
+        },
+        "percent_of_answered": 35.8
+      },
+      "military_training_credit": {
+        "grants": 2892,
+        "does_not": 3158,
+        "answered": 6050,
+        "missing": {
+          "not reported": 17,
+          "not applicable": 71
+        },
+        "percent_of_answered": 47.8
+      }
+    }
+  },
+  "course_level": {
+    "searched": 129,
+    "terms": [
+      "articulat",
+      "credit accept",
+      "course equivalen",
+      "transfer credit",
+      "credit by exam"
+    ],
+    "matched": []
+  },
+  "crdc": {
+    "dual_enrollment": {
+      "rows": 2343168,
+      "fields": [
+        "crdc_id",
+        "disability",
+        "enrl_dual_enrollment",
+        "fips",
+        "leaid",
+        "lep",
+        "ncessch",
+        "race",
+        "sex",
+        "year"
+      ],
+      "keyed_on": [
+        "crdc_id",
+        "disability",
+        "fips",
+        "leaid",
+        "lep",
+        "ncessch",
+        "race",
+        "sex",
+        "year"
+      ],
+      "names_a_course": [],
+      "names_an_institution": [],
+      "names_a_credit_amount": []
+    },
+    "ap_ib_enrollment": {
+      "rows": 2343168,
+      "fields": [
+        "crdc_id",
+        "disability",
+        "enrl_AP",
+        "enrl_AP_compsci",
+        "enrl_AP_language",
+        "enrl_AP_math",
+        "enrl_AP_other",
+        "enrl_AP_science",
+        "enrl_IB",
+        "enrl_gifted_talented",
+        "fips",
+        "leaid",
+        "lep",
+        "ncessch",
+        "race",
+        "sex",
+        "year"
+      ],
+      "keyed_on": [
+        "crdc_id",
+        "disability",
+        "fips",
+        "leaid",
+        "lep",
+        "ncessch",
+        "race",
+        "sex",
+        "year"
+      ],
+      "names_a_course": [],
+      "names_an_institution": [],
+      "names_a_credit_amount": []
+    },
+    "offerings": {
+      "rows": 97632,
+      "fields": [
+        "ap_courses_indicator",
+        "ap_courses_math_indicator",
+        "ap_courses_other_indicator",
+        "ap_courses_science_indicator",
+        "classes_single_sex_alg_geom",
+        "classes_single_sex_alg_geom_f",
+        "classes_single_sex_alg_geom_m",
+        "classes_single_sex_english",
+        "classes_single_sex_english_f",
+        "classes_single_sex_english_m",
+        "classes_single_sex_indicator",
+        "classes_single_sex_other",
+        "classes_single_sex_other_f",
+        "classes_single_sex_other_m",
+        "classes_single_sex_othermath",
+        "classes_single_sex_othermath_f",
+        "classes_single_sex_othermath_m",
+        "classes_single_sex_science",
+        "classes_single_sex_science_f",
+        "classes_single_sex_science_m",
+        "crdc_id",
+        "fips",
+        "gifted_talented_indicator",
+        "leaid",
+        "ncessch",
+        "num_classes_advanced_math",
+        "num_classes_algebra1",
+        "num_classes_algebra2",
+        "num_classes_biology",
+        "num_classes_calculus",
+        "num_classes_chemistry",
+        "num_classes_geometry",
+        "num_classes_physics",
+        "num_courses_ap",
+        "num_taught_certified_adv_math",
+        "num_taught_certified_algebra1",
+        "num_taught_certified_algebra2",
+        "num_taught_certified_biology",
+        "num_taught_certified_calculus",
+        "num_taught_certified_chemistry",
+        "num_taught_certified_geometry",
+        "num_taught_certified_physics",
+        "participants_single_sex_sports",
+        "participants_single_sex_sports_f",
+        "participants_single_sex_sports_m",
+        "sch_dual_indicator",
+        "sports_single_sex_f",
+        "sports_single_sex_indicator",
+        "sports_single_sex_m",
+        "students_select_ap_indicator",
+        "teams_single_sex_f",
+        "teams_single_sex_m",
+        "year"
+      ],
+      "keyed_on": [
+        "crdc_id",
+        "fips",
+        "leaid",
+        "ncessch",
+        "year"
+      ],
+      "names_a_course": [
+        "ap_courses_indicator",
+        "ap_courses_math_indicator",
+        "ap_courses_other_indicator",
+        "ap_courses_science_indicator",
+        "num_courses_ap"
+      ],
+      "names_an_institution": [],
+      "names_a_credit_amount": []
+    }
+  },
+  "code": {
+    "commit": "15840281cfca300013f65087daadf44fad0c6b0a",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
