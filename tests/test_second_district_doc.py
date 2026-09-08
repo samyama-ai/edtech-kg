@@ -252,17 +252,62 @@ def test_the_correction_is_recorded_not_quietly_replaced():
     the first page of each index and sampled from that, a BIASED subset rather
     than a small one. A page that silently swapped the numbers would leave the
     next reader with no way to know the method changed."""
+    # THREE, and the third is the largest — the metric redefinition that put
+    # Arlington above PWCS. A page listing only the re-measurements would let
+    # a reader mistake a redefinition for a re-run.
+    assert "Three corrections are recorded" in PAGE
     assert "not following the catalogue's pager" in PAGE
-    assert "1.7%" in PAGE and "51 pages" in PAGE, (
-        "the superseded figures must be named, or the correction is invisible")
+    assert "not deduplicated" in PAGE
+    assert "the metric was redefined" in PAGE
+
+    # Each superseded figure NAMED, so the change is legible.
+    for superseded in ("101 pages", "51", "10 resolving links",
+                       "5.7 times as many", "60.0%", "39.0%"):
+        assert superseded in PAGE, (
+            f"the superseded figure {superseded!r} is not named; the "
+            f"correction is invisible to a reader of the current page")
     assert str(APS["candidate_course_paths"]) in PAGE
 
-    # The SECOND correction, from the same round: Central Islip's links were
-    # not deduplicated, so a course linked twice counted twice — in a rate
-    # whose whole claim is that the links land.
-    assert "not deduplicated" in PAGE
-    said = re.search(r"reported at 10 resolving links where it publishes\s+(\d+)",
-                     PAGE)
-    assert said, "the page no longer records the deduplication correction"
-    assert int(said.group(1)) == \
-        DISTRICTS["Central Islip (NY)"]["links"]
+    # And the sentinel correction, which is the one this repo had already
+    # made once in course-prerequisites.md.
+    assert "counted 'Prerequisite: None' as a stated" in PAGE
+    assert "test_course_page_against_pwcs.py" in PAGE, (
+        "the page must name the guard that now stops this recurring")
+
+
+def test_every_district_entry_carries_the_same_keys():
+    """The empty-district branch promises "the same keys as every other
+    district". That was a comment until now — Kenosha was the only entry
+    missing `sampled_but_not_a_course`, which is the exact KeyError the
+    comment guards against."""
+    populated = [f for f in DISTRICTS.values() if f.get("candidate_course_paths")]
+    assert populated, "no populated district to compare against"
+    expected = set(populated[0])
+    for name, found in DISTRICTS.items():
+        missing = expected - set(found)
+        assert not missing, (
+            f"{name} is missing {sorted(missing)}; a short entry is a "
+            f"KeyError waiting for the first consumer that iterates the "
+            f"record, and it reads as a missing measurement rather than a "
+            f"measured zero")
+
+
+def test_the_evidence_list_uses_the_form_the_guard_checks():
+    """`test_every_prose_example_on_the_page_comes_from_the_record` matches
+    the `*“…”*` form. A straight-quoted addition to the EVIDENCE list would
+    bypass the guard on the page's central claim.
+
+    Only that list. The page also quotes two RETRACTED strings — the "not
+    eligible for high school credit" artifact and the superseded headline —
+    and those are deliberately not in the record; a guard that demanded they
+    be would forbid the page from naming what it withdrew.
+    """
+    evidence = PAGE[PAGE.index("One example from each district's record"):
+                    PAGE.index("An earlier version of this page said")]
+    straight = re.findall(r'\*"([^"]{20,})"\*', evidence)
+    assert not straight, (
+        f"the evidence list quotes {straight[:2]} with straight quotes, "
+        f"which the prose-example guard does not see. Use the curly form.")
+    assert re.findall(r"\*“[^”]{20,}”\*", evidence), (
+        "the evidence list has no curly-quoted example; the guard above is "
+        "checking nothing")

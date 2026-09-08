@@ -25,9 +25,9 @@ on the first and nothing on the second.**
 
 | district | courses read | state a prerequisite | in a traversable form | links resolving | candidate paths |
 |---|---:|---:|---:|---:|---:|
-| PWCS (Prince William County, VA) | 59 | 39.0% | **27.1%** | 17/17 (100.0%) | 817 |
-| APS (Arlington, VA) | 60 | 60.0% | **5.0%** | 4/4 (100.0%) | 698 |
-| Clover Park (WA) | 60 | 0.0% | **0.0%** | 0/0 | 294 |
+| PWCS (Prince William County, VA) | 60 | 40.0% | **28.3%** | 18/18 (100.0%) | 817 |
+| APS (Arlington, VA) | 60 | 56.7% | **5.0%** | 4/4 (100.0%) | 698 |
+| Clover Park (WA) | 60 | 1.7% | **0.0%** | 0/0 | 1585 |
 | Kenosha (WI) | — | — | — | — | — |
 | Central Islip (NY) | 60 | 46.7% | **8.3%** | 5/5 (100.0%) | 202 |
 
@@ -35,16 +35,16 @@ Ceiling of 60 pages per district, seed `19`,
 the same fields and the same classifier everywhere.
 
 **The districts are not missing prerequisites. Arlington states more of them
-than PWCS does — 60.0% of its pages against
-39.0% — and publishes them in a form nothing
-can follow.** 27.1% of PWCS pages
+than PWCS does — 56.7% of its
+pages against
+40.0% — and publishes them in a form nothing
+can follow.** 28.3% of PWCS pages
 carry a traversable prerequisite against
 5.0% of Arlington's.
 
 Resolution, meanwhile, generalises completely: every typed link measured in
 every district resolves —
-17/17 at PWCS,
-4/4 at Arlington,
+18/18 at PWCS, 4/4 at Arlington,
 5/5 at Central Islip.
 
 ## Two fields, and both of them carry prerequisites
@@ -142,8 +142,8 @@ Five districts, one vendor, a ceiling of 60 pages each.
 It says nothing about districts on other platforms.
 
 **The sample is small enough that the point estimates should not be read to a
-decimal.** 27.1% is
-16/59 and
+decimal.** 28.3% is
+17/60 and
 5.0% is
 3/60; their 95% intervals are roughly
 17–40% and 1–14%. They do not overlap, so *PWCS is the outlier* holds — but
@@ -154,9 +154,27 @@ observations at Arlington.
 the four crawl-enumerated districts that means "the index links it too". No
 link was HEAD-checked.
 
-**Two corrections are recorded rather than swapped in.** An earlier version
-reported Arlington at 1.7% and Clover Park with 51 pages, because the crawl
-was not following the catalogue's pager — it read the first page of each index
-and sampled from that, a biased subset rather than a small one. And Central
-Islip was reported at 10 resolving links where it publishes 5,
-because the links were not deduplicated.
+**Three corrections are recorded rather than swapped in**, because a page
+that silently replaced its numbers would leave the next reader unable to tell
+a re-measurement from a redefinition.
+
+| | what changed | superseded | now |
+|---|---|---|---|
+| **1** | the crawl was not following the catalogue's pager, so it read the first page of each index and sampled from that — a *biased* subset, not a small one | Arlington 101 pages, Clover Park 51 | Arlington 698, Clover Park 1585 |
+| **2** | links were not deduplicated, so a course linked twice counted twice — in a rate whose whole claim is that the links land | Central Islip 10 resolving links | 5/5 |
+| **3** | **the metric was redefined.** "States a prerequisite" excluded the prose field, on the strength of examples that turned out to be artifacts of an unbounded pattern. Including prose is what put Arlington above PWCS | *"28.3% of PWCS pages carry a typed prerequisite against 5.0% of Arlington's — 5.7 times as many"* was the headline | the traversable figures are unchanged; the page now leads with **coverage**, where Arlington is ahead |
+
+**And the sentinel behind correction 3 was wrong once more after that.** It
+matched four exact strings, so a trailing full stop flipped the answer:
+`None.` counted as a stated prerequisite, and so did *"NO PRIOR FILM
+EXPERIENCE REQUIRED."* Three of eight sampled Arlington examples were
+non-statements. That took Arlington from 60.0% to
+56.7% and PWCS from 39.0% to
+40.0% — the direction survived, the margin
+narrowed.
+
+[`course-prerequisites.md`](course-prerequisites.md) records the same mistake
+as a past correction — *"counted 'Prerequisite: None' as a stated
+prerequisite"*. This repo learned it once and made it again, which is why
+`tests/test_course_page_against_pwcs.py` now runs the classifier over the
+cached PWCS corpus and asserts no denial counts as a statement.

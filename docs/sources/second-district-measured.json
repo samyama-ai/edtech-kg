@@ -13,24 +13,23 @@
       "courses_in_index_crawl": 792,
       "candidate_course_paths": 817,
       "sampled": 60,
-      "read": 59,
-      "unreachable": 1,
+      "read": 60,
+      "unreachable": 0,
       "sampled_but_not_a_course": 0,
       "kinds": {
-        "typed": 16,
+        "typed": 17,
         "says none": 16,
         "no field": 20,
-        "prose": 7,
-        "unreachable": 1
+        "prose": 7
       },
-      "with_a_typed_prerequisite": 16,
-      "percent_of_pages_with_a_typed_prerequisite": 27.1,
-      "links": 17,
-      "links_resolving_to_a_published_course": 17,
+      "with_a_typed_prerequisite": 17,
+      "percent_of_pages_with_a_typed_prerequisite": 28.3,
+      "links": 18,
+      "links_resolving_to_a_published_course": 18,
       "percent_of_links_that_resolve": 100.0,
       "with_a_nonempty_prose_field": 7,
-      "state_a_prerequisite_in_either_field": 23,
-      "percent_stating_in_either_field": 39.0,
+      "state_a_prerequisite_in_either_field": 24,
+      "percent_stating_in_either_field": 40.0,
       "prose_examples": [
         {
           "path": "/the-governors-school-innovation-park-math/gs-pre-calculus",
@@ -74,8 +73,8 @@
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
       "kinds": {
-        "prose": 33,
-        "says none": 11,
+        "prose": 31,
+        "says none": 13,
         "no field": 13,
         "typed": 3
       },
@@ -84,9 +83,9 @@
       "links": 4,
       "links_resolving_to_a_published_course": 4,
       "percent_of_links_that_resolve": 100.0,
-      "with_a_nonempty_prose_field": 33,
-      "state_a_prerequisite_in_either_field": 36,
-      "percent_stating_in_either_field": 60.0,
+      "with_a_nonempty_prose_field": 31,
+      "state_a_prerequisite_in_either_field": 34,
+      "percent_stating_in_either_field": 56.7,
       "prose_examples": [
         {
           "path": "/world-languages/spanish-ii",
@@ -105,20 +104,20 @@
           "text": "Permission of the instructor upon evaluation and examination of a body of work which demonstrates ability commensurate w"
         },
         {
-          "path": "/international-baccalaureate/ib-film-part-i-hl",
-          "text": "Open to all Grade 11 W-L students. NO PRIOR FILM EXPERIENCE REQUIRED."
-        },
-        {
-          "path": "/family-consumer-sciences/family-and-consumer-sciences-exploratory-ii",
-          "text": "None."
-        },
-        {
           "path": "/career-technical-courses/aircraft-pilot-training-ii",
           "text": "Prerequisite: Aircraft Pilot Training I (28731) Students must be fifteen years of age."
         },
         {
           "path": "/mathematics/algebra-i-part-i",
           "text": "None; after successful completion of 23132 or 23130"
+        },
+        {
+          "path": "/international-baccalaureate/ib-biology-laboratory-class-hl-part-ii",
+          "text": "Successful completion of IB Biology HL Part I. Open to all Grade 12 W-L students who meet the prerequisites."
+        },
+        {
+          "path": "/international-baccalaureate/ib-arabic-sl-part-ii",
+          "text": "Successful completion of IB Arabic SL Pt I. Open to all Grade 12 W-L students who meet the prerequisites."
         }
       ]
     },
@@ -127,24 +126,30 @@
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
-      "courses_in_index_crawl": 294,
-      "candidate_course_paths": 294,
+      "courses_in_index_crawl": 1585,
+      "candidate_course_paths": 1585,
       "sampled": 60,
       "read": 60,
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
       "kinds": {
-        "no field": 60
+        "no field": 59,
+        "prose": 1
       },
       "with_a_typed_prerequisite": 0,
       "percent_of_pages_with_a_typed_prerequisite": 0.0,
       "links": 0,
       "links_resolving_to_a_published_course": 0,
       "percent_of_links_that_resolve": null,
-      "with_a_nonempty_prose_field": 0,
-      "state_a_prerequisite_in_either_field": 0,
-      "percent_stating_in_either_field": 0.0,
-      "prose_examples": []
+      "with_a_nonempty_prose_field": 1,
+      "state_a_prerequisite_in_either_field": 1,
+      "percent_stating_in_either_field": 1.7,
+      "prose_examples": [
+        {
+          "path": "/human-services/careers-in-education",
+          "text": "Prerequisites Early Childhood Ed"
+        }
+      ]
     },
     "Kenosha (WI)": {
       "base": "https://catalogs.kusd.org",
@@ -230,7 +235,7 @@
     }
   },
   "code": {
-    "commit": "c32fe34fe4847ef09afc2b7579ee8764bfa3a225",
+    "commit": "221a6679ae9e0c4faed3329772aa79735fc4e18c",
     "dirty": true,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

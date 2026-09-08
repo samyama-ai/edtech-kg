@@ -251,9 +251,12 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
                 "links": 0, "links_resolving_to_a_published_course": 0,
                 "percent_of_links_that_resolve": None,
                 "with_a_nonempty_prose_field": 0, "prose_examples": [],
-                "note": "the catalogue publishes no two-segment course paths "
-                        "— pathway pages only — so there is nothing to attach "
-                        "a prerequisite to and no sample to draw"}
+                "note": "no two-segment course path was FOUND — by this "
+                        "method, from this catalogue's sitemap and five index "
+                        "candidates. A district publishing courses at another "
+                        "depth would produce the same entry, so this is not "
+                        "found rather than does not exist. The record "
+                        "outlives the page; it must not say more."}
 
     published = set(paths)
     # Seeded and sorted first, so the sample does not depend on the order the
@@ -261,13 +264,22 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
     chosen = random.Random(SEED).sample(paths, min(sample, len(paths)))
 
     kinds: dict[str, int] = {}
+    by_status: dict[str, int] = {}
     links = resolved = 0
     examples: list[dict] = []
     for path in chosen:
         try:
             markup = get(f"{base}{path}")
-        except Unreachable:
+        except Unreachable as gone:
             kinds["unreachable"] = kinds.get("unreachable", 0) + 1
+            # WHY it was unreachable. A district returning 503 for half its
+            # sample was indistinguishable in the record from one whose
+            # hostname did not resolve — a softer version of the denominator
+            # problem the 429 fix addressed, and a 403 is a refusal rather
+            # than a failure at all.
+            reason = str(gone).rsplit(": ", 1)[-1]
+            key = reason if reason.startswith("HTTP ") else "transport"
+            by_status[key] = by_status.get(key, 0) + 1
             # Sleep on the FAILURE path too. Skipping it meant a host that
             # started refusing got hammered at full speed — the opposite of
             # what politeness is for.
@@ -310,6 +322,7 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         "read": read,
         "unreachable": kinds.get("unreachable", 0),
         "sampled_but_not_a_course": kinds.get("not a course", 0),
+        "unreachable_by_status": by_status,
         "kinds": kinds,
         "with_a_typed_prerequisite": typed,
         # **The headline, and its denominator is pages READ.**
@@ -405,9 +418,16 @@ def went_empty(measured: dict) -> set[str]:
         return set()
     committed = (json.loads(RECORD.read_text(encoding="utf-8"))
                  .get("districts") or {})
-    return {name for name, was in committed.items()
+    lost = {name for name, was in committed.items()
             if was.get("candidate_course_paths")
             and not found.get(name, {}).get("candidate_course_paths")}
+    # AND whether anything was READ. A run where every page times out with the
+    # paths intact left `read: 0` everywhere and still exited 0 — and that is
+    # the case that most resembles "the district started refusing". A
+    # collapse in either number is the same event.
+    lost |= {name for name, was in committed.items()
+             if was.get("read") and not found.get(name, {}).get("read")}
+    return lost
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -429,6 +449,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         measured = measure(args.sample)
+    except Refused as asked:
+        # Its own exit code and its own message. It escaped as a traceback
+        # before — the one path where the operator most needs to read what
+        # the host said.
+        print(f"the host asked us to stop: {asked}", file=sys.stderr)
+        return 5
     except Unreachable as gone:
         print(f"unreachable: {gone}", file=sys.stderr)
         return 2
