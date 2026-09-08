@@ -1,0 +1,94 @@
+{
+  "_": "Measured by `python -m etl.probe_case --record`. Each route records the status it answered with, so a 403 is a measured refusal and not an absence.",
+  "retrieved_at": "2026-09-08",
+  "case_network": {
+    "base": "https://casenetwork.imsglobal.org",
+    "root_status": 200,
+    "root_bytes": 3282,
+    "paths": {
+      "/ims/case/v1p0/CFDocuments": {
+        "status": 403,
+        "bytes": 0,
+        "is_json": false,
+        "same_as_root": false
+      },
+      "/uri/": {
+        "status": 403,
+        "bytes": 0,
+        "is_json": false,
+        "same_as_root": false
+      },
+      "/CFDocuments": {
+        "status": 200,
+        "bytes": 3282,
+        "is_json": false,
+        "same_as_root": true
+      }
+    },
+    "serves_case_json": [],
+    "reachable_as_data": false
+  },
+  "opensalt": {
+    "base": "https://opensalt.net",
+    "status": 200,
+    "documents": 95,
+    "distinct_creators": 39,
+    "top_creators": [
+      [
+        "PCG Test Prep",
+        9
+      ],
+      [
+        "ETS",
+        7
+      ],
+      [
+        "Florida Report Card Project",
+        7
+      ],
+      [
+        "PCG Copy",
+        6
+      ],
+      [
+        "Gwinnett County Public Schools",
+        6
+      ],
+      [
+        "Alabama Test",
+        5
+      ],
+      [
+        "Illinois: Chicago Public Schools",
+        4
+      ],
+      [
+        "Goodwill",
+        4
+      ],
+      [
+        "UI Copy",
+        4
+      ],
+      [
+        "PCG",
+        3
+      ]
+    ],
+    "documents_with_a_licence_uri": 0,
+    "documents_with_a_subject": 7
+  },
+  "cpalms": {
+    "url": "https://www.cpalms.org/PreviewCourse/Preview/13087",
+    "status": 200,
+    "bytes": 63041,
+    "standard_links": 0,
+    "standard_codes": 0
+  },
+  "code": {
+    "commit": "539398bd482c3ae9aa55873111a62071e3be8aa0",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
