@@ -15,7 +15,7 @@ No network.
 
 from __future__ import annotations
 
-from etl import course_page
+from etl import course_page, course_reader
 
 
 def page(*, typed=None, prose=None) -> str:
@@ -359,7 +359,7 @@ def test_an_unclosed_div_cannot_swallow_the_rest_of_the_page():
     backstop for when the heuristic is wrong."""
     markup = ('<div class="field field--name-field-pr">'
               '<div class="field__item">See counsellor.'
-              + "<div>" * (course_page.MAX_NESTING + 10) +
+              + "<div>" * (course_reader.MAX_NESTING + 10) +
               '</div></div>'
               '<div class="field field--name-field-notes">'
               '<div class="field__item">not eligible</div></div>')

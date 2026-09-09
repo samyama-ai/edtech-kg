@@ -40,42 +40,9 @@ from __future__ import annotations
 
 import html
 import re
-from html.parser import HTMLParser
 
-#: **TWO different prerequisite fields**, and the difference between them is
-#: the whole question.
-#:
-#: `field-prerequisite-courses` is an ENTITY REFERENCE — the CMS links it to
-#: other course pages, and `etl/probe_pwcs.py` reads exactly this. `field-pr`
-#: is a free-text paragraph. A district can state its prerequisites completely
-#: and usefully in the second and still publish no edge anybody can traverse.
-#:
-#: The first version matched `field--name-field-pr\b`, whose word boundary
-#: excludes `field-prerequisite-courses` — so it read the free-text field on
-#: every district and reported PWCS at 0% linked. The control is the only
-#: reason that was caught.
-FIELD_OPENS = "field--name-field-"
-
-
-#: How deep a field's own markup can plausibly nest before the count is wrong
-#: rather than deep. A Drupal entity-reference teaser nests a handful of divs;
-#: thirty is generous and still finite, which is what matters.
-MAX_NESTING = 30
-
-#: Elements that close the page region a field lives in. A field that reached
-#: past one of these was never bounded at all.
-REGION_ENDS = {"article", "main", "footer", "body"}
-
-#: Elements HTML never closes, so they must not move the depth count. The
-#: regex version counted only `<div>`; a parser sees every element, which is
-#: more correct and means this list has to exist.
-VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
-        "meta", "param", "source", "track", "wbr"}
-
-#: Elements whose CONTENT is not page text. `HTMLParser` still reports their
-#: character data, so a `<script>` holding `field--name-field-pr` would read
-#: as prose without this.
-NOT_TEXT = {"script", "style", "template", "noscript"}
+from etl.course_page_fields import FIELD_OPENS       # noqa: F401  (re-exported)
+from etl.course_reader import Field, read_fields, plain, hrefs   # noqa: F401
 
 #: A CANDIDATE course path — two segments. **Candidate, not course**: the
 #: repo's own classifier decides, by markup rather than depth. PWCS publishes
@@ -105,226 +72,6 @@ def same_host(href: str, base: str) -> str | None:
     if not href.startswith("/"):
         return None
     return href if COURSE_PATH.match(href) else None
-
-
-class Hrefs(HTMLParser):
-    """Every `href` on a page, in document order.
-
-    An index page is not a field, so it does not need `FieldReader` — but it
-    does need the same parser rather than the `HREF` regex that used to serve
-    both. That regex read `href="([^"#?]*)[^"]*"`: double quotes only, and a
-    capture that matched NOTHING when a query string was present. An index
-    whose pager links carry `?page=` yielded no paths at all, which reads as
-    "this catalogue has no courses".
-    """
-
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.found: list[str] = []
-
-    def handle_starttag(self, tag, attrs):
-        if tag.lower() != "a":
-            return
-        for name, value in attrs:
-            if name.lower() == "href" and value:
-                self.found.append(value)
-
-
-def hrefs(markup: str) -> list[str]:
-    reader = Hrefs()
-    reader.feed(markup)
-    reader.close()
-    return reader.found
-
-
-class Field:
-    """One field's collected text and links, and whether it was BOUNDED.
-
-    `bounded` is the part that matters. A field whose own closing tag never
-    arrives — one unclosed `<div>` does it, and district CMS output has them —
-    used to run on into its neighbour and return the NEXT field's link as a
-    prerequisite that resolves. That is the exact shape of the finding this
-    probe publishes, manufactured by the reader.
-
-    So an unbounded region is not guessed at. It is reported as unbounded and
-    `classify` refuses to read it, which is this repo's usual answer to a
-    measurement it cannot stand behind.
-    """
-
-    def __init__(self, name: str, depth: int):
-        self.name = name
-        self.depth = depth
-        self.text: list[str] = []
-        self.links: list[str] = []
-        self.bounded = False
-
-    def readable(self) -> str:
-        return re.sub(r"\s+", " ", "".join(self.text)).strip()
-
-
-class FieldReader(HTMLParser):
-    """Every `field--name-field-X` region on the page, in one pass.
-
-    **One pass, not two scans sharing offsets.** The regex version scanned the
-    masked markup for structure and the original for field names, because
-    masking hid the class attribute it needed to read — then compared
-    positions between the two. Attributes are just data here, so there is
-    nothing to mask and nothing to line up.
-    """
-
-    def __init__(self):
-        # `convert_charrefs=True` is the default and is wanted: `&nbsp;`
-        # arrives as a character rather than as six of them, which is what
-        # `states_a_prerequisite` had to undo by hand.
-        super().__init__(convert_charrefs=True)
-        self.fields: dict[str, Field] = {}
-        self.open: Field | None = None
-        self.depth = 0
-        self.silent = 0          # inside a script/style/template
-        self.stopped = False     # past </article>, </main> or <footer>
-
-    # -- structure ---------------------------------------------------------
-
-    def handle_starttag(self, tag, attrs):
-        tag = tag.lower()
-        if self.stopped:
-            return
-        if tag == "footer":
-            self._close_open(bounded=False)
-            self.stopped = True
-            return
-        if tag in NOT_TEXT:
-            self.silent += 1
-        if tag in VOID:
-            return
-
-        field = self._field_name(attrs)
-        if field is not None:
-            # A field opening at or above the open field's own depth is a
-            # SIBLING and ends it. Deeper is a sub-field — routine in an
-            # entity-reference teaser, where each referenced node brings its
-            # own fields — and must not, or a two-course prerequisite list
-            # returns one link.
-            if self.open is not None and self.depth <= self.open.depth:
-                self._close_open(bounded=True)
-            if self.open is None and field not in self.fields:
-                self.open = Field(field, self.depth)
-                self.fields[field] = self.open
-        self.depth += 1
-
-        if self.open is not None and self.depth - self.open.depth > MAX_NESTING:
-            # Runaway rather than deep. The depth is a count over markup that
-            # may not close what it opens; this is the ceiling that keeps a
-            # wrong count finite.
-            self._close_open(bounded=False)
-
-    def handle_startendtag(self, tag, attrs):
-        if not self.stopped and tag.lower() not in VOID:
-            self.handle_starttag(tag, attrs)
-            self.handle_endtag(tag)
-
-    def handle_endtag(self, tag):
-        tag = tag.lower()
-        if self.stopped:
-            return
-        if tag in NOT_TEXT:
-            # `silent` comes off, but the DEPTH still does — `<script>`
-            # incremented it on the way in, and returning here left the count
-            # one too high for the rest of the page. A field open at the time
-            # then never closed and was reported unbounded. Symmetry between
-            # the two handlers is the whole of the depth model's correctness.
-            self.silent = max(0, self.silent - 1)
-        if tag in VOID:
-            return
-        if tag in REGION_ENDS:
-            self._close_open(bounded=False)
-            self.stopped = True
-            return
-        self.depth = max(0, self.depth - 1)
-        if self.open is not None and self.depth <= self.open.depth:
-            self._close_open(bounded=True)
-
-    def _close_open(self, bounded: bool):
-        if self.open is not None:
-            self.open.bounded = bounded
-            self.open = None
-
-    def close(self):
-        # Anything still open at the end of the document never closed.
-        self._close_open(bounded=False)
-        super().close()
-
-    # -- content -----------------------------------------------------------
-
-    def handle_data(self, data):
-        if self.open is not None and not self.silent:
-            self.open.text.append(data)
-
-    # `handle_comment` is NOT overridden, and that is the point: a comment is
-    # its own event, so `<!-- <div> -->` can no longer leave a stray `-->` in
-    # the text or move the depth count. Three of the four round-4 blockers
-    # were this one fact, arriving separately.
-
-    @staticmethod
-    def _field_name(attrs) -> str | None:
-        for name, value in attrs:
-            if name.lower() != "class" or not value:
-                continue
-            for token in value.split():
-                if token.startswith(FIELD_OPENS):
-                    return token[len(FIELD_OPENS):]
-        return None
-
-    def link_of(self, tag, attrs):
-        for name, value in attrs:
-            if name.lower() == "href":
-                return value
-        return None
-
-
-class LinkReader(FieldReader):
-    """`FieldReader`, also collecting `href` values inside a field.
-
-    Separate only so `handle_starttag` stays readable; the parse is still one
-    pass. The href arrives already decoded and already unquoted — `href='…'`,
-    `HREF=` and `Href=` are the same event, which the regex version treated as
-    three different ones and got two of them wrong.
-    """
-
-    def handle_starttag(self, tag, attrs):
-        super().handle_starttag(tag, attrs)
-        if self.open is not None and not self.silent and tag.lower() == "a":
-            href = self.link_of(tag, attrs)
-            if href:
-                self.open.links.append(href)
-
-
-def read_fields(markup: str) -> dict[str, Field]:
-    """Every field on the page. Malformed markup yields fields, not an error.
-
-    `HTMLParser` raises nothing on broken markup by default, which is what is
-    wanted: a district's CMS output is not a conformance test, and a page that
-    cannot be parsed still has to be classified as something.
-    """
-    reader = LinkReader()
-    reader.feed(markup)
-    reader.close()
-    return reader.fields
-
-
-def plain(markup: str) -> str:
-    """Markup as readable text, via the parser.
-
-    The regex version stripped comments and tags on the raw string, so
-    `<div title="-->">Real text</div>` returned `'">Real text'` — and a prose
-    field whose whole content was `None.` behind a `data-tip="-->"` came back
-    as `'">None.'`, whose `">` prefix defeated `SAYS_NONE`'s `^` anchor and
-    turned a denial into a stated prerequisite.
-    """
-    reader = FieldReader()
-    reader.open = Field("", -1)          # capture everything
-    reader.feed(markup)
-    return reader.open.readable()
 
 
 def classify(markup: str, published: set[str], base: str = "") -> dict:
@@ -359,9 +106,14 @@ def classify(markup: str, published: set[str], base: str = "") -> dict:
         # fills it with navigation or off-host links was reported as not using
         # it at all. That is a different fact from "no field" and from
         # "prose", and only this branch can tell them apart.
-        text = typed.readable()
-        if text:
-            return {"kind": "typed but no course link", "text": text[:120]}
+        # **No `if text:` guard.** With one, a typed field holding only
+        # `&nbsp;` — or nothing — fell through to the prose branch and out as
+        # `no field`, so "the district emits this field and left it empty"
+        # and "the district does not use this field" were the same answer.
+        # They are different facts about a district, which is the argument
+        # this branch's own name makes.
+        return {"kind": "typed but no course link",
+                "text": typed.readable()[:120]}
 
     prose = fields.get("pr")
     if prose is not None:
