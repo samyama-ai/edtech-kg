@@ -8,20 +8,20 @@
     "paths": {
       "/ims/case/v1p0/CFDocuments": {
         "status": 403,
-        "bytes": 0,
-        "is_json": false,
+        "bytes": 44,
+        "is_case_json": false,
         "same_as_root": false
       },
       "/uri/": {
         "status": 403,
-        "bytes": 0,
-        "is_json": false,
+        "bytes": 44,
+        "is_case_json": false,
         "same_as_root": false
       },
       "/CFDocuments": {
         "status": 200,
         "bytes": 3282,
-        "is_json": false,
+        "is_case_json": false,
         "same_as_root": true
       }
     },
@@ -77,8 +77,10 @@
     ],
     "documents_with_a_subject": 7,
     "documents_by_licence_field": {
+      "licenseURI": 0,
       "licenseUri": 0,
       "licenceUri": 0,
+      "licenceURI": 0,
       "rights": 0,
       "rightsHolder": 0
     },
@@ -144,7 +146,7 @@
     }
   },
   "code": {
-    "commit": "95bd5e5f21cce3588faf779dfab302313764d27a",
+    "commit": "2bccd2db08104c76b5c9369e485379fa983d2fb0",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

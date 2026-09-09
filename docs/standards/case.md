@@ -21,21 +21,34 @@ licence."*
 
 **There is no licence to find, because there is no data to licence.**
 
-## Route 1 — CASE Network 2 is a browser application
+## Route 1 — CASE Network 2 has no unauthenticated machine route
 
-| path | status | bytes | CASE JSON |
-|---|---:|---:|---|
-| `/ims/case/v1p0/CFDocuments` | 403 | 0 | **no** |
-| `/uri/` | 403 | 0 | **no** |
-| `/CFDocuments` | 200 | 3282 | **no** — the root markup |
+| path | status | bytes | body | CASE JSON |
+|---|---:|---:|---|---|
+| `/ims/case/v1p0/CFDocuments` | 403 | 44 | `{"message":"Invalid credentials provided 1"}` | **no** |
+| `/uri/` | 403 | 44 | the same | **no** |
+| `/CFDocuments` | 200 | 3282 | the root's own markup | **no** |
 
 The root answers **200** with 3282 bytes of a
-single-page application. Every documented CASE path either refuses with
-**403** or returns that same shell. **0 of
+single-page application, and `/CFDocuments` returns that same shell — the
+app's catch-all, not an endpoint. **0 of
 3 paths serve CASE JSON.**
 
+**The two 403s are not the same finding as the shell.** They answer 44 bytes
+of `application/json` saying *"Invalid credentials provided"*. That is an
+authenticated API asking for credentials, which is a different fact from
+"there is no API here" and points somewhere useful: ask 1EdTech for access,
+rather than treating the path as a dead end.
+
+An earlier version of this page said "CASE Network 2 is a browser
+application" and recorded `bytes: 0` for both refusals. **The zero was the
+probe's own doing** — it discarded the body of any non-200 — so the page read
+its own silence as evidence and over-claimed on it. The narrower statement is
+the one the data supports: no unauthenticated machine route on any of three
+documented paths.
+
 "Machine-readable" describes the *format* the standards are stored in. It does
-not describe the access, and the access is a browser.
+not describe the access.
 
 ## Route 2 — OpenSALT serves CASE, and holds a sandbox
 
