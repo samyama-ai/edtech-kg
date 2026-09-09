@@ -275,6 +275,24 @@ def load(engine: Engine, dry_run: bool = False,
                 if since > 0 else None})
             last_mark, next_mark = now, now + CURVE_EVERY
 
+    # **A final sample, so the curve reaches the total.** Without it the last
+    # partial interval is never recorded: a 2,500-row run ended with the
+    # curve at 2,449, and the reader could not see the rate the load actually
+    # finished at — which is the end of the curve that matters, because it is
+    # the one nearest the size a bigger slice would start from.
+    finished = time.monotonic()
+    # Not `if curve and …`: a load shorter than one sampling interval
+    # recorded NO curve at all, so the run reporting the fewest figures was
+    # the one a reader is most likely to be experimenting with.
+    if seen and (not curve or curve[-1]["completions_held"] != len(seen)):
+        since = finished - (last_mark or started)
+        curve.append({
+            "seconds": round(finished - started, 1),
+            "completions_held": len(seen),
+            "completions_per_second": round(
+                (len(seen) - (curve[-1]["completions_held"] if curve else 0))
+                / since, 1) if since > 0 else None})
+
     return {
         "seconds": round(time.monotonic() - started, 1),
         "statements_issued": writer.looked_up + writer.created,

@@ -236,7 +236,12 @@ def test_the_rate_curve_is_sampled_from_the_run_that_reports_it(monkeypatch,
     The loader already knows how many completions it has written and when it
     started, so the curve costs no extra query.
     """
-    monkeypatch.setattr(loader, "CURVE_EVERY", 0)   # sample every row
+    # **A REALISTIC interval.** Set to 0 this sampled every row, so the last
+    # sample equalled the total for free and the assertion below passed
+    # without the code being right. Measured on a live 2,500-row load: the
+    # curve stopped at 2,449, because the final partial interval was never
+    # recorded.
+    monkeypatch.setattr(loader, "CURVE_EVERY", 0.001)
     monkeypatch.setattr(loader, "CACHE", tmp_path)
     rows = [{"unitid": 1, "cipcode_6digit": 110701 + i, "award_level": 5,
              "majornum": 1, "race": 1, "sex": 1, "awards_6digit": 1}
