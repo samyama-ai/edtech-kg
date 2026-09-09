@@ -282,10 +282,15 @@ def test_the_rate_curve_is_sampled_from_the_run_that_reports_it(monkeypatch,
     The loader already knows how many completions it has written and when it
     started, so the curve costs no extra query.
     """
-    # A very short interval, so several samples fire. It is not a realistic
-    # one — an earlier comment here claimed it was — and the case that
-    # matters is the opposite, which the test above covers.
-    monkeypatch.setattr(loader, "CURVE_EVERY", 0.0001)
+    # **A FAKE CLOCK, not a tiny interval.** Relying on a short
+    # `CURVE_EVERY` and a fast `Recorder` made this depend on wall time: it
+    # passed alone and failed inside the full suite, where six rows can
+    # complete inside one tick. A test that flakes under load is worse than
+    # the bug it guards, because the next failure gets re-run rather than
+    # read.
+    ticks = iter(range(0, 10_000))
+    monkeypatch.setattr(loader.time, "monotonic", lambda: next(ticks) * 1.0)
+    monkeypatch.setattr(loader, "CURVE_EVERY", 1)
     summary = loader.load(Recorder(),
                           cache=slice_on_disk(tmp_path, completions(6)))
     curve = summary["rate_curve"]

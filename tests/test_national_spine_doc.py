@@ -162,3 +162,50 @@ def test_the_record_was_written_by_a_clean_tree():
     commit, which is worth knowing before quoting its figures."""
     assert RECORD["code"]["dirty"] is False
     assert RECORD["code"]["commit"] != "unknown"
+
+
+def test_the_idempotence_figures_come_from_the_record():
+    """**The page claimed "175,762 statements, zero created" and no record
+    held it.** It came from a run done by hand, on a page whose opening
+    sentence says every figure was substituted from the record — so the one
+    claim the loader's whole design rests on was the one with nothing behind
+    it.
+
+    `--record` runs the load twice now, and these are the second pass.
+    """
+    second = RECORD["second_run"]
+    assert second["nodes_and_edges_created"] == 0, (
+        "the recorded re-run created something; the load is not idempotent "
+        "and the page says it is")
+    assert f"{second['statements_issued']:,}" in PAGE
+    assert f"| **{second['nodes_and_edges_created']:,}** |" in PAGE, (
+        "the page does not carry the recorded created count")
+    assert second["in_graph_after"] == HELD, (
+        "the graph changed between the two passes")
+
+
+def test_the_page_says_which_slice_this_is():
+    """**A page titled "national spine" that never says it is one state.**
+    The record carries `fips` and `year`; the page did not, and every figure
+    on it describes Virginia. A reader multiplying up to fifty states would
+    be doing so on a page that never said not to."""
+    assert str(RECORD["fips"]) in PAGE
+    assert str(RECORD["year"]) in PAGE
+    assert "Virginia" in PAGE
+    assert "one state" in PAGE.lower()
+
+
+def test_the_key_collision_figures_come_from_their_own_record():
+    """They were measured once by hand and written into three files. The
+    page reads them from `completion-key-measured.json` now, and the figure
+    it leads with is the one that says what is actually lost."""
+    key = json.loads(
+        (ROOT / "docs" / "sources" / "completion-key-measured.json")
+        .read_text(encoding="utf-8"))
+    for figure in ("rows", "groups_with_more_than_one_majornum",
+                   "groups_losing_a_count", "awards_lost"):
+        assert f"{key[figure]:,}" in PAGE, (
+            f"the page does not carry the measured {figure}")
+    assert key["awards_lost"] > key["groups_losing_a_count"], (
+        "the two figures no longer differ, so the page's warning about "
+        "quoting the wrong one needs re-checking")

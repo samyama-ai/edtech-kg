@@ -40,7 +40,7 @@ Measured in [`docs/sources/federal-direct.md`](docs/sources/federal-direct.md).
 **One district.** Prince William County Public Schools, from pages this repo
 cached — 1,098 nodes and 1,287 edges.
 
-**One state's higher education.** Virginia, data year 2022 —
+**One state's higher education.** Virginia (`fips=51`), data year 2022 —
 147 institutions, 664 programmes and
 58,317 completions, with 58,317 `AT` edges and
 58,317 `IN` edges. **Read back out of the graph after the load, never
@@ -48,7 +48,8 @@ inferred from the input rows** — the loader reports both and the two agree.
 
 | | |
 |---|---|
-| Load time | **1689.0s**, 351,524 statements |
+| Load time | **2418.5s**, 351,524 statements |
+| Re-run over the loaded graph | 175,762 statements, **0 created** — the load is idempotent, measured rather than asserted |
 | Written by | `etl/load_education.py`, from `etl/download_education.py`'s cached slice |
 | Rate curve, the slice, and the schema defect the load found | [`docs/national-spine.md`](docs/national-spine.md) |
 | Rows deliberately dropped | 132,284 recording zero awards, 169 collapsing onto one key |
