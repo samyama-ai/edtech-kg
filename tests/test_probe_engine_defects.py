@@ -13,6 +13,7 @@ import pytest
 from etl.engine import Refused
 from etl import engine_bench as bench
 from etl import probe_engine_defects as probe
+from etl import scratch_engine as guard
 
 
 class Fake:
@@ -63,13 +64,17 @@ def test_the_probe_refuses_a_loaded_engine(monkeypatch):
     """It writes tens of thousands of nodes and cannot remove them — that
     inability is one of the defects. Running against a loaded graph corrupts
     it, which is how :8200 came to hold four copies of one district."""
+    # **The real guard runs.** Stubbing `refuse_unless_scratch` here would
+    # test the stub's message, which is how a guard passes its own test while
+    # doing nothing.
+    monkeypatch.setattr(guard, "api",
+                        lambda url, path, *a, **k:
+                        (200, {"storage": {"nodes": 4392}, "version": "1.7.0"}))
+    monkeypatch.setattr(guard, "Engine", lambda url: Engine(0))
     monkeypatch.setattr(probe, "api",
                         lambda url, path, *a, **k:
                         (200, {"storage": {"nodes": 4392}, "version": "1.7.0"}))
-    # Its own labels are cleared first — that is what makes the probe
-    # re-runnable — so the count that decides is what is LEFT afterwards.
-    monkeypatch.setattr(probe, "clear_our_own", lambda engine, url: 4392)
-    with pytest.raises(probe.Unusable) as refused:
+    with pytest.raises(guard.Unusable) as refused:
         probe.measure("http://localhost:9999")
     assert "4392" in str(refused.value)
     assert "did not write" in str(refused.value)
@@ -80,21 +85,26 @@ def test_a_graph_holding_only_a_previous_run_is_cleared_not_refused(monkeypatch)
     """The probe wrote ~33,000 nodes and then refused to start against them,
     so re-measuring meant destroying the container. Zero left after clearing
     its own labels means the graph was its own last run."""
+    held = iter([33000, 0])
+    monkeypatch.setattr(guard, "api",
+                        lambda url, path, *a, **k:
+                        (200, {"storage": {"nodes": next(held, 0)},
+                               "version": "1.7.0"}))
+    monkeypatch.setattr(guard, "Engine", lambda url: Engine(0))
     monkeypatch.setattr(probe, "api",
                         lambda url, path, *a, **k:
-                        (200, {"storage": {"nodes": 33000}, "version": "1.7.0"}))
-    monkeypatch.setattr(probe, "clear_our_own", lambda engine, url: 0)
+                        (200, {"storage": {"nodes": 0}, "version": "1.7.0"}))
     monkeypatch.setattr(probe, "remove_is_a_no_op", lambda e: {"ok": 1})
     monkeypatch.setattr(probe, "tenant_is_ignored", lambda u, e: {"ok": 1})
     monkeypatch.setattr(probe, "merge_ignores_the_index",
-                        lambda e, sizes: {"ok": 1})
+                        lambda e, sizes, repeats: {"ok": 1})
     measured = probe.measure("http://localhost:9999")
     assert measured["remove"] == {"ok": 1}, "the run was refused"
 
 
 def test_an_engine_that_does_not_answer_status_is_refused(monkeypatch):
-    monkeypatch.setattr(probe, "api", lambda *a, **k: (503, None))
-    with pytest.raises(probe.Unusable):
+    monkeypatch.setattr(guard, "api", lambda *a, **k: (503, None))
+    with pytest.raises(guard.Unusable):
         probe.measure("http://localhost:9999")
 
 
@@ -109,7 +119,7 @@ def test_a_tenant_api_that_stops_accepting_the_call_stops_the_run(monkeypatch):
     monkeypatch.setattr(probe, "api",
                         lambda url, path, method="GET", payload=None:
                         (422, None) if path == "/api/tenants" else (200, None))
-    with pytest.raises(probe.Unusable) as refused:
+    with pytest.raises(guard.Unusable) as refused:
         probe.tenant_is_ignored("http://localhost:9999",
                                 Fake([{"records": [[1]]}] * 8))
     assert "422" in str(refused.value)
@@ -200,70 +210,6 @@ def test_a_refused_constraint_is_recorded_rather_than_swallowed():
     assert bench.declare_constraint(Accepts(), "X") == "declared"
 
 
-class Status:
-    """An /api/status the guard can be driven against."""
-
-    def __init__(self, payload, code=200):
-        self.payload, self.code = payload, code
-
-    def __call__(self, url, path, method="GET", body=None):
-        if path == "/api/status":
-            return self.code, self.payload
-        return 200, {"records": [[0]]}
-
-
-def test_a_status_without_a_node_count_refuses_rather_than_reads_as_empty(
-        monkeypatch):
-    """**Blocker 1. The guard failed open.** A 200 at /api/status carrying no
-    `storage.nodes` key left `nodes` as None, so the whole `if nodes:` block
-    was skipped and the probe wrote ~16,400 unremovable nodes into whatever it
-    was pointed at.
-
-    This is the guard between a `--url` typo and the :8200 accident the probe
-    exists because of. `probe_engine_capability.py` raises for a missing
-    version rather than recording "unknown"; the same rule belongs here.
-    """
-    monkeypatch.setattr(probe, "api", Status({"storage": {}}))
-    with pytest.raises(probe.Unusable, match="storage.nodes"):
-        probe.measure("http://engine.test")
-    monkeypatch.setattr(probe, "api", Status({}))
-    with pytest.raises(probe.Unusable, match="storage.nodes"):
-        probe.measure("http://engine.test")
-
-
-def test_an_unmeasurable_cleanup_refuses_rather_than_reports_empty(monkeypatch):
-    """**Blocker 1, the other half.** `clear_our_own` ended
-    `return scalar(...) or 0`, so "I could not measure this" became "the graph
-    is empty" — and with `storage.nodes` at 50,000 the probe proceeded."""
-    monkeypatch.setattr(probe, "api", Status({"storage": {}}, code=500))
-    with pytest.raises(probe.Unusable):
-        probe.still_held("http://engine.test")
-
-
-def test_the_refusal_rests_on_an_instance_wide_count(monkeypatch):
-    """**Blocker 2. The guard's safety depended on a defect holding still.**
-    The leftover count ran under `graph="default"` while this repo loads its
-    district under `graph="edtech"`. It saw that data only because graph
-    scoping does not work — the same class of defect this probe measures for
-    `tenant`. An engine build that FIXED scoping would report an empty default
-    on a loaded instance and let the probe run.
-
-    `/api/status` is instance-wide, so the decision no longer rests on the
-    defect it is measuring.
-    """
-    asked = []
-
-    def api(url, path, method="GET", body=None):
-        asked.append((path, (body or {}).get("graph")))
-        return 200, {"storage": {"nodes": 50_000}}
-
-    monkeypatch.setattr(probe, "api", api)
-    assert probe.still_held("http://engine.test") == 50_000
-    assert asked == [("/api/status", None)], (
-        "the count went through a graph-scoped query, which is the defect "
-        "this probe measures")
-
-
 class Api:
     """/api/tenants and /api/query, scripted, with a scriptable query status."""
 
@@ -288,20 +234,6 @@ class Engine:
 
     def run(self, cypher):
         return {"records": [[self.count]]}
-
-
-def test_a_refused_query_is_not_read_as_the_defect_being_fixed(monkeypatch):
-    """**Blocker 4.** The 422 guard covered the tenant CREATE and stopped one
-    call short: `status` was unpacked from the query calls and never checked.
-
-    Driven with /api/tenants at 201 and /api/query at 400, all three counts
-    came back None, `len(seen) == 1` held, and the probe reported #149 FIXED —
-    the same false-absence the guard exists for, one call along, with nothing
-    in the record to reveal it.
-    """
-    monkeypatch.setattr(probe, "api", Api(query_status=400))
-    with pytest.raises(probe.Unusable, match="refused"):
-        probe.tenant_is_ignored("http://engine.test", Engine())
 
 
 def test_the_query_statuses_are_recorded_beside_the_counts(monkeypatch):
@@ -334,3 +266,140 @@ def test_a_nonsense_field_is_the_control_for_tenant_being_ignored(monkeypatch):
         "from 'tenant is not a parameter'")
     assert found["unknown_body_fields_are_discarded"] is True
     assert found["reads_as_no_tenant_parameter"] is True
+
+
+def test_a_rate_is_the_median_of_its_repeats():
+    """**One draw put the #169 verdict inside its own noise band.** On a live
+    1.1.0: MERGE fell 8.0x and MATCH fell 1.9x, against a rule requiring MATCH
+    to fall under 2.0x — a 5% margin, unrepeated, on an idle laptop. On a
+    busier machine it flips and the probe reports #169 FIXED, which is the one
+    outcome it exists never to produce.
+
+    A median rather than a mean: the failure mode is a single slow draw from
+    something else on the machine, and a mean carries it.
+    """
+    from etl import engine_bench
+
+    draws = iter([100.0, 5.0, 110.0])   # the middle one is the interloper
+
+    class Clocked:
+        def run(self, cypher):
+            return {"records": []}
+
+    calls = []
+    original = engine_bench.rate
+    try:
+        engine_bench.rate = lambda e, s, c: (calls.append(1), next(draws))[1]
+        assert engine_bench.repeated(Clocked(), lambda i: "x", 1, 3) == 100.0
+    finally:
+        engine_bench.rate = original
+    assert len(calls) == 3, "the rate was not measured three times"
+
+
+def test_record_measures_each_rate_more_than_once(monkeypatch):
+    """A record is what a page quotes. `--record` takes three unless told
+    otherwise; a quick look may take one."""
+    seen = {}
+    monkeypatch.setattr(probe, "measure",
+                        lambda url, full, image, repeats: seen.update(
+                            repeats=repeats) or {"remove": {}, "tenant": {},
+                                                 "merge": {}})
+    monkeypatch.setattr(probe, "write_record", lambda path, payload: None)
+    monkeypatch.setattr(probe, "report", lambda measured: None)
+    probe.main(["--record"])
+    assert seen["repeats"] == 3, seen
+    seen.clear()
+    probe.main([])
+    assert seen["repeats"] == 1, seen
+    seen.clear()
+    probe.main(["--repeats", "5"])
+    assert seen["repeats"] == 5, seen
+
+
+def test_the_help_warns_that_a_run_leaves_the_graph_populated():
+    """`--help` printed only "A SCRATCH engine. It will be written to", which
+    reads as ordinary write access. Measured: 16,542 nodes remain afterwards
+    and the engine cannot remove them — that inability is one of the three
+    defects. The difference decides whether a `--url` typo is recoverable."""
+    import contextlib
+    import io
+
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), pytest.raises(SystemExit):
+        probe.main(["--help"])
+    printed = out.getvalue()
+    assert "LEAVES THE GRAPH POPULATED" in printed, printed
+    assert "cannot remove them" in printed
+
+
+def test_a_record_is_refused_against_another_build(monkeypatch, capsys):
+    """Rewriting `engine_version_reported` to `9.9.9-someone-elses-build` and
+    `image_asserted` to a foreign registry left the whole suite green — so a
+    record could describe an engine this repo has never measured while every
+    figure in it read as 1.1.0's.
+
+    `probe_engine_capability.py` already refuses that and pins it in its doc
+    test; the same rule belongs here.
+    """
+    written = []
+    monkeypatch.setattr(probe, "write_record",
+                        lambda path, payload: written.append(payload))
+    monkeypatch.setattr(probe, "report", lambda measured: None)
+
+    monkeypatch.setattr(probe, "measure", lambda url, full, image, repeats: {
+        "engine_version_reported": "9.9.9-someone-elses-build",
+        "image_asserted": probe.DEFAULT_IMAGE})
+    assert probe.main(["--record"]) == 4
+    assert "9.9.9" in capsys.readouterr().err
+    assert not written
+
+    monkeypatch.setattr(probe, "measure", lambda url, full, image, repeats: {
+        "engine_version_reported": probe.ENGINE_VERSION,
+        "image_asserted": "registry.example.test/somebody/else:latest"})
+    assert probe.main(["--record"]) == 4
+    assert not written, "a record was written against an unpinned image"
+
+    monkeypatch.setattr(probe, "measure", lambda url, full, image, repeats: {
+        "engine_version_reported": probe.ENGINE_VERSION,
+        "image_asserted": probe.DEFAULT_IMAGE})
+    assert probe.main(["--record"]) == 0
+    assert written, "the pinned build was refused"
+
+
+def test_a_leaked_tenant_is_deleted_and_retried_not_blamed_on_the_engine(
+        monkeypatch):
+    """An interrupted run leaks `probe-scratch`, and the next run's 409 hit
+    the refusal — which tells the operator that #149 "needs re-stating, not
+    re-recording", sending them to rewrite an issue when the cause is their
+    own half-finished run."""
+    calls = []
+
+    def api(url, path, method="GET", body=None):
+        calls.append((method, path))
+        if path.startswith("/api/tenants") and method == "POST":
+            return (409 if len([c for c in calls
+                                if c == ("POST", "/api/tenants")]) == 1
+                    else 201), {}
+        if path.startswith("/api/tenants"):
+            return 204, {}
+        return 200, {"records": [[1]]}
+
+    monkeypatch.setattr(probe, "api", api)
+    found = probe.tenant_is_ignored("http://engine.test", Engine())
+    assert found["create_status"] == 201, found
+    assert ("DELETE", "/api/tenants/probe-scratch") in calls, (
+        "the leftover tenant was not deleted before retrying")
+
+
+def test_a_refused_query_is_not_read_as_the_defect_being_fixed(monkeypatch):
+    """**Blocker 4.** The 422 guard covered the tenant CREATE and stopped one
+    call short: `status` was unpacked from the query calls and never checked.
+
+    Driven with /api/tenants at 201 and /api/query at 400, all three counts
+    came back None, `len(seen) == 1` held, and the probe reported #149 FIXED —
+    the same false-absence the guard exists for, one call along, with nothing
+    in the record to reveal it.
+    """
+    monkeypatch.setattr(probe, "api", Api(query_status=400))
+    with pytest.raises(guard.Unusable, match="refused"):
+        probe.tenant_is_ignored("http://engine.test", Engine())

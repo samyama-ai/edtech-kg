@@ -44,13 +44,11 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import json
 import pathlib
 import sys
-import urllib.error
-import urllib.request
 
-from etl.engine import Engine, Refused
+from etl.engine import ENGINE_VERSION, Engine, Refused
+from etl.scratch_engine import Unusable, api, refuse_unless_scratch
 from etl.engine_bench import (FULL_SIZES, LABEL as BENCH_LABEL, SIZES,
                               merge_ignores_the_index)
 from etl.provenance import write_record
@@ -72,78 +70,10 @@ LABEL = "DefectProbe"
 DEFAULT_IMAGE = "public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0"
 
 
-class Unusable(RuntimeError):
-    """The engine refused something the probe needs in order to measure."""
-
-
-def api(url: str, path: str, method: str = "GET",
-        payload: dict | None = None) -> tuple[int, dict | None]:
-    """One raw API call, returning the STATUS as well as the body.
-
-    `Engine` is the right client for queries and is used for them. This exists
-    because #149 is a claim about status codes — that create returns 201 and
-    drop returns 204 while neither scopes anything — and a client that raises
-    on status has thrown that evidence away before the probe can read it.
-    """
-    body = json.dumps(payload).encode() if payload is not None else None
-    request = urllib.request.Request(
-        f"{url.rstrip('/')}{path}", data=body, method=method,
-        headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read()
-            return response.status, (json.loads(raw) if raw else None)
-    except urllib.error.HTTPError as refused:
-        raw = refused.read()
-        try:
-            return refused.code, json.loads(raw) if raw else None
-        except json.JSONDecodeError:
-            return refused.code, None
-    except (urllib.error.URLError, TimeoutError, OSError) as gone:
-        raise Unusable(f"{path}: {gone}") from gone
-
-
 #: Every label this probe writes. Named in one place so `clear_our_own` and
 #: the writers cannot drift — a label missing from here is one that survives a
 #: reset and then blocks the next run.
 OUR_LABELS = (LABEL, BENCH_LABEL, f"{BENCH_LABEL}Fresh")
-
-
-def clear_our_own(engine: Engine, url: str) -> int:
-    """Delete this probe's own nodes; return how many others remain.
-
-    Zero means the graph held nothing but a previous run of this probe and is
-    now empty. Anything else is somebody's data and the caller must refuse.
-    """
-    for label in OUR_LABELS:
-        engine.run(f"MATCH (n:{label}) DETACH DELETE n")
-    return still_held(url)
-
-
-def still_held(url: str) -> int:
-    """How many nodes the ENGINE says it holds, from /api/status.
-
-    **Not a Cypher count.** Two things were wrong with counting in the graph:
-
-      * `scalar(...) or 0` turned "I could not measure this" into "the graph
-        is empty". Driven with `storage.nodes` at 50,000 and the count
-        answering nothing, the probe proceeded.
-      * the count ran under `graph="default"` while this repo loads its
-        district under `graph="edtech"`. It saw that data only because graph
-        scoping does not work — the same class of defect this probe measures
-        for `tenant`. An engine build that FIXED scoping would report an
-        empty default on a loaded instance and let the probe run.
-
-    `/api/status` is instance-wide and is the number the refusal should rest
-    on. A missing count raises rather than reading as zero.
-    """
-    status, body = api(url, "/api/status")
-    held = ((body or {}).get("storage") or {}).get("nodes")
-    if status != 200 or held is None:
-        raise Unusable(
-            f"{url} would not say how many nodes it holds after the cleanup "
-            f"({status}), so whether it is safe to write to is unknown.")
-    return int(held)
 
 
 def one(engine: Engine, cypher: str) -> list:
@@ -306,6 +236,16 @@ def tenant_is_ignored(url: str, engine: Engine) -> dict:
     # asserted below rather than merely stored.
     created, _ = api(url, "/api/tenants", "POST",
                      {"id": "probe-scratch", "name": "probe-scratch"})
+    if created == 409:
+        # **OUR OWN LEFTOVER, not the engine changing behaviour.** A SIGKILL
+        # or a dropped POST leaks the tenant, and the next run's 409 hit the
+        # refusal below — which tells the operator that #149 "needs
+        # re-stating, not re-recording", sending them to rewrite an issue
+        # when the cause is their own half-finished run. Deleted and retried
+        # once instead; a second 409 is then a real answer about the engine.
+        api(url, "/api/tenants/probe-scratch", "DELETE")
+        created, _ = api(url, "/api/tenants", "POST",
+                         {"id": "probe-scratch", "name": "probe-scratch"})
     if created != 201:
         raise Unusable(
             f"creating a tenant answered {created}, not 201. #149's claim is "
@@ -386,45 +326,11 @@ def tenant_is_ignored(url: str, engine: Engine) -> dict:
     }
 
 
-def measure(url: str, full: bool = False, image: str = DEFAULT_IMAGE) -> dict:
+def measure(url: str, full: bool = False, image: str = DEFAULT_IMAGE,
+            repeats: int = 1) -> dict:
     engine = Engine(url)
-    status, body = api(url, "/api/status")
-    if status != 200:
-        raise Unusable(f"{url} answered {status} at /api/status")
-    nodes = ((body or {}).get("storage") or {}).get("nodes")
-    if nodes is None:
-        # **RAISED, not treated as empty.** A /api/status answering 200
-        # without a `storage.nodes` key left this None, the whole guard was
-        # skipped, and the probe wrote ~16,400 unremovable nodes into
-        # whatever it was pointed at. `probe_engine_capability.py` already
-        # raises for a missing version rather than recording "unknown"; the
-        # same rule belongs on the guard between a `--url` typo and the :8200
-        # accident this probe exists because of.
-        raise Unusable(
-            f"{url} answered 200 at /api/status without a storage.nodes "
-            f"count, so how much this graph holds could not be measured. "
-            f"This probe writes tens of thousands of nodes and cannot tidy "
-            f"up after itself; it will not start on an unmeasured graph.")
-    if nodes:
-        # A graph holding ONLY this probe's own labels is its own previous
-        # run, and refusing that made the probe single-use: it left ~33,000
-        # nodes behind and then would not start against them, so re-measuring
-        # meant destroying and recreating the container. Deleting them is
-        # safe and is measured to work — DETACH DELETE is not the broken
-        # operation here; REMOVE is.
-        #
-        # Anything else is still refused outright, because this writes tens
-        # of thousands of nodes into a graph it cannot tidy. Running it
-        # against a loaded one is how :8200 came to hold four copies of one
-        # district (#149).
-        leftover = clear_our_own(Engine(url), url)
-        if leftover:
-            raise Unusable(
-                f"{url} holds {leftover} node(s) this probe did not write. It "
-                f"writes tens of thousands and cannot clean up after itself — "
-                f"point it at a scratch engine:\n"
-                f"  docker run -d --name sg-defects -p 8224:8080 "
-                f"public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0")
+    refuse_unless_scratch(url, OUR_LABELS)
+    _, status_body = api(url, "/api/status")
 
     return {
         "_": RECORD_NOTE,
@@ -443,12 +349,13 @@ def measure(url: str, full: bool = False, image: str = DEFAULT_IMAGE) -> dict:
         # The tag and the binary disagree, and a figure attributed to a tag
         # cannot be checked against a version the engine does not admit to.
         # This one IS observed.
-        "engine_version_reported": (body or {}).get("version"),
+        "engine_version_reported": (status_body or {}).get("version"),
         "url": url,
         "remove": remove_is_a_no_op(engine),
         "tenant": tenant_is_ignored(url, engine),
         "merge": merge_ignores_the_index(engine,
-                                         FULL_SIZES if full else SIZES),
+                                         FULL_SIZES if full else SIZES,
+                                         repeats),
     }
 
 
@@ -487,7 +394,14 @@ def report(measured: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m etl.probe_engine_defects")
+    parser = argparse.ArgumentParser(
+        prog="python -m etl.probe_engine_defects",
+        description=__doc__.strip().splitlines()[0],
+        epilog="**A SUCCESSFUL RUN LEAVES THE GRAPH POPULATED.** Measured: "
+               "16,542 nodes remain afterwards and the engine cannot remove "
+               "them — that inability is one of the three defects being "
+               "measured. Point --url at a scratch engine you can throw "
+               "away; a typo here is not recoverable.")
     parser.add_argument("--url", default="http://localhost:8224",
                         help="A SCRATCH engine. It will be written to.")
     parser.add_argument("--full", action="store_true",
@@ -496,11 +410,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--image", default=DEFAULT_IMAGE,
                         help="Recorded as an assertion — the engine does not "
                              "report which image it came from.")
+    parser.add_argument(
+        "--repeats", type=int, default=None,
+        help="Measure each rate this many times and take the MEDIAN. "
+             "Defaults to 1 for a quick look and to 3 for --record: the "
+             "#169 verdict landed 5%% from flipping on a single draw, and "
+             "MERGE at 1,000 nodes has been measured swinging +/-54%%.")
     parser.add_argument("--record", action="store_true")
     args = parser.parse_args(argv)
 
     try:
-        measured = measure(args.url, full=args.full, image=args.image)
+        # **`--record` forces three unless told otherwise.** A record is the
+        # thing a page quotes, and the one-draw verdict is what put #169
+        # within 5% of reporting itself fixed. A quick look may take one.
+        repeats = args.repeats if args.repeats else (3 if args.record else 1)
+        measured = measure(args.url, full=args.full, image=args.image,
+                           repeats=repeats)
     except Unusable as gone:
         print(f"unusable: {gone}", file=sys.stderr)
         return 2
@@ -511,6 +436,24 @@ def main(argv: list[str] | None = None) -> int:
 
     report(measured)
     if args.record:
+        # **The build is PINNED for a record.** Rewriting
+        # `engine_version_reported` to another build and `image_asserted` to a
+        # foreign registry left the whole suite green, so a record could
+        # describe an engine this repo has never measured while every figure
+        # in it read as 1.1.0's. The sibling probe already refuses that.
+        reported = measured.get("engine_version_reported")
+        if reported != ENGINE_VERSION:
+            print(f"the engine at {args.url} reports {reported!r}, not "
+                  f"{ENGINE_VERSION!r}. Every figure in docs/ describes that "
+                  f"build; a record from another one is a different claim "
+                  f"wearing the same filename.", file=sys.stderr)
+            return 4
+        if measured.get("image_asserted") != DEFAULT_IMAGE:
+            print(f"--image asserts {measured.get('image_asserted')!r}, not "
+                  f"the pinned {DEFAULT_IMAGE!r}. Recording that would "
+                  f"attribute these figures to an image nobody pinned.",
+                  file=sys.stderr)
+            return 4
         write_record(RECORD, measured)
         print(f"\n  -> {RECORD.relative_to(ROOT)}")
     return 0

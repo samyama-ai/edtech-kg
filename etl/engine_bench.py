@@ -16,6 +16,7 @@ import time
 
 from etl.engine import Engine, Refused
 
+
 def ratio(before: float, after: float) -> float | None:
     """How far a rate fell, or None if either end is unmeasured.
 
@@ -100,7 +101,28 @@ def rate(engine: Engine, statement, count: int) -> float:
     return round(count / elapsed, 1) if elapsed else 0.0
 
 
-def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
+def repeated(engine: Engine, statement, count: int, repeats: int) -> float:
+    """The MEDIAN of `repeats` measurements of one rate.
+
+    **A single draw put the #169 verdict inside its own noise band.** On a
+    live 1.1.0: MERGE fell 8.0x and MATCH fell 1.9x, against a rule that
+    requires MATCH to fall less than 2.0x — a ~5% margin, on one unrepeated
+    run, on an idle laptop. On a busier machine it flips and the probe reports
+    #169 FIXED, which is the one outcome this probe exists never to produce.
+
+    The spread is already documented and large: MERGE at 1,000 nodes swung
+    403.8-621.2 across three runs, +/-54%, moving the published ratio between
+    5.2x and 7.3x.
+
+    A median rather than a mean, because the failure mode is one slow draw
+    from something else running on the machine, and a mean carries it.
+    """
+    rates = sorted(rate(engine, statement, count) for _ in range(repeats))
+    return rates[len(rates) // 2]
+
+
+def merge_ignores_the_index(engine: Engine, sizes=SIZES,
+                            repeats: int = 1) -> dict:
     """#169 — does `MERGE` use the constraint's index?
 
     Three rates at each size, on the SAME label and the same key:
@@ -126,12 +148,12 @@ def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
             engine.run(f'CREATE (n:{LABEL} {{id: "fill-{filled}"}})')
             filled += 1
 
-        merge_rate = rate(
+        merge_rate = repeated(
             engine, lambda i, s=size: f'MERGE (n:{LABEL} '
-                                     f'{{id: "m-{s}-{i}"}})', BATCH)
-        create_rate = rate(
+                                     f'{{id: "m-{s}-{i}"}})', BATCH, repeats)
+        create_rate = repeated(
             engine, lambda i, s=size: f'CREATE (n:{LABEL} '
-                                     f'{{id: "c-{s}-{i}"}})', BATCH)
+                                     f'{{id: "c-{s}-{i}"}})', BATCH, repeats)
         # SPREAD ACROSS THE WHOLE LABEL, not the first BATCH keys. Looking up
         # `fill-0..149` at every size asks for the same 150 rows however large
         # the label is, so a hot cache — the engine keeps one — would serve
@@ -139,11 +161,11 @@ def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
         # exercising the index at scale. A stride touches the full range, and
         # the modulo keeps the warm-up's out-of-range indices on real keys.
         stride = max(1, filled // (BATCH + WARMUP))
-        match_rate = rate(
+        match_rate = repeated(
             engine,
             lambda i, f=filled, st=stride:
                 f'MATCH (n:{LABEL}) WHERE n.id = "fill-{(i * st) % f}" '
-                f'WITH n RETURN n.id', BATCH)
+                f'WITH n RETURN n.id', BATCH, repeats)
         # Every timed CREATE and MERGE above added a node, and so did their
         # warm-ups. Counted rather than estimated: an undercount here makes
         # the NEXT size fill fewer nodes than it reports, and the whole table
@@ -161,7 +183,7 @@ def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
         # each point, which absorbs the carry-over from earlier sizes — that is
         # why the two ends stay close, and recording both is what shows it
         # rather than asserting it.
-        filled += 2 * (BATCH + WARMUP)
+        filled += 2 * (BATCH + WARMUP) * repeats
         points.append({"nodes_at_start": started_at,
                        "nodes_at_end": filled,
                        "requested_size": size,
@@ -176,13 +198,17 @@ def merge_ignores_the_index(engine: Engine, sizes=SIZES) -> dict:
     # isolating control if the single difference is how much is in the label.
     engine.run(f"MATCH (n:{LABEL}Fresh) DETACH DELETE n")
     fresh_constraint = declare_constraint(engine, f"{LABEL}Fresh")
-    fresh = rate(engine, lambda i: f'MERGE (n:{LABEL}Fresh {{id: "f-{i}"}})',
-                 BATCH)
+    fresh = repeated(engine,
+                     lambda i: f'MERGE (n:{LABEL}Fresh {{id: "f-{i}"}})',
+                     BATCH, repeats)
 
     first, last = points[0], points[-1]
     return {
         "issue": 169,
         "batch": BATCH,
+        # How many times each rate was measured. A record that does not say
+        # cannot be compared with one taken differently.
+        "repeats_per_rate": repeats,
         "points": points,
         # RECORDED, which the comment on the old `except Refused: pass`
         # claimed and did not do — nothing was written and no field existed.
