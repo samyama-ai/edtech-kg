@@ -9,7 +9,6 @@ edges were not idempotent — so both are asserted here rather than described.
 from __future__ import annotations
 
 import json
-import pathlib
 
 import pytest
 
@@ -223,3 +222,35 @@ def test_the_record_keeps_issued_and_held_apart(monkeypatch, tmp_path):
     assert written["engine_version_reported"], (
         "the record does not say which engine answered, so a figure taken "
         "from a different build reads as one from this one")
+
+
+def test_the_rate_curve_is_sampled_from_the_run_that_reports_it(monkeypatch,
+                                                               tmp_path):
+    """**The curve used to come from a different load than the record.**
+
+    A second process polled the graph once a minute while a load ran, and the
+    doc then printed that curve beside a record written by a LATER run — two
+    loads quoted as one. Nothing said so, and nothing could have caught it:
+    both numbers were real, and neither described the other's run.
+
+    The loader already knows how many completions it has written and when it
+    started, so the curve costs no extra query.
+    """
+    monkeypatch.setattr(loader, "CURVE_EVERY", 0)   # sample every row
+    monkeypatch.setattr(loader, "CACHE", tmp_path)
+    rows = [{"unitid": 1, "cipcode_6digit": 110701 + i, "award_level": 5,
+             "majornum": 1, "race": 1, "sex": 1, "awards_6digit": 1}
+            for i in range(4)]
+    (tmp_path / f"institutions-{loader.FIPS}-{loader.YEAR}.json").write_text(
+        json.dumps({"rows": [{"unitid": 1, "inst_name": "X",
+                              "state_abbr": "VA"}]}), encoding="utf-8")
+    (tmp_path / f"completions-{loader.FIPS}-{loader.YEAR}.json").write_text(
+        json.dumps({"rows": rows}), encoding="utf-8")
+
+    summary = loader.load(Recorder())
+    curve = summary["rate_curve"]
+    assert curve, "the run reported no curve at all"
+    assert curve[-1]["completions_held"] == summary["completions_in"], (
+        "the curve's last sample and the run's own total disagree, so they "
+        "are not describing one load")
+    assert all(point["seconds"] <= summary["seconds"] for point in curve)

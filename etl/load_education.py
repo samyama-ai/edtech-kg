@@ -36,6 +36,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CACHE = ROOT / "data" / "education"
 FIPS, YEAR = 51, 2022
 
+#: Seconds between rate samples. A minute is short enough to show the shape
+#: over a 25-minute load and long enough that the sampling costs nothing.
+CURVE_EVERY = 60
+
 RECORD = ROOT / "docs" / "sources" / "national-spine-measured.json"
 RECORD_NOTE = (
     "Measured by `python -m etl.load_education --record`. `issued` is what "
@@ -218,6 +222,16 @@ def load(engine: Engine, dry_run: bool = False,
     for cip in programmes:
         writer.node("Programme", "cip_code", cip, {"cip_code": cip})
 
+    # **The rate curve is part of the run, not a separate measurement.**
+    # It was sampled by a second process polling the graph once a minute,
+    # which meant the curve in the doc came from a DIFFERENT load than the
+    # record beside it — two runs, quoted as one. The loader already knows
+    # how many completions it has written and when it started; nothing has to
+    # be asked of the engine to say so.
+    curve: list[dict] = []
+    last_mark = None
+    next_mark = time.monotonic() + CURVE_EVERY
+
     seen: set[str] = set()
     for row in completions:
         key = completion_id(row)
@@ -245,6 +259,22 @@ def load(engine: Engine, dry_run: bool = False,
         writer.edge("IN", ("Completion", "id", key),
                     ("Programme", "cip_code", str(row["cipcode_6digit"])))
 
+        now = time.monotonic()
+        if now >= next_mark:
+            # Divided by the ELAPSED time, not by CURVE_EVERY. A sample
+            # arrives when a row finishes, so the interval is "at least
+            # CURVE_EVERY" and dividing by the nominal figure overstates the
+            # rate by however long the last row took.
+            since = now - (last_mark or started)
+            written = len(seen)
+            before = curve[-1]["completions_held"] if curve else 0
+            curve.append({
+                "seconds": round(now - started, 1),
+                "completions_held": written,
+                "completions_per_second": round((written - before) / since, 1)
+                if since > 0 else None})
+            last_mark, next_mark = now, now + CURVE_EVERY
+
     return {
         "seconds": round(time.monotonic() - started, 1),
         "statements_issued": writer.looked_up + writer.created,
@@ -255,6 +285,9 @@ def load(engine: Engine, dry_run: bool = False,
         "completions_in": len(seen),
         "rows_skipped_zero_awards": skipped_zero,
         "duplicate_rows_skipped": (len(completions) - len(seen)),
+        # Sampled once a minute across THIS run, so the curve and the totals
+        # describe one load.
+        "rate_curve": curve,
     }
 
 
