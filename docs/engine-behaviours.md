@@ -42,16 +42,22 @@ edtech-kg#169. The arithmetic and the slice it decides are written up in
 `first-load.md`, which arrives with the branch for edtech-kg#23 and is not
 linked here until it lands.
 
-### `REMOVE` reports success and changes nothing
+### A removed property is gone from the row and still returned by every read
 
-`REMOVE n.p` parses, matches the node, and returns success while leaving the
-property in place. `REMOVE n.p RETURN n.p` returns the value it has just claimed
-to remove. `SET n.p = null` behaves the same, and deleting the node does not
-help — one re-created with the same key comes back carrying the property.
+`REMOVE n.p` parses, matches the node, and returns success. `REMOVE n.p RETURN
+n.p` returns the value it has just claimed to remove, `SET n.p = null` behaves
+the same, and deleting the node does not help — one re-created with the same
+key comes back carrying the property.
 
-So **"this property is absent" is a claim about a graph that has never held it**,
-never about one that has been re-loaded. No loader change fixes this.
-edtech-kg#163 · `etl/engine.py`
+**This entry used to state the opposite — that the property was left in
+place — and that is wrong.** The stored node does change: the key disappears from a whole-row
+read. It is every property READ that stays stale. Measured, with the table, in
+[the probe's section below](#remove--and-a-correction-to-what-this-file-said).
+
+The consequence is unchanged and is the reason this matters: **"this property
+is absent" is a claim about a graph that has never held it**, never about one
+that has been re-loaded. No loader change fixes this.
+edtech-kg#163 · `etl/probe_engine_defects.py`
 
 ### An edge `MERGE` ignores its property map
 
@@ -121,7 +127,117 @@ would be caught automatically are the parse errors — the suite fails. **The si
 under "wrong answer, no error" would not**: they return something, and the tests
 that would notice are the ones asserting a specific figure.
 
-`etl/probe_engine_capability.py` measures the query constructs. It does not yet
-cover `REMOVE`, `tenant`, or the `MERGE` index behaviour — those three are
-recorded here from the issues that measured them, and turning them into one
-runnable probe is the obvious next step.
+`etl/probe_engine_capability.py` measures the query constructs.
+`etl/probe_engine_defects.py` measures the three that were previously recorded
+here from prose — `REMOVE`, `tenant` and the `MERGE` index behaviour. Both are
+runnable, and neither figure below is typed.
+
+**It needs a scratch engine and it refuses a loaded one.** The probe writes
+tens of thousands of nodes and cannot remove them, because not being able to
+remove them is one of the defects it measures:
+
+    docker run -d --name sg-defects -p 8224:8080 \
+        public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0
+    python -m etl.probe_engine_defects --url http://localhost:8224 --record
+
+Every check records `still_defective`, so **an engine upgrade that FIXES one
+shows up as a changed record**, not as a probe that quietly prints something
+else. All three are still present as of the committed run.
+
+### `REMOVE` — and a correction to what this file said
+
+**The entry above and #163 both described this as leaving the property
+untouched. That is not what happens.** Adding the whole-row read the probe's docstring had promised —
+and its first version never took — shows the opposite:
+
+| after | the row | a projection | `WHERE kind = 'keep'` |
+|---|---|---|---|
+| `CREATE` | key present, `'keep'` | `'keep'` | matches |
+| `REMOVE p.kind` | **key gone** | `'keep'` | **still matches** |
+| `SET p.kind = null` | key back, `null` | `'keep'` | still matches |
+
+`REMOVE` **does** change the stored node. What does not change is what any
+property read returns: a projection, a projection behind a `WITH`, a
+projection with no `WHERE` at all, and a `WHERE p.kind = …` filter all keep
+answering with the pre-write value, while `WHERE p.kind IS NULL` matches
+nothing.
+
+**This is worse than "REMOVE does nothing", not milder.** If it did nothing,
+the graph and the answers would at least agree. Instead an export shows the
+property gone while every query still finds it — the class of defect this
+file exists for.
+
+**Whether it is a cache is not established.** The obvious test — restart and
+re-read — is void here: the container mounts no volume, so a restart empties
+the graph and the re-read answers about nothing. The record says `null` for
+that rather than guessing.
+
+### `tenant` — there is no tenant parameter on `/api/query` at all
+
+Creating a tenant answered **201** and dropping one answered
+**204**; every tenant — including one that has never existed —
+saw the same graph, and dropping the tenant deleted nothing
+(`True`).
+
+**"`tenant` is ignored" is the weaker claim, and it was unfalsifiable.** A
+field named `zzz_not_a_field` produces a byte-identical response — status
+200, the same count of
+2 — so the engine discards unknown body
+fields wholesale, and `etl/engine.py` already records that `/api/query`
+accepts only `query` and `graph`. Keyed on "every tenant sees one graph"
+alone, the finding would read true forever, INCLUDING on an engine with
+perfect isolation.
+
+With that null control beside it the finding sharpens into something a reader
+can act on: `reads_as_no_tenant_parameter`
+**True**. Not a scoping bug to be fixed — a
+parameter that was never there.
+
+The probe asserts the 201 rather than storing whatever it gets, and now
+checks the three QUERY statuses too
+(`default 200, probe-scratch 200, nonexistent-tenant-xyz 200`).
+Its first version sent only `id`, got a 422, and would have recorded the API
+as *refusing* these calls — contradicting the issue and reporting the defect
+as absent. The 422 guard then covered only the create, so a create at 201
+with the queries at 400 gave three `None` counts, one distinct value, and a
+verdict of **FIXED**. **A defect probe reporting a false absence is the worst
+outcome available to it**, so both now stop the run.
+
+### `MERGE` — the index is ignored
+
+| nodes in label | `MERGE` /sec | `CREATE` /sec | `MATCH` /sec |
+|---:|---:|---:|---:|
+| 1,000 | 658.8 | 813.7 | 822.7 |
+| 4,000 | 507.3 | 824.4 | 812.9 |
+| 8,000 | 297.4 | 807.6 | 800.0 |
+| 16,000 | 156.8 | 780.9 | 796.0 |
+
+Each rate is the **median of 3 measurements**, not one
+draw. That is not tidiness: on a single run this verdict landed *inside its
+own noise band* — MERGE fell 8.0x and MATCH fell 1.9x against a rule
+requiring MATCH to fall under 2.0x, a 5% margin on an idle laptop. On a
+busier machine it flips and the probe reports #169 **fixed**, the one outcome
+it exists never to produce. With three draws MATCH moves
+1.0x, which is a factor of two clear of the threshold rather
+than a twentieth.
+
+Over that range `MERGE` fell **4.2x** while `MATCH` moved
+1.0x. The isolating control is the last figure: the same
+`MERGE` statement against a fresh, nearly-empty label ran at
+**817.3/sec** — full speed, with the SAME uniqueness constraint declared
+on it. Without that the control differed in two variables and a fast result
+could have meant either a small label or an absent index. It is the size of
+the label being merged into, not the statement.
+
+**These are timings and they vary between runs.** The committed record is one
+run; re-running gives different absolute rates. What does not vary is the
+shape — `MERGE` degrading by close to `1/n` while `MATCH` and `CREATE` stay
+flat — and that shape is what `still_defective` tests, rather than any
+threshold on a rate.
+
+The first version of the timing was not usable and is worth recording: at a
+batch of 40, `MERGE` came out FASTER at 2,000 nodes than at 500, because forty
+round trips is short enough for warm-up to dominate. The engine caches parsed
+ASTs and chosen plans, so the first call of a statement shape pays for parsing
+that none of the rest do. Every timing is now preceded by an untimed warm-up of
+the same shape.
