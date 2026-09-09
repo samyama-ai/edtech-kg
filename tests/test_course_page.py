@@ -53,10 +53,11 @@ def test_the_typed_field_is_found_and_the_prose_field_is_not_mistaken_for_it():
     # The field NAME is compared, not pattern-matched with a word boundary —
     # `pr` must not select `prerequisite-courses`, and a split comparison
     # says that plainly where a `\b` only implied it.
-    assert course_page.field_block(
+    only_typed = course_page.read_fields(
         '<div class="field--name-field-prerequisite-courses">'
-        '<div class="field__item">x</div></div>', "pr") is None, (
-        "the prose lookup selected the typed field")
+        '<div class="field__item">x</div></div>')
+    assert "pr" not in only_typed, "the prose lookup selected the typed field"
+    assert "prerequisite-courses" in only_typed
 
     typed = course_page.classify(
         page(typed='<a href="/maths/algebra-1">Algebra I</a>'), PUBLISHED)
@@ -172,10 +173,11 @@ def test_a_field_with_no_item_does_not_reach_forward_to_another_field():
     markup = ('<div class="field--name-field-pr"></div>'
               '<div class="field--name-field-notes">'
               '<div class="field__item">Wear safety goggles</div></div>')
-    block = course_page.field_block(markup, "pr")
-    assert block is not None, "the field is present and must be found"
-    assert "safety goggles" not in block, (
+    fields = course_page.read_fields(markup)
+    assert "pr" in fields, "the field is present and must be found"
+    assert "safety goggles" not in fields["pr"].readable(), (
         "the prose field reached forward into the next field")
+    assert fields["pr"].bounded, "an empty field is still a bounded one"
     assert course_page.classify(markup, set())["kind"] == "says none"
 
 
@@ -231,7 +233,7 @@ def test_a_sibling_field_still_ends_the_block():
               '<div class="field__item">Teacher recommendation</div></div>'
               '<div class="field--name-field-notes">'
               '<div class="field__item">Wear safety goggles</div></div>')
-    block = course_page.field_block(markup, "pr")
+    block = course_page.read_fields(markup)["pr"].readable()
     assert "goggles" not in block, "the field ran into its neighbour"
     assert "recommendation" in block
 
@@ -315,14 +317,21 @@ def test_a_div_inside_an_attribute_value_does_not_move_the_depth_count():
 
 def test_an_apostrophe_in_prose_is_not_an_attribute_delimiter():
     """Masking every quoted run treated `Teacher's … student's` as a quoted
-    span and blanked the text between them — and a `</div>` in that span
-    would have gone with it."""
+    span and blanked the text between them — and a `</div>` in that span would
+    have gone with it.
+
+    **There is no masking any more.** An apostrophe in character data is
+    character data, because the parser knows which is which; the claim is kept
+    as a test because it is the behaviour that was wrong, and it must not come
+    back through whatever replaces the reader next.
+    """
     markup = ('<div class="field field--name-field-prerequisite-courses">'
               '<div class="field__item">Teacher\'s note on student\'s work'
               '<a href="/m/a">Algebra</a></div></div>')
-    assert "student" in course_page.masked(markup), (
-        "prose between two apostrophes was masked")
-    assert course_page.classify(markup, {"/m/a"})["links"] == ["/m/a"]
+    found = course_page.classify(markup, {"/m/a"})
+    assert found["kind"] == "typed", found
+    assert found["links"] == ["/m/a"], (
+        "prose between two apostrophes swallowed the link")
 
 
 def test_a_field_name_inside_a_script_body_is_not_a_field():
