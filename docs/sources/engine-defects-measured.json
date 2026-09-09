@@ -1,6 +1,6 @@
 {
   "_": "Measured by `python -m etl.probe_engine_defects --record` against a SCRATCH engine. Each entry says what was observed and whether the defect it was written for is still present.",
-  "retrieved_at": "2026-09-08",
+  "retrieved_at": "2026-09-09",
   "image_asserted": "public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0",
   "engine_version_reported": "1.7.0",
   "url": "http://localhost:8224",
@@ -40,61 +40,71 @@
       "probe-scratch": 2,
       "nonexistent-tenant-xyz": 2
     },
+    "query_status_by_tenant": {
+      "default": 200,
+      "probe-scratch": 200,
+      "nonexistent-tenant-xyz": 200
+    },
     "create_status": 201,
     "delete_status": 204,
     "nodes_after_dropping_the_tenant": 2,
     "every_tenant_sees_one_graph": true,
     "dropping_a_tenant_deleted_nothing": true,
-    "still_defective": true
+    "count_under_a_nonsense_field": 2,
+    "nonsense_field_status": 200,
+    "unknown_body_fields_are_discarded": true,
+    "still_defective": true,
+    "reads_as_no_tenant_parameter": true
   },
   "merge": {
     "issue": 169,
     "batch": 150,
+    "repeats_per_rate": 3,
     "points": [
       {
         "nodes_at_start": 1000,
-        "nodes_at_end": 1360,
+        "nodes_at_end": 2080,
         "requested_size": 1000,
-        "merge_per_sec": 563.9,
-        "create_per_sec": 821.1,
-        "match_per_sec": 772.0
+        "merge_per_sec": 658.8,
+        "create_per_sec": 813.7,
+        "match_per_sec": 822.7
       },
       {
         "nodes_at_start": 4000,
-        "nodes_at_end": 4360,
+        "nodes_at_end": 5080,
         "requested_size": 4000,
-        "merge_per_sec": 383.8,
-        "create_per_sec": 804.5,
-        "match_per_sec": 766.7
+        "merge_per_sec": 507.3,
+        "create_per_sec": 824.4,
+        "match_per_sec": 812.9
       },
       {
         "nodes_at_start": 8000,
-        "nodes_at_end": 8360,
+        "nodes_at_end": 9080,
         "requested_size": 8000,
-        "merge_per_sec": 164.0,
-        "create_per_sec": 799.1,
-        "match_per_sec": 782.4
+        "merge_per_sec": 297.4,
+        "create_per_sec": 807.6,
+        "match_per_sec": 800.0
       },
       {
         "nodes_at_start": 16000,
-        "nodes_at_end": 16360,
+        "nodes_at_end": 17080,
         "requested_size": 16000,
-        "merge_per_sec": 87.1,
-        "create_per_sec": 788.3,
-        "match_per_sec": 726.5
+        "merge_per_sec": 156.8,
+        "create_per_sec": 780.9,
+        "match_per_sec": 796.0
       }
     ],
     "constraint_declared": {
       "BenchProbe": "declared",
       "BenchProbeFresh": "declared"
     },
-    "merge_into_a_fresh_label_per_sec": 759.8,
-    "merge_fell_by": 6.5,
-    "match_fell_by": 1.1,
+    "merge_into_a_fresh_label_per_sec": 817.3,
+    "merge_fell_by": 4.2,
+    "match_fell_by": 1.0,
     "still_defective": true
   },
   "code": {
-    "commit": "b0a379166254fa6da2466bd12e455f2350634085",
+    "commit": "3222d61d15c0ca7d701913d6d97864b48db76f7b",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

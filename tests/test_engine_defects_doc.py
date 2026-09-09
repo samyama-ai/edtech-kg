@@ -118,3 +118,45 @@ def test_every_defect_the_probe_measures_has_a_section():
     assert measured == {"remove", "tenant", "merge"}, (
         f"the probe measures {sorted(measured)}; add a section for any new "
         f"one rather than leaving it recorded and unpublished")
+
+
+def test_the_page_states_the_sharpened_tenant_finding_not_the_weak_one():
+    """**"`tenant` is ignored" was unfalsifiable**, and the page said it for
+    a round after the probe stopped supporting it.
+
+    A field named `zzz_not_a_field` produces a byte-identical response, so
+    the engine discards unknown body fields wholesale — keyed on "every
+    tenant sees one graph" alone, the finding reads true forever, including
+    on an engine with perfect isolation.
+
+    The record carries the null control; the page a reader actually opens has
+    to carry the conclusion it licenses.
+    """
+    tenant = RECORD["tenant"]
+    assert tenant["reads_as_no_tenant_parameter"] is True, (
+        "the record no longer supports the page's claim")
+    assert "no tenant parameter on `/api/query` at all" in PAGE
+    assert "zzz_not_a_field" in PAGE, (
+        "the page states the conclusion without the control that licenses it")
+    assert str(tenant["count_under_a_nonsense_field"]) in PAGE
+
+
+def test_the_page_says_how_many_times_each_rate_was_measured():
+    """The #169 verdict landed inside its own noise band on a single draw —
+    MATCH fell 1.9x against a 2.0x rule. A page quoting the figures without
+    saying how many draws produced them cannot be compared with a re-run."""
+    merge = RECORD["merge"]
+    assert merge["repeats_per_rate"] >= 3, (
+        "the record was taken with fewer draws than the page describes")
+    assert f"median of {merge['repeats_per_rate']} measurements" in PAGE
+    assert f"{merge['match_fell_by']}x" in PAGE
+
+
+def test_every_merge_rate_on_the_page_is_the_measured_one():
+    """The table's own cells, not just its shape. A row can be edited while
+    the record says something else and nothing notices — which is how the
+    page kept a superseded table for a round."""
+    for point in RECORD["merge"]["points"]:
+        row = (f"| {point['requested_size']:,} | {point['merge_per_sec']} | "
+               f"{point['create_per_sec']} | {point['match_per_sec']} |")
+        assert row in PAGE, f"the page does not carry the measured row: {row}"

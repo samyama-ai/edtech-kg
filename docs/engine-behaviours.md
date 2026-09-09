@@ -172,32 +172,59 @@ re-read — is void here: the container mounts no volume, so a restart empties
 the graph and the re-read answers about nothing. The record says `null` for
 that rather than guessing.
 
-### `tenant` — the API accepts and scopes nothing
+### `tenant` — there is no tenant parameter on `/api/query` at all
 
 Creating a tenant answered **201** and dropping one answered
 **204**; every tenant — including one that has never existed —
 saw the same graph, and dropping the tenant deleted nothing
 (`True`).
 
-The probe asserts the 201 rather than storing whatever it gets. Its first
-version sent only `id`, got a 422, and would have recorded the API as
-*refusing* these calls — contradicting the issue and reporting the defect as
-absent. **A defect probe reporting a false absence is the worst outcome
-available to it**, so a status other than 201 now stops the run.
+**"`tenant` is ignored" is the weaker claim, and it was unfalsifiable.** A
+field named `zzz_not_a_field` produces a byte-identical response — status
+200, the same count of
+2 — so the engine discards unknown body
+fields wholesale, and `etl/engine.py` already records that `/api/query`
+accepts only `query` and `graph`. Keyed on "every tenant sees one graph"
+alone, the finding would read true forever, INCLUDING on an engine with
+perfect isolation.
+
+With that null control beside it the finding sharpens into something a reader
+can act on: `reads_as_no_tenant_parameter`
+**True**. Not a scoping bug to be fixed — a
+parameter that was never there.
+
+The probe asserts the 201 rather than storing whatever it gets, and now
+checks the three QUERY statuses too
+(`default 200, probe-scratch 200, nonexistent-tenant-xyz 200`).
+Its first version sent only `id`, got a 422, and would have recorded the API
+as *refusing* these calls — contradicting the issue and reporting the defect
+as absent. The 422 guard then covered only the create, so a create at 201
+with the queries at 400 gave three `None` counts, one distinct value, and a
+verdict of **FIXED**. **A defect probe reporting a false absence is the worst
+outcome available to it**, so both now stop the run.
 
 ### `MERGE` — the index is ignored
 
 | nodes in label | `MERGE` /sec | `CREATE` /sec | `MATCH` /sec |
 |---:|---:|---:|---:|
-| 1,000 | 563.9 | 821.1 | 772.0 |
-| 4,000 | 383.8 | 804.5 | 766.7 |
-| 8,000 | 164.0 | 799.1 | 782.4 |
-| 16,000 | 87.1 | 788.3 | 726.5 |
+| 1,000 | 658.8 | 813.7 | 822.7 |
+| 4,000 | 507.3 | 824.4 | 812.9 |
+| 8,000 | 297.4 | 807.6 | 800.0 |
+| 16,000 | 156.8 | 780.9 | 796.0 |
 
-Over that range `MERGE` fell **6.5x** while `MATCH` moved
-1.1x. The isolating control is the last figure: the same
+Each rate is the **median of 3 measurements**, not one
+draw. That is not tidiness: on a single run this verdict landed *inside its
+own noise band* — MERGE fell 8.0x and MATCH fell 1.9x against a rule
+requiring MATCH to fall under 2.0x, a 5% margin on an idle laptop. On a
+busier machine it flips and the probe reports #169 **fixed**, the one outcome
+it exists never to produce. With three draws MATCH moves
+1.0x, which is a factor of two clear of the threshold rather
+than a twentieth.
+
+Over that range `MERGE` fell **4.2x** while `MATCH` moved
+1.0x. The isolating control is the last figure: the same
 `MERGE` statement against a fresh, nearly-empty label ran at
-**759.8/sec** — full speed, with the SAME uniqueness constraint declared
+**817.3/sec** — full speed, with the SAME uniqueness constraint declared
 on it. Without that the control differed in two variables and a fast result
 could have meant either a small label or an absent index. It is the size of
 the label being merged into, not the statement.
