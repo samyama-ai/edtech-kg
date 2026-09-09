@@ -20,6 +20,10 @@ so a completions slice from any other state answers a different question.
 `count`; a walk that ends with fewer rows than that has truncated, and every
 figure downstream would understate silently. The same for an empty result: a
 table that answers with nothing has not told us there is nothing.
+
+Exit codes, because telling the two refusals apart is the point of having
+them: **1** the source did not answer, or answered without a count; **3** the
+walk came up short, or the cached slice does not check out. 0 otherwise.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import sys
 import time
@@ -55,6 +60,12 @@ TABLES = {
                 "demographic — the volume the slice exists to bound",
     },
 }
+
+
+#: What `main` returns, because a caller distinguishing "the walk came up
+#: short" from "the source did not answer" is the entire point of refusing.
+EXIT_UNREACHABLE = 1
+EXIT_TRUNCATED = 3
 
 
 class Unreachable(RuntimeError):
@@ -120,6 +131,23 @@ def fetch(name: str, table: dict, force: bool = False) -> dict:
     path = CACHE / f"{name}-{FIPS}-{YEAR}.json"
     if path.exists() and not force:
         held = json.loads(path.read_text(encoding="utf-8"))
+        # **CHECKED ON THE READ PATH TOO.** The completeness check used to run
+        # only on the fetch that wrote the file, so a truncated or hand-edited
+        # slice on disk was served as trustworthy — and this module is the
+        # "later reader" the stored counts exist for. A cache that skips the
+        # check it was built to make possible is worse than no cache.
+        if not held.get("rows"):
+            raise Truncated(f"{path.name}: the cached slice holds no rows.")
+        if held.get("rows_collected") != held.get("count_reported"):
+            raise Truncated(
+                f"{path.name}: the cached slice reports "
+                f"{held.get('count_reported')!r} rows and holds "
+                f"{held.get('rows_collected')!r}. Re-fetch it with --force.")
+        if len(held["rows"]) != held["rows_collected"]:
+            raise Truncated(
+                f"{path.name}: the cached slice says it holds "
+                f"{held['rows_collected']:,} rows and carries "
+                f"{len(held['rows']):,}.")
         return {**held, "from_cache": True, "path": str(path.relative_to(ROOT))}
 
     rows, total = walk(table["url"])
@@ -149,7 +177,15 @@ def fetch(name: str, table: dict, force: bool = False) -> dict:
                                 .strftime("%Y-%m-%d"),
         "rows": rows,
     }
-    path.write_text(json.dumps(held), encoding="utf-8")
+    # Written aside and moved into place. 190,770 rows is a large single
+    # write, and a Ctrl-C or a full disk part-way through leaves a partial
+    # file at the cache path — which the next run takes as its cache and dies
+    # on, from a line that reads like a bug in the reader. A truncated
+    # artefact that looks complete is the failure this whole module is about,
+    # arriving through the write instead of through the walk.
+    scratch = path.with_name(path.name + ".part")
+    scratch.write_text(json.dumps(held), encoding="utf-8")
+    os.replace(scratch, path)
     return {**held, "from_cache": False, "path": str(path.relative_to(ROOT))}
 
 
@@ -163,6 +199,13 @@ def check() -> dict:
     for name, table in TABLES.items():
         body = get(f"{table['url']}?fips={FIPS}&per_page=1")
         total = body.get("count")
+        if total is None:
+            # `walk` refuses here with a message that says why; `--check`
+            # formatted None with `:,` and died on a TypeError instead —
+            # the same conclusion reached as a traceback.
+            raise Unreachable(
+                f"{table['url']} answered without a count, so the size of a "
+                f"walk cannot be reported before starting one")
         sizes[name] = {
             "rows": total,
             "pages": (total + PER_PAGE - 1) // PER_PAGE if total else None,
@@ -178,7 +221,10 @@ def main(argv: list[str] | None = None) -> int:
                              "nothing.")
     parser.add_argument("--force", action="store_true",
                         help="Re-fetch even where a cached copy exists.")
-    parser.add_argument("--only", nargs="*", default=None,
+    # `nargs="+"`, not `"*"`. With `"*"`, a bare `--only` yields `[]`, the
+    # `if args.only` test is false, and it downloads EVERY table — the
+    # opposite of what the flag reads as.
+    parser.add_argument("--only", nargs="+", default=None,
                         choices=sorted(TABLES),
                         help="Fetch only these tables.")
     args = parser.parse_args(argv)
@@ -200,10 +246,10 @@ def main(argv: list[str] | None = None) -> int:
                   f"-> {held['path']}")
     except Truncated as short:
         print(f"refusing the download: {short}", file=sys.stderr)
-        return 3
+        return EXIT_TRUNCATED
     except Unreachable as gone:
         print(f"unreachable: {gone}", file=sys.stderr)
-        return 1
+        return EXIT_UNREACHABLE
     return 0
 
 
