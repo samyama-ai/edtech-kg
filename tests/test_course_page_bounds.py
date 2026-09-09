@@ -73,7 +73,7 @@ def test_an_attribute_holding_a_comment_close_does_not_reach_the_text():
     prerequisite — which is exactly what round 3 was written to fix, arriving
     through the other door.
     """
-    assert course_page.plain('<div title="-->">Real text</div>') == "Real text"
+    assert course_reader.plain('<div title="-->">Real text</div>') == "Real text"
     markup = ('<div class="field--name-field-pr">'
               '<div data-tip="-->">None.</div></div>')
     assert course_page.classify(markup, set())["kind"] == "says none"
@@ -311,9 +311,9 @@ def test_plain_survives_a_region_ending_tag():
     sets it to None — so `plain('<div>hi</div></article>')` raised
     AttributeError. It is a public helper in an ETL module and a whole page is
     the obvious thing to pass it."""
-    assert course_page.plain("<div>hi</div></article>") == "hi"
-    assert course_page.plain("before<footer>f</footer>") == "before"
-    assert course_page.plain("<body>x</body>") == "x"
+    assert course_reader.plain("<div>hi</div></article>") == "hi"
+    assert course_reader.plain("before<footer>f</footer>") == "before"
+    assert course_reader.plain("<body>x</body>") == "x"
 
 
 def test_a_self_closing_div_does_not_unbalance_the_stack():
@@ -376,3 +376,119 @@ def test_the_nesting_ceiling_is_a_fixed_number_of_elements():
     assert course_reader.MAX_NESTING < 60, (
         "the ceiling is above the depth this test builds, so it no longer "
         "exercises it")
+
+
+# --------------------------------------------------------------------------
+# Round six. Two more of the same family: the reader knew a region was
+# untrustworthy and then forgot, and the ceiling it measured was the page's
+# rather than the field's.
+
+
+def test_once_a_field_is_unbound_nothing_re_binds_it():
+    """**The invariant.** `bounded` was ASSIGNED rather than latched, so a
+    field poisoned mid-way had its own closing tag arrive with an empty
+    `implied` list and set it back to True.
+
+    `<b><i>y</b></i>` is routine WYSIWYG output — not malformed enough that
+    anyone would expect a refusal, and exactly what silently truncates. The
+    content after the poisoning point was gone and the field reported as
+    sound, so `classify` read it confidently:
+
+        <div class="field--name-field-prerequisite-courses">
+          <a href="/m/a">A1</a><b><i>y</b></i><a href="/m/b">A2</a></div>
+
+        -> {'kind': 'typed', 'links': ['/m/a']}      # a two-course list
+
+    That under-counts `links`, the denominator of the resolution claim, and
+    can move a page out of `typed` altogether.
+    """
+    truncated = ('<div class="field--name-field-prerequisite-courses">'
+                 '<a href="/m/a">A1</a><b><i>y</b></i>'
+                 '<a href="/m/b">A2</a></div>')
+    found = course_page.classify(truncated, {"/m/a", "/m/b"})
+    assert found["kind"] == "unbounded field", found
+    assert "links" not in found, "a truncated list was reported as complete"
+
+    field = course_page.read_fields(truncated)["prerequisite-courses"]
+    assert field.broken is True
+    assert field.bounded is False
+
+
+def test_a_mis_nest_before_any_content_does_not_report_an_empty_field():
+    """The other repro: the poisoning happens first, so the field comes back
+    `typed but no course link` with the link simply gone — a MEASURED empty
+    field rather than a refusal, which is the worse of the two answers."""
+    found = course_page.classify(
+        '<div class="field--name-field-prerequisite-courses">'
+        '<b><i>x</b></i><a href="/m/a">A1</a></div>', {"/m/a"})
+    assert found["kind"] == "unbounded field", found
+
+
+def test_a_prose_field_truncated_by_a_mis_nest_is_not_read_as_a_denial():
+    """**Round 5's finding 2, arriving through another door.** Dropping text
+    after a mis-nest can leave exactly `None.` behind, which fires
+    `SAYS_NONE` — a stated prerequisite recorded as a denial, in the field
+    the headline metric is built on."""
+    found = course_page.classify(
+        '<div class="field--name-field-pr">None. <b><i>x</b></i>'
+        'Algebra 1 required.</div>', set())
+    assert found["kind"] == "unbounded field", found
+
+
+def test_the_nesting_ceiling_measures_the_field_not_the_page():
+    """**`MAX_NESTING` counted from the document root.** The probe feeds
+    whole pages, so `html`, `body` and the theme's wrappers were on the stack
+    before the field opened. Measured on well-formed, fully-closed markup: 25
+    wrapper divs read correctly and 29 came back as an empty field. 29 is not
+    exotic for Drupal theme output.
+
+    And it came back BOUNDED, so it read as a measured empty field rather
+    than a refusal — which is why the committed record contains no
+    `unbounded field` entries in any district, and why that absence was never
+    evidence the reader had stayed inside its bounds.
+    """
+    for wrappers in (25, 29, 60, 200):
+        markup = ("<html><body>" + "<div>" * wrappers
+                  + '<div class="field--name-field-prerequisite-courses">'
+                    '<a href="/m/a">A1</a></div>'
+                  + "</div>" * wrappers + "</body></html>")
+        found = course_page.classify(markup, {"/m/a"})
+        assert found["kind"] == "typed", (wrappers, found)
+        assert found["links"] == ["/m/a"], wrappers
+
+
+def test_the_ceiling_still_catches_nesting_inside_the_field():
+    """Scoping it to the field must not switch it off. Markup that opens
+    without closing grows the stack without bound, and the ceiling is what
+    keeps a wrong structure finite."""
+    markup = ('<div class="field--name-field-prerequisite-courses">'
+              + "<section>" * 60 + '<a href="/m/a">A1</a>')
+    assert course_page.classify(markup, {"/m/a"})["kind"] == "unbounded field"
+
+
+def test_a_block_element_closes_an_open_paragraph():
+    """`_imply_ends_before` was tested only on its `<li>`-closes-`<li>` half.
+    Dropping the `<p>`-closes-block branch left 1,607 tests passing, so the
+    22-entry `CLOSES_A_PARAGRAPH` constant was unexercised — a list the code
+    could not be shown to act on."""
+    markup = ('<div class="field--name-field-pr">'
+              '<p>Teacher recommendation<div>note</div></div>'
+              '<div class="field--name-field-notes"><p>goggles</div>')
+    fields = course_page.read_fields(markup)
+    assert "notes" in fields, "the sibling field was swallowed"
+    assert "goggles" not in fields["pr"].readable()
+
+
+def test_a_void_element_can_close_a_paragraph():
+    """`<hr>` is in `CLOSES_A_PARAGRAPH` and is also void, and the void check
+    returned BEFORE `_imply_ends_before` — so the constant listed an element
+    the code could not act on. Harmless while `p` is in `OPTIONAL_END`, which
+    is the kind of harmless that stops being harmless when one of the two
+    lists is edited."""
+    reader = course_reader.FieldReader()
+    reader.feed('<div class="field--name-field-pr"><p>a<hr>b</div>')
+    reader.close()
+    assert reader.fields["pr"].readable() == "a b" or \
+        reader.fields["pr"].readable() == "ab"
+    assert reader.fields["pr"].bounded, (
+        "an <hr> inside a paragraph made the field unbounded")

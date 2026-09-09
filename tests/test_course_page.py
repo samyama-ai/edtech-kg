@@ -349,8 +349,8 @@ def test_a_comment_leaves_no_stray_marker_in_the_text():
     """`<[^>]+>` stops at the first `>`, so `<!-- <div> -->` left a stray
     `-->` — which then read as prose content and, in a prose field, as a
     stated prerequisite."""
-    assert "-->" not in course_page.plain("<!-- <div> -->text")
-    assert course_page.plain("<!-- x --> Real text") == "Real text"
+    assert "-->" not in course_reader.plain("<!-- <div> -->text")
+    assert course_reader.plain("<!-- x --> Real text") == "Real text"
 
 
 def test_an_unclosed_div_cannot_swallow_the_rest_of_the_page():

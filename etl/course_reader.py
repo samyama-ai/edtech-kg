@@ -110,8 +110,21 @@ class Field:
 
     def __init__(self, name: str):
         self.name = name
+        #: **STICKY.** Once anything falsifies this region, nothing re-binds
+        #: it. `bounded` was assigned rather than latched, so a field poisoned
+        #: mid-way — by a mis-nest, a region end, or the nesting ceiling —
+        #: had its own closing tag arrive with an empty `implied` list and set
+        #: it back to True. The content after the poisoning point was gone and
+        #: the field reported as sound, so `classify` read it confidently
+        #: instead of refusing.
+        self.broken = False
         self.text: list[str] = []
         self.links: list[str] = []
+        self.bounded = False
+
+    def falsify(self):
+        """This region can no longer be stood behind. Irreversible."""
+        self.broken = True
         self.bounded = False
 
     def readable(self) -> str:
@@ -171,6 +184,9 @@ class FieldReader(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.fields: dict[str, Field] = {}
         self.open: Field | None = None
+        #: How deep the stack was when `open` opened, so the ceiling measures
+        #: the FIELD's nesting rather than the page's.
+        self.open_at = 0
         #: (element name, the Field this element opened, or None)
         self.stack: list[tuple[str, Field | None]] = []
         self.silent = 0          # inside a script/style/template/noscript
@@ -196,16 +212,21 @@ class FieldReader(HTMLParser):
             self.stack.append((tag, None))
             return
 
-        if tag in VOID:
-            return
-
         if tag == "footer" and not self.silent:
             # A `<footer>` inside a `<template>` used to stop the whole page
             # and discard everything real after it.
             self._stop()
             return
 
+        # **BEFORE the void check, not after.** `<hr>` is in
+        # `CLOSES_A_PARAGRAPH` and is also void, and returning first meant it
+        # never closed an open `<p>` — the constant listed an element the
+        # code could not act on. Harmless while `p` is in `OPTIONAL_END`,
+        # which is exactly the kind of harmless that stops being harmless
+        # when one of the two lists is edited.
         self._imply_ends_before(tag)
+        if tag in VOID:
+            return
 
         # **Only when nothing is open.** A field nested inside an open one is
         # a SUB-field — routine in a Drupal entity-reference teaser, where
@@ -220,9 +241,24 @@ class FieldReader(HTMLParser):
             field = Field(name)
             self.fields[name] = field
             self.open = field
+            self.open_at = len(self.stack)
         self.stack.append((tag, field))
 
-        if len(self.stack) > MAX_NESTING:
+        # **DEPTH WITHIN THE OPEN FIELD, not from the document root.** The
+        # probe feeds whole pages, so `html`, `body` and the theme's wrappers
+        # were on the stack before the field even opened: measured on
+        # well-formed, fully-closed markup, 25 wrapper divs read correctly
+        # and 29 came back as an empty field. 29 is not exotic for Drupal
+        # theme output.
+        #
+        # And it came back `bounded`, so it read as a MEASURED empty field
+        # rather than a refusal — which is why the committed record contains
+        # no `unbounded field` entries in any district, and why that absence
+        # was never evidence the reader had stayed inside its bounds.
+        #
+        # The docstring on MAX_NESTING already described the field's own
+        # markup; this is the counter catching up with it.
+        if self.open is not None and len(self.stack) - self.open_at > MAX_NESTING:
             # Runaway rather than deep. Even with a stack, markup that opens
             # without closing grows it without bound.
             self._unbind_everything()
@@ -261,7 +297,7 @@ class FieldReader(HTMLParser):
 
         for name, field in reversed(self.stack[depth:]):
             if field is not None:
-                field.bounded = not malformed
+                field.bounded = not malformed and not field.broken
                 if self.open is field:
                     self.open = None
             if name in NOT_TEXT:
@@ -269,7 +305,7 @@ class FieldReader(HTMLParser):
         del self.stack[depth:]
 
         if malformed and self.open is not None:
-            self.open.bounded = False
+            self.open.falsify()
             self.open = None
 
     def _imply_ends_before(self, tag):
@@ -291,7 +327,7 @@ class FieldReader(HTMLParser):
             if not implied:
                 return
             if field is not None:
-                field.bounded = True
+                field.bounded = not field.broken
                 if self.open is field:
                     self.open = None
             self.stack.pop()
@@ -314,9 +350,9 @@ class FieldReader(HTMLParser):
     def _unbind_everything(self):
         for _, field in self.stack:
             if field is not None:
-                field.bounded = False
+                field.falsify()
         if self.open is not None:
-            self.open.bounded = False
+            self.open.falsify()
         self.open = None
 
     def close(self):

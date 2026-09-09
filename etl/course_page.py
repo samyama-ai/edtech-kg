@@ -42,7 +42,7 @@ import html
 import re
 
 from etl.course_page_fields import FIELD_OPENS       # noqa: F401  (re-exported)
-from etl.course_reader import Field, read_fields, plain, hrefs   # noqa: F401
+from etl.course_reader import read_fields
 
 #: A CANDIDATE course path — two segments. **Candidate, not course**: the
 #: repo's own classifier decides, by markup rather than depth. PWCS publishes

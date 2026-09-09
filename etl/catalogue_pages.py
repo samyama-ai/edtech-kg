@@ -17,7 +17,8 @@ import time
 import urllib.error
 import urllib.request
 
-from etl.course_page import COURSE_PATH, hrefs, same_host
+from etl.course_page import COURSE_PATH, same_host
+from etl.course_reader import hrefs
 from etl.identity import USER_AGENT
 
 #: Seconds between requests to one host. The politeness budget, and the reason
