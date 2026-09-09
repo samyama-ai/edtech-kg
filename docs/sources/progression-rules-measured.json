@@ -1,0 +1,84 @@
+{
+  "_": "Measured by `python -m etl.probe_progression_rules --record`. Q93 is read from articulation-measured.json (edtech-kg#42) rather than re-measured, so the two pages cannot drift.",
+  "retrieved_at": "2026-09-08",
+  "q39_admission_rules": {
+    "endpoint": "https://educationdata.urban.org/api/v1/college-university/ipeds/admissions-requirements/2022/",
+    "institutions": 6138,
+    "fields": 48,
+    "requirement_flags": [
+      "reqt_ability_to_benefit",
+      "reqt_age",
+      "reqt_college_prep",
+      "reqt_competencies",
+      "reqt_hs_diploma",
+      "reqt_hs_gpa",
+      "reqt_hs_rank",
+      "reqt_hs_record",
+      "reqt_legacy_status",
+      "reqt_other",
+      "reqt_other_test",
+      "reqt_personal_statement",
+      "reqt_recommendations",
+      "reqt_residence",
+      "reqt_sat_scores",
+      "reqt_test_scores",
+      "reqt_toefl",
+      "reqt_work"
+    ],
+    "fields_naming_a_course": [],
+    "institutions_requiring_coursework": {
+      "reqt_college_prep": 653,
+      "reqt_competencies": 176,
+      "reqt_hs_record": 1733
+    }
+  },
+  "published_as_prose": {
+    "Q57 state graduation requirements": {
+      "ecs": {
+        "url": "https://www.ecs.org/50-state-comparison-high-school-graduation-requirements/",
+        "status": 403,
+        "bytes": 0,
+        "is_json": false,
+        "html_tables": 0,
+        "downloadable_files": []
+      },
+      "nces": {
+        "url": "https://nces.ed.gov/programs/statereform/tab1_1.asp",
+        "status": 200,
+        "bytes": 60710,
+        "is_json": false,
+        "html_tables": 2,
+        "downloadable_files": []
+      }
+    },
+    "Q58 accreditor scope": {
+      "dapip": {
+        "url": "https://ope.ed.gov/dapip/#/download-data-files",
+        "status": 200,
+        "bytes": 1225,
+        "is_json": false,
+        "html_tables": 0,
+        "downloadable_files": []
+      }
+    }
+  },
+  "q93_articulation": {
+    "available": true,
+    "source": "docs/sources/articulation-measured.json",
+    "retrieved_at": "2026-09-08",
+    "endpoints_searched": 129,
+    "endpoints_naming_a_course_level_rule": 0,
+    "institution_level_flags": [
+      "ap_credit",
+      "credit_for_life",
+      "dual_credit",
+      "military_training_credit"
+    ]
+  },
+  "code": {
+    "commit": "d212d5bb9c27edb71e3ae77f76933bf0d6a2a09d",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}

@@ -154,10 +154,11 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     if args.record:
-        # Through the shared writer (#171/#176), so the record carries the
-        # commit that produced it. This branch merged after that guard landed
-        # and turned main red — the same pair-of-green-branches failure the
-        # guard was written for, a second time.
+        # Through the one stamped writer, like the other twelve. Writing the
+        # JSON here instead left this record with no `code` stamp, so the
+        # DATASET-CARD sentence "records carry a `code` stamp" was false of
+        # this one file — which is exactly the drift `write_record` exists to
+        # stop, arriving through the probe that skipped it.
         write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     elif args.json:

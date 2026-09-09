@@ -1,6 +1,6 @@
 {
   "_": "Measured by `python -m etl.probe_texas_cte`. Counts are over the whole published table, not a sample.",
-  "retrieved_at": "2026-09-07",
+  "retrieved_at": "2026-09-09",
   "source": "https://tealprod.tea.state.tx.us/TWEDS/103/1131/2258/0/CodeTable/DownloadAll",
   "tables_in_download": 130,
   "courses": {
@@ -74,9 +74,9 @@
     }
   },
   "code": {
-    "commit": "e9e02e64bf88589f6317c239a6dec65662e84000",
+    "commit": "4592c8dcc657836ec6d178bc4bea02af9b689e2e",
     "dirty": false,
     "package": "0.1.0",
-    "backfilled": "The commit that CONTAINS this record, not the tree the probe ran against — the record predates `write_record`. Weaker than a live stamp: it bounds the code that produced these figures rather than naming it. Re-running the probe replaces this."
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
   }
 }
