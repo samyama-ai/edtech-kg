@@ -1,7 +1,8 @@
 # CASE: the specification is real; the registry is not reachable as data
 
 **Every figure here was printed by `python -m etl.probe_case`.** The record is
-`case-measured.json`; `tests/test_case_doc.py` fails if this page and that
+[`docs/sources/case-measured.json`](../sources/case-measured.json);
+`tests/test_case_doc.py` fails if this page and that
 record disagree, in either direction.
 
     python -m etl.probe_case --record
@@ -55,13 +56,16 @@ creators**. But the creators are not state education agencies:
 working CASE endpoint holding demonstration data — which is what a reference
 implementation is for, and is not fifty states.
 
-**No document carries a licence field of any kind.** Checked as the CASE
-v1p0 model spells it — `licenseUri` — and as three plausible alternatives:
+**No document carries a licence field of any kind.** Checked as the CASE v1p0
+model spells it — `licenseURI`, with a capital `URI` — and as four
+alternatives kept deliberately:
 
 | field | documents carrying it |
 |---|---:|
+| `licenseURI` | 0 |
 | `licenseUri` | 0 |
 | `licenceUri` | 0 |
+| `licenceURI` | 0 |
 | `rights` | 0 |
 | `rightsHolder` | 0 |
 
@@ -69,11 +73,21 @@ The zero is checkable because the **whole key set is recorded**: across all
 95 documents the server publishes
 17 distinct keys, and licensing is not among them.
 
-An earlier version of this page counted `licenceUri` — the British spelling,
-which is in no version of the specification — so the zero was a property of
-the key name rather than of OpenSALT, and the test could not catch it because
-the fixture fed the same misspelling. The count agreed with itself. Recording
-what the documents actually carry is what makes the claim checkable.
+**This page has now got that spelling wrong twice.** The first version counted
+`licenceUri` — the British spelling, in no version of the specification — so
+the zero was a property of the key name rather than of OpenSALT, and the test
+could not catch it because the fixture fed the same misspelling. The count
+agreed with itself.
+
+The correction introduced `licenseUri`, and said it was *"the CASE v1p0
+spelling"*. It is not. The model spells it `licenseURI`. So the second version
+had the same defect as the first, one letter further along, and a test pinned
+the new wrong string exactly as the old one had.
+
+The conclusion survived both times **because of the key dump, not because of
+the detector**. That is the argument for recording what the documents actually
+carry: a field-name check can only ever confirm the name you thought of, and
+this page thought of the wrong one twice running.
 
 ## Route 3 — CPALMS serves one document for every course
 

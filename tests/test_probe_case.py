@@ -8,7 +8,9 @@ different things.
 
 from __future__ import annotations
 
+import io
 import json
+import urllib.error
 
 import pytest
 
@@ -143,3 +145,96 @@ def test_distinct_documents_are_not_reported_as_a_shell(monkeypatch):
     assert found["distinct_documents"] == len(probe.CPALMS_COURSES)
     assert found["serves_one_document_for_every_course"] is False
     assert all(p["names_its_own_course_id"] for p in found["pages"])
+
+
+def test_a_refusals_body_is_recorded_not_discarded(monkeypatch):
+    """**Blocker 1.** `return refused.code, ""` threw away the most
+    informative thing on route 1.
+
+    The two spec paths answer `{"message": "Invalid credentials provided 1"}`
+    — 44 bytes of `application/json`. Discarded, the record showed
+    `bytes: 0`, which is an artefact of the discard published in a table of
+    measurements; and the page then read the silence as "CASE Network 2 is a
+    browser application" when the body says it is an authenticated API asking
+    for credentials.
+    """
+    class Refused(urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__("https://x/CFDocuments", 403, "Forbidden", {},
+                             io.BytesIO(
+                                 b'{"message":"Invalid credentials provided 1"}'))
+
+    def raise_403(request, timeout=None):
+        raise Refused()
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen", raise_403)
+    status, body = probe.fetch("https://x/CFDocuments")
+    assert status == 403
+    assert "Invalid credentials" in body, (
+        "the refusal's body was discarded, so `bytes: 0` is the probe's own "
+        "doing rather than a measurement")
+
+
+def test_the_refusals_body_is_not_mistaken_for_case_json():
+    """**Blockers 1 and 3 interact, which is why they land together.**
+    Reading the 403 body without tightening the JSON test would have inverted
+    route 1's conclusion: `{"message": "…"}` parses, so a bare `json.loads`
+    would report the path as serving CASE JSON."""
+    assert not probe.is_case_json('{"message":"Invalid credentials provided 1"}')
+
+
+def test_case_json_means_a_case_payload_not_merely_parseable(monkeypatch):
+    """`serves_case_json` and `reachable_as_data` used to flip True on ANY
+    parseable JSON — so "0 paths serve CASE JSON" was a claim about the
+    absence of a body, not about its shape."""
+    for not_case in ('{"anything": 1}', "[]", '"a string"', "42",
+                     '{"error": "nope"}'):
+        assert not probe.is_case_json(not_case), not_case
+    for case in ('{"CFDocuments": []}', '{"CFDocument": {"identifier": "x"}}',
+                 '{"CFItems": [], "extra": 1}'):
+        assert probe.is_case_json(case), case
+
+
+def test_the_spec_spelling_of_the_licence_field_is_among_those_checked():
+    """**Blocker 2, and the same defect twice.** CASE v1p0 spells it
+    `licenseURI`. The first version of this probe looked for `licenceUri`
+    (British, in no version of the model); the correction looked for
+    `licenseUri` and called it "the CASE v1p0 spelling". It is not.
+
+    A zero beside a key that no version of the model defines is guaranteed
+    before a document is read. The conclusion held both times because
+    `keys_observed` records what the documents actually carry — the dump
+    caught it, the detector never did.
+
+    The wrong spellings stay as negative controls: finding one on a live
+    document would say something worth knowing about the publisher.
+    """
+    assert "licenseURI" in probe.LICENCE_FIELDS, (
+        "the spelling the specification uses is not among those checked")
+    for control in ("licenseUri", "licenceUri", "licenceURI"):
+        assert control in probe.LICENCE_FIELDS, control
+
+
+def test_the_report_prints_a_licence_figure_that_exists(monkeypatch, capsys):
+    """`report()` read `salt.get('documents_with_a_licence_uri', 0)` — a key
+    the probe stopped producing — so it printed a LITERAL 0 and would keep
+    printing 0 if OpenSALT started publishing licences.
+
+    Nothing drove the reporting path, which is how a stale key survives on the
+    one output a human actually reads.
+    """
+    found = {
+        "case_network": {"base": "https://x", "root_status": 200,
+                         "root_bytes": 10, "paths": {},
+                         "serves_case_json": [], "reachable_as_data": False},
+        "opensalt": {"base": "https://y", "status": 200, "documents": 95,
+                     "distinct_creators": 39, "top_creators": [],
+                     "keys_observed": ["identifier"],
+                     "documents_by_licence_field": {"licenseURI": 3}},
+        "cpalms": {"base": "https://z", "answered": 0, "pages": [],
+                   "standard_links": 0, "standard_codes": 0,
+                   "distinct_documents": 0},
+    }
+    probe.report(found)
+    printed = capsys.readouterr().out
+    assert "3 carrying a licence field" in printed, printed

@@ -19,7 +19,7 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs" / "standards" / "case.md"
-RECORD = json.loads((ROOT / "docs" / "standards"
+RECORD = json.loads((ROOT / "docs" / "sources"
                      / "case-measured.json").read_text("utf-8"))
 PAGE = re.sub(r"\s+", " ", DOC.read_text(encoding="utf-8"))
 NET, SALT, FL = RECORD["case_network"], RECORD["opensalt"], RECORD["cpalms"]
@@ -136,3 +136,22 @@ def test_the_measurement_is_dated_and_says_to_re_run():
         f"the page does not carry the measurement date "
         f"{RECORD['retrieved_at']}")
     assert "Re-run the probe" in PAGE
+
+
+def test_the_licence_table_lists_exactly_the_fields_the_probe_checks():
+    """**Nothing pinned this table, and the page has had the spelling wrong
+    twice.** A row can be added, removed or misspelled on the page while the
+    probe checks something else, and the reader has no way to tell.
+
+    Removing `licenseURI` from `LICENCE_FIELDS` left every doc test green
+    until this existed — which is how the second wrong spelling shipped.
+    """
+    from etl.probe_case import LICENCE_FIELDS
+    # Read from the FILE, not from PAGE — PAGE has its whitespace collapsed,
+    # which destroys the line structure a table row is defined by.
+    rows = set(re.findall(r"^\| `([A-Za-z]+)` \| \d+ \|$",
+                          DOC.read_text(encoding="utf-8"), re.M))
+    assert rows == set(LICENCE_FIELDS), (
+        f"the page's licence table and the probe disagree: "
+        f"page has {sorted(rows - set(LICENCE_FIELDS))} extra, "
+        f"missing {sorted(set(LICENCE_FIELDS) - rows)}")

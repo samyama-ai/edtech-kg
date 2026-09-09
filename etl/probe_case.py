@@ -42,7 +42,12 @@ from etl.identity import USER_AGENT
 from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-RECORD = ROOT / "docs" / "standards" / "case-measured.json"
+#: **In `docs/sources/`, not beside the page.** `tests/test_provenance.py`
+#: scans `docs/sources/*.json` for the `code` stamp, and this file sat outside
+#: it — so the guard that made a sibling PR red could not fire here, and the
+#: stamp was correct by luck rather than by check. It measures three external
+#: publishers, which is what that directory is for.
+RECORD = ROOT / "docs" / "sources" / "case-measured.json"
 RECORD_NOTE = ("Measured by `python -m etl.probe_case --record`. Each route "
                "records the status it answered with, so a 403 is a measured "
                "refusal and not an absence.")
@@ -87,7 +92,18 @@ def fetch(url: str) -> tuple[int | str, str]:
         with urllib.request.urlopen(request, timeout=45) as response:
             return response.status, response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as refused:
-        return refused.code, ""
+        # **THE REFUSAL'S BODY IS READ.** Discarding it recorded `bytes: 0,
+        # is_json: false` for the two spec paths — an artefact of the discard,
+        # published in a table of measurements.
+        #
+        # It also threw away what the refusal SAYS. Those paths answer
+        # `{"message":"Invalid credentials provided 1"}` as 44 bytes of
+        # application/json: they are an authenticated API asking for
+        # credentials, not an absence. "CASE Network 2 is a browser
+        # application" over-reads that; "no UNAUTHENTICATED machine route"
+        # is what the body supports, and it points at asking 1EdTech rather
+        # than at a dead end.
+        return refused.code, refused.read().decode("utf-8", "replace")
     except (urllib.error.URLError, TimeoutError, OSError) as gone:
         raise Unreachable(f"{url}: {gone}") from gone
 
@@ -107,12 +123,12 @@ def case_network() -> dict:
         paths[path] = {
             "status": status,
             "bytes": len(body),
-            "is_json": _is_json(body),
+            "is_case_json": is_case_json(body),
             # The tell: a path answering 200 with the ROOT's markup is the
             # app's own catch-all, not an endpoint.
             "same_as_root": bool(body) and body == root,
         }
-    served = [p for p, f in paths.items() if f["is_json"]]
+    served = [p for p, f in paths.items() if f["is_case_json"]]
     return {
         "base": CASE_NETWORK,
         "root_status": root_status,
@@ -123,14 +139,31 @@ def case_network() -> dict:
     }
 
 
-def _is_json(body: str) -> bool:
+#: What a CASE payload has at its top level. CFDocument, CFDocuments and
+#: CFItems are the containers the v1p0 model defines; a body carrying none of
+#: them is not CASE, whatever else it parses as.
+CASE_KEYS = ("CFDocument", "CFDocuments", "CFItems", "CFPackages",
+             "CFAssociations")
+
+
+def is_case_json(body: str) -> bool:
+    """Does this body carry a CASE payload — not merely "does it parse"?
+
+    **It used to be a bare `json.loads`.** So `serves_case_json` and
+    `reachable_as_data` would flip True on ANY parseable JSON, and reading
+    the refusal's body (which is `{"message": "Invalid credentials provided
+    1"}`) would have inverted route 1's conclusion from "no machine route" to
+    "serves CASE JSON". Two fixes that had to land together.
+    """
     if not body.strip():
         return False
     try:
-        json.loads(body)
-        return True
+        payload = json.loads(body)
     except json.JSONDecodeError:
         return False
+    if not isinstance(payload, dict):
+        return False
+    return any(key in payload for key in CASE_KEYS)
 
 
 def opensalt() -> dict:
@@ -142,7 +175,7 @@ def opensalt() -> dict:
     standards.
     """
     status, body = fetch(f"{OPENSALT}/ims/case/v1p0/CFDocuments")
-    if not _is_json(body):
+    if not is_case_json(body):
         return {"base": OPENSALT, "status": status, "documents": 0,
                 "note": "the reference implementation did not return CASE JSON"}
     docs = json.loads(body).get("CFDocuments") or []
@@ -168,7 +201,20 @@ def opensalt() -> dict:
 #:
 #: A `LinkURI` is an object rather than a bare string, so truthiness is the
 #: test — a populated one is a non-empty dict.
-LICENCE_FIELDS = ("licenseUri", "licenceUri", "rights", "rightsHolder")
+#: **`licenseURI` is the spelling CASE v1p0 uses**, and it was the one
+#: spelling missing. `licenseUri` matches no version of the model, so the zero
+#: beside it was guaranteed before a single document was read — and the page
+#: claimed the field was "checked as the CASE v1p0 model spells it".
+#:
+#: The conclusion survived only because `keys_observed` records every key the
+#: documents actually carry, and none of them was a licence of any spelling.
+#: It held because the DUMP caught it, not because the detector worked.
+#:
+#: The wrong spellings stay, as explicit negative controls: a probe that finds
+#: `licenseUri` on a live document has found something worth knowing about the
+#: publisher, and dropping them would lose that for no gain.
+LICENCE_FIELDS = ("licenseURI", "licenseUri", "licenceUri", "licenceURI",
+                  "rights", "rightsHolder")
 
 
 def licence_fields(docs: list[dict]) -> dict:
@@ -258,14 +304,15 @@ def report(measured: dict) -> None:
     for path, found in net["paths"].items():
         same = "  (the root's own markup)" if found["same_as_root"] else ""
         print(f"    {str(found['status']):<5} {path:<34} "
-              f"json={found['is_json']}{same}")
+              f"case-json={found['is_case_json']}{same}")
     print(f"    reachable as data: {net['reachable_as_data']}\n")
 
     salt = measured["opensalt"]
     print(f"  OpenSALT ({salt['base']})  status {salt['status']}")
     print(f"    {salt.get('documents', 0)} documents from "
           f"{salt.get('distinct_creators', 0)} creators, "
-          f"{salt.get('documents_with_a_licence_uri', 0)} with a licence URI")
+          f"{sum(salt['documents_by_licence_field'].values())} carrying a "
+          f"licence field of any spelling")
     for creator, n in (salt.get("top_creators") or [])[:5]:
         print(f"      {n:>3}  {creator}")
 
