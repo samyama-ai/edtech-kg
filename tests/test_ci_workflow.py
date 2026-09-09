@@ -18,6 +18,7 @@ saves.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -166,16 +167,25 @@ def test_the_checkout_is_given_the_token_it_uses():
     which is a plausible cause of its first run failing and is checkable here
     rather than from a step log nobody can read.
     """
-    import yaml
-
-    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    checkout = [s for s in steps["jobs"]["test"]["steps"]
-                if "GITHUB_TOKEN" in str(s.get("run", ""))]
-    assert checkout, "no step uses GITHUB_TOKEN"
-    for step in checkout:
-        assert "GITHUB_TOKEN" in (step.get("env") or {}), (
-            f"step {step.get('name')!r} uses $GITHUB_TOKEN and never sets it; "
-            f"it expands to empty and the fetch is unauthenticated")
+    # **READ AS TEXT**, like every other check here. The first version of
+    # this test imported `yaml` — which CI does not install, and which this
+    # module's own docstring, three lines from the top, says is deliberately
+    # not a test dependency. On a change whose entire purpose is to make the
+    # tick mean something, that would have been a NEW permanent failure with
+    # nothing to do with the repo.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "$GITHUB_TOKEN" in text, "no step uses the token"
+    # The env mapping has to sit in the same step block as the use. Steps are
+    # separated by `- name:` at a fixed indent, so the block is the text
+    # between this step's header and the next one.
+    blocks = re.split(r"\n      - (?:name|uses):", text)
+    using = [b for b in blocks if "$GITHUB_TOKEN" in b]
+    assert using, "no step block uses $GITHUB_TOKEN"
+    for block in using:
+        assert re.search(r"env:\s*\n\s+GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}",
+                         block), (
+            "a step uses $GITHUB_TOKEN and never sets it in its own env; it "
+            "expands to empty and the fetch goes out unauthenticated")
 
 
 def test_the_checkout_can_run_twice_in_one_workspace():
@@ -270,3 +280,38 @@ def test_a_real_skip_is_recorded_with_its_reason(guard):
 def test_a_passing_test_is_not_recorded(guard):
     guard.pytest_runtest_logreport(_Report("tests/t.py::p", None, skipped=False))
     assert guard._skipped == []
+
+
+def test_this_file_imports_nothing_ci_does_not_install():
+    """**The contract in this module's own docstring, asserted.**
+
+    *"A YAML parser is not in the test dependencies — the suite imports
+    nothing outside the standard library except pytest."* A test here that
+    imports one is a NEW permanent CI failure with nothing to do with the
+    repo, on the file whose whole subject is CI meaning something.
+
+    It happened: `test_the_checkout_is_given_the_token_it_uses` imported
+    `yaml`, three lines under the sentence forbidding it, and the install
+    step in the very workflow under test is
+    `pip install --quiet pytest "setuptools>=61.0"`.
+
+    Asserted rather than remembered, because the next person to want
+    structural parsing will have the same good reason I did.
+    """
+    import ast
+
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+
+    # `conftest` is this repo's own root conftest, not a package.
+    allowed = (set(sys.stdlib_module_names)
+               | {"pytest", "etl", "tests", "conftest"})
+    outside = sorted(imported - allowed)
+    assert not outside, (
+        f"this file imports {outside}, which CI does not install — the "
+        f"workflow's install step is `pip install pytest setuptools`")

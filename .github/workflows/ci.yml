@@ -100,13 +100,28 @@ jobs:
           # `git remote add` exits 3 on it rather than doing nothing.
           git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             2>/dev/null || git remote set-url origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
-          # `$GITHUB_REF` as well as the SHA: on a pull_request event the SHA
-          # can be a merge ref that no branch reaches, and fetching a bare SHA
-          # needs the server to allow arbitrary-SHA want.
-          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')" \
-              fetch --quiet origin "+refs/heads/*:refs/remotes/origin/*" \
-                                   "+${GITHUB_REF}:refs/ci/head" "$GITHUB_SHA"
-          git checkout -q "$GITHUB_SHA"
+          # **The token goes in `.git/config`, not in `argv`.** `git -c
+          # http.extraheader=…` puts it in the process table, where any other
+          # process on the runner can read it. `actions/checkout` does the
+          # same, so this was not a regression — but a self-hosted runner with
+          # reused workspaces is exactly where it costs something.
+          git config --local http.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          # **NO BARE SHA.** Fetching one needs the server to allow
+          # arbitrary-SHA want (`uploadpack.allowAnySHA1InWant`), which is off
+          # by default on many Gitea and Forgejo deployments — so passing it
+          # unguarded under `set -euo pipefail` kills the step on a server
+          # capability nobody here can check. The two refspecs below already
+          # reach the commit in every case: all branches, plus `$GITHUB_REF`,
+          # which on a pull_request event is the merge ref no branch reaches.
+          git fetch --quiet origin "+refs/heads/*:refs/remotes/origin/*" \
+                                   "+${GITHUB_REF}:refs/ci/head"
+          # `-f`: `git init` over a workspace that still holds files from a
+          # prior run leaves them untracked, and checkout then aborts with
+          # "would be overwritten by checkout". That is the half of re-run
+          # safety that is actually fatal — the `git remote add` case just
+          # exits 3 harmlessly.
+          git checkout -q -f "$GITHUB_SHA"
           # **NOT `|| true`.** The size ratchets compare against `main`, and
           # swallowing this makes the one thing this step exists to guarantee
           # silently optional — the ratchets would then skip, and SAMYAMA_CI=1
