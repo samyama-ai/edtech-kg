@@ -38,24 +38,42 @@ Measured in [`docs/sources/federal-direct.md`](docs/sources/federal-direct.md).
 ## What is loaded
 
 **One district.** Prince William County Public Schools, from pages this repo
-cached — 1,098 nodes and 1,287 edges. Everything else above is measured at the
-source and **not loaded**.
+cached — 1,098 nodes and 1,287 edges.
+
+**One state's higher education.** Virginia, data year 2022 —
+147 institutions, 664 programmes and
+58,317 completions, with 58,317 `AT` edges and
+58,317 `IN` edges. **Read back out of the graph after the load, never
+inferred from the input rows** — the loader reports both and the two agree.
+
+| | |
+|---|---|
+| Load time | **1689.0s**, 351,524 statements |
+| Written by | `etl/load_education.py`, from `etl/download_education.py`'s cached slice |
+| Rate curve, the slice, and the schema defect the load found | [`docs/national-spine.md`](docs/national-spine.md) |
+| Rows deliberately dropped | 132,284 recording zero awards, 169 collapsing onto one key |
+| Not loaded, though #7's scope names them | `Occupation`, the CIP–SOC crosswalk, earnings |
+
+Everything else above is measured at the source and **not loaded**.
 
 **Node and edge counts for the other sources are absent, not blank.** No loader
-has run for them. **Sixteen labels are declared and four are written**, so
-twelve hold nothing:
+has run for them. **Sixteen labels are declared and seven are written**, so
+nine hold nothing:
 
 - `schema/edtech_kg.cypher` declares ten. `etl/load_pwcs.py` writes `Course`,
-  `Subject`, `Pathway` and `Requirement`; `Programme`, `Occupation`,
-  `Institution`, `School`, `District` and `Completion` wait on a loader.
+  `Subject`, `Pathway` and `Requirement`; `etl/load_education.py` writes
+  `Institution`, `Programme` and `Completion`; `Occupation`, `School` and
+  `District` wait on a loader.
 - `schema/edtech_kg_tier2.cypher` declares six, all empty: `Credential`,
   `AwardingBody`, `Level`, `Competency`, `EarningsRecord` and `Place`. The
   four Registry labels among them are blocked on the licence above, not on a
   loader.
 
 This said "eight" and named six of the twelve, which is what happens when a
-count is maintained by hand beside a schema that grew. A count of zero would
-read as a measurement; there has been none.
+count is maintained by hand beside a schema that grew — and it then said
+"four" and "twelve" for a while after a loader had made both wrong, which is
+the same failure a second time. A count of zero would read as a measurement;
+for the nine there has been none.
 
 ## Licences, and what may be done with each
 

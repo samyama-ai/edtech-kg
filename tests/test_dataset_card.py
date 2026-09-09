@@ -38,7 +38,7 @@ def grouped(text: str) -> set[int]:
 def test_the_records_the_card_rests_on_all_exist():
     """A card built from records that have gone is a card of typed figures."""
     for name in ("education", "licences", "registry-licence", "federal-direct",
-                 "state-access", "ceds"):
+                 "state-access", "ceds", "national-spine"):
         assert (SOURCES / f"{name}-measured.json").exists(), name
 
 
@@ -69,6 +69,16 @@ def test_no_grouped_figure_on_the_card_is_unaccounted_for():
     known |= {reg["records"]["envelopes"], ceds["classes"]}
     # The loaded graph, stated in README and schema.md and measured by the load.
     known |= {1_098, 1_287, 791}
+    # The national spine (#7). Read from the record rather than listed here: a
+    # literal would be a second copy of the figure, which is the thing this
+    # test exists to prevent, written into the test that prevents it.
+    spine = record("national-spine")
+    known |= set(spine["in_graph"].values())
+    known |= {spine["issued"][k] for k in
+              ("statements_issued", "nodes_and_edges_created",
+               "already_present", "completions_in",
+               "rows_skipped_zero_awards", "duplicate_rows_skipped")}
+    known |= {round(spine["issued"]["seconds"])}
     unexplained = grouped(card()) - known
     assert not unexplained, (
         f"these grouped figures are on the card and in no record: "
