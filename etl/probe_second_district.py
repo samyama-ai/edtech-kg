@@ -34,9 +34,9 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import pathlib
-import random
 import sys
 
 from etl.catalogue_pages import (CALIBRATION_DISTRICT, Refused,
@@ -69,13 +69,39 @@ DISTRICTS = {
 }
 
 
-SEED = 19            #: The issue number, so the sample is reproducible and
-                     #: nobody has to wonder whether it was chosen after the
-                     #: fact.
+#: **The sample is not seeded any more**, and the record says so rather than
+#: leaving a stale `seed` to be read as method. `sample_of` takes the paths
+#: with the lowest SHA-1, which is stable when the catalogue gains or loses a
+#: page — a seeded draw is not, and that cost a whole re-measurement here.
+SAMPLING = "the 60 paths with the lowest sha1(path), stable across catalogue edits"
 SAMPLE = 60          #: Per district. Small enough to be polite, large enough
                      #: that a 0% and an 89% are not the same measurement —
                      #: the other half of this sentence went to
                      #: `catalogue_pages.DELAY` in the 500-line split.
+
+
+def sample_of(paths: list[str], size: int) -> list[str]:
+    """The `size` paths with the lowest hash — NOT a seeded random sample.
+
+    **A seeded sample is reproducible against one population, and these
+    populations move.** Arlington's catalogue went from 698 candidate paths to
+    697 between two runs, and `random.Random(19).sample` then redrew almost
+    the whole sample: measured on a synthetic population of the same size,
+    adding ONE path keeps **4 of 60** pages. Hash-ordering keeps 60 of 60.
+
+    That mattered here. Re-running the probe after the page reader was
+    rewritten showed Arlington's typed count going 3 -> 0, which reads as a
+    regression in the new reader. It is not: classifying the SAME BYTES with
+    both readers changes nothing on any of 961 cached PWCS pages or on 60
+    Arlington pages. The whole difference was the sample being redrawn — and
+    the seed made that look deliberate.
+
+    `sampling` in the record says which method produced the figures beside
+    it, so a later reader is not left inferring one.
+    """
+    return sorted(paths,
+                  key=lambda path: hashlib.sha1(path.encode()).hexdigest()
+                  )[:min(size, len(paths))]
 
 
 def district(name: str, base: str, sample: int = SAMPLE,
@@ -105,9 +131,7 @@ def district(name: str, base: str, sample: int = SAMPLE,
                         "outlives the page; it must not say more."}
 
     published = set(paths)
-    # Seeded and sorted first, so the sample does not depend on the order the
-    # index happened to emit links in.
-    chosen = random.Random(SEED).sample(paths, min(sample, len(paths)))
+    chosen = sample_of(paths, sample)
 
     kinds: dict[str, int] = {}
     by_status: dict[str, int] = {}
@@ -219,7 +243,7 @@ def measure(sample: int = SAMPLE) -> dict:
         "_": RECORD_NOTE,
         "retrieved_at": datetime.datetime.now(datetime.timezone.utc)
                                 .strftime("%Y-%m-%d"),
-        "seed": SEED,
+        "sampling": SAMPLING,
         "sample_per_district": sample,
         "vendor_client_list": "https://www.cleancatalog.com/k12/",
         # Only the calibration district crawls as well as reading its

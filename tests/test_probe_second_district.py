@@ -15,26 +15,6 @@ from etl import catalogue_pages
 from etl import probe_second_district as probe
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_two_runs_of_the_probe_read_the_same_pages(monkeypatch):
     """The issue asks for a recorded seed. Asserted by running `district()`
     twice and comparing what it FETCHED — the first version compared two calls
@@ -57,9 +37,43 @@ def test_two_runs_of_the_probe_read_the_same_pages(monkeypatch):
         return asked
 
     assert run() == run(), "two runs read different pages"
-    assert probe.SEED == 19, "the seed is the issue number, recorded on the page"
 
 
+def test_the_sample_survives_the_catalogue_gaining_a_page():
+    """**Two runs of one process reading the same pages is the easy half.**
+    The hard half is two runs a fortnight apart, and a seeded sample fails it:
+    the population is the catalogue, and catalogues change.
+
+    Measured on Arlington: 698 candidate paths became 697, and
+    `random.Random(19).sample` redrew all but four of sixty pages. The figures
+    then moved — typed 3 -> 0 — and read as a regression in the page reader
+    that had just been rewritten. It was not; classifying the same bytes with
+    both readers changed nothing on 961 cached PWCS pages or 60 Arlington
+    pages. The seed made a redrawn sample look like a deliberate one.
+    """
+    population = [f"/subject-{i // 20}/course-{i}" for i in range(697)]
+    grown = population + ["/subject-0/course-new"]
+    before = set(probe.sample_of(population, 60))
+    after = set(probe.sample_of(grown, 60))
+    assert len(before & after) >= 59, (
+        f"only {len(before & after)} of 60 pages survived one path being "
+        f"added; the sample is redrawn rather than stable")
+
+    import random
+    seeded_before = set(random.Random(19).sample(sorted(population), 60))
+    seeded_after = set(random.Random(19).sample(sorted(grown), 60))
+    assert len(seeded_before & seeded_after) < 30, (
+        "a seeded sample is now stable, so the reason for hash-ordering has "
+        "gone and this should be re-measured rather than assumed")
+
+
+def test_the_record_says_how_it_sampled():
+    """A stale `seed` in the record reads as method. It described a draw the
+    probe no longer makes."""
+    assert "sha1" in probe.SAMPLING
+    assert not hasattr(probe, "SEED"), (
+        "SEED survived the change to hash-ordering, so the record can still "
+        "claim a seeded draw")
 
 
 def test_json_and_record_are_refused_together(capsys):
@@ -114,16 +128,6 @@ def test_an_unreachable_page_leaves_the_denominator_honest(monkeypatch):
     assert found["percent_of_pages_with_a_typed_prerequisite"] == 11.1
 
 
-
-
-
-
-
-
-
-
-
-
 def test_a_pathway_page_leaves_the_denominator(monkeypatch):
     """`docs/schema.md` quotes every PWCS rate against 791 courses, not 960
     pages, and classifies by MARKUP rather than depth. Counting two-segment
@@ -149,18 +153,6 @@ def test_a_pathway_page_leaves_the_denominator(monkeypatch):
     assert found["sampled_but_not_a_course"] >= 1, (
         "a pathway page stayed in the denominator")
     assert found["read"] == 4 - found["sampled_but_not_a_course"]
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_the_record_guard_is_not_all_or_nothing(monkeypatch, capsys, tmp_path):
@@ -234,8 +226,6 @@ def test_the_pathway_fixture_is_not_built_from_the_code_under_test(monkeypatch):
     assert found["read"] == 3
 
 
-
-
 def test_a_district_with_no_paths_carries_every_key():
     """The empty branch promises "the same keys as every other district" and
     had lost `unreachable_by_status` — the same KeyError its own comment
@@ -249,7 +239,5 @@ def test_a_district_with_no_paths_carries_every_key():
         assert f'"{key}"' in empty, (
             f"the empty-district branch omits {key}; a short entry is a "
             f"KeyError waiting for the first consumer that iterates")
-
-
 
 
