@@ -31,6 +31,7 @@ import pytest
 from etl import course_page
 from etl.pwcs_pages import segments
 from etl import probe_pwcs as source
+from etl import probe_pwcs_classification as probe
 
 CACHE = pathlib.Path(__file__).resolve().parents[1] / "data" / "pwcs"
 BASE = "https://catalog.pwcs.edu"
@@ -174,8 +175,11 @@ def test_the_classifier_still_says_what_the_record_says():
     record = (pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources"
               / "pwcs-classification-measured.json")
     found = json.loads(record.read_text(encoding="utf-8"))
-    pages = {url[len(BASE):] if url.startswith(BASE) else url: markup
-             for url, markup in course_pages()}
+    # **The probe's own corpus, not a second definition of it.** This built
+    # its page set from `course_pages()` — sitemap URLs at course depth —
+    # while the probe reads every cached file, so the two digests were over
+    # different sets and the test failed on a difference that was its own.
+    pages = probe.corpus()
     published = set(pages)
 
     by_kind = {}
