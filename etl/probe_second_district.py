@@ -37,15 +37,11 @@ import datetime
 import json
 import pathlib
 import random
-import re
 import sys
-import time
-import urllib.error
-import urllib.request
 
-from etl.course_page import (COURSE_PATH, HREF, classify,
-                             same_host)
-from etl.identity import USER_AGENT
+from etl.catalogue_pages import (CALIBRATION_DISTRICT, Refused,
+                                 Unreachable, course_paths, get)
+from etl.course_page import classify
 from etl.provenance import write_record
 from etl.pwcs_pages import PATHWAY_FIELD_PRESENT
 
@@ -59,6 +55,7 @@ RECORD_NOTE = (
     "`read` per district, and divide by `read`, never by the ceiling. "
     "Enumeration differs by necessity: three districts publish no sitemap, "
     "which is recorded per district and is itself part of the finding.")
+
 
 #: Clean Catalog's own K-12 client list, read from cleancatalog.com/k12/ on
 #: 2026-09-08. Named there with a "View Site" link each, so these are the
@@ -78,150 +75,6 @@ SEED = 19            #: The issue number, so the sample is reproducible and
                      #: nobody has to wonder whether it was chosen after the
                      #: fact.
 SAMPLE = 60          #: Per district. Small enough to be polite, large enough
-                     #: that a 0% and an 89% are not the same measurement.
-DELAY = 0.4
-
-
-class Unreachable(RuntimeError):
-    """A district did not answer. Distinct from answering with no courses."""
-
-
-class Refused(RuntimeError):
-    """The host asked us to stop. Not a page that stated no prerequisite."""
-
-
-def get(url: str) -> str:
-    """One page, with the politeness delay INSIDE the request.
-
-    The delay used to sit after each successful call, so it was skipped on
-    exactly the paths where a host is struggling: a sitemap 404 fell straight
-    into the crawl with no pause, and five failing index candidates fired five
-    back-to-back requests. Here it is structurally unskippable.
-
-    **An HTTP refusal is distinguished from a transport failure.** `URLError`
-    is `HTTPError`'s parent, so catching it first swallowed a 429 — a district
-    that began rate-limiting mid-sample got 59 more requests, and the
-    throttled page landed in `unreachable`, quietly shrinking the denominator.
-    """
-    time.sleep(DELAY)
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=45) as response:
-            return response.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as refused:
-        if refused.code == 429:
-            wait = refused.headers.get("Retry-After")
-            raise Refused(
-                f"{url}: HTTP 429, Retry-After={wait!r}. Stopping rather than "
-                f"finishing the sample — a throttled page counted as "
-                f"unreachable would shrink the denominator silently.")
-        raise Unreachable(f"{url}: HTTP {refused.code}") from refused
-    except (urllib.error.URLError, TimeoutError, OSError) as gone:
-        raise Unreachable(f"{url}: {gone}") from gone
-
-
-def course_paths(base: str) -> tuple[list[str], dict]:
-    """Every `/subject/course` path the catalogue's own index links to.
-
-    Walked from the index rather than guessed: the districts do not agree on
-    where the index lives — PWCS puts it at `/courses`, Arlington splits it
-    across `/high-school-courses` and `/middle-school-courses` — so each
-    candidate is tried and the results are pooled.
-
-    A path is a course if it has exactly two segments. That is the vendor's
-    shape, and it is what `etl/pwcs_source.py` already relies on; using a
-    different rule here would measure the rule.
-    """
-    # **The sitemap decides the population; the crawl is measured beside it.**
-    # PWCS's population comes from its sitemap and its index crawl finds a
-    # fraction of the same catalogue — both counts are recorded rather than
-    # one being described in prose. Using the crawl everywhere would have made
-    # every district look small in the same wrong way: comparable and useless.
-    #
-    # Three of the five publish no sitemap at all, which is part of the
-    # answer — the enumeration PWCS's own figure rests on does not generalise.
-    #
-    # HAS A SITEMAP and HAS COURSES IN IT are different facts, and the page
-    # makes a claim about the first. Kenosha publishes a sitemap holding only
-    # pathway pages, so it falls through to the crawl while still having one —
-    # collapsing the two would have made the page say "four publish no
-    # sitemap" when three do not and a fourth publishes one with no courses.
-    has_sitemap, in_sitemap = False, 0
-    try:
-        sitemap = get(f"{base}/sitemap.xml")
-        locs = re.findall(r"<loc>([^<]+)</loc>", sitemap)
-        # A 200 IS NOT A SITEMAP. Setting the flag on the status alone made a
-        # soft-404 — a themed "not found" page answering 200 — indistinguish-
-        # able from Kenosha's real sitemap that happens to list no courses,
-        # and the page states that distinction as fact. A document is a
-        # sitemap when it parses as one.
-        has_sitemap = bool(locs) and "<urlset" in sitemap
-        # PREFIX strip, not replace-everywhere. `str.replace` would also cut
-        # the host out of the middle of a path — harmless on these five and
-        # not a thing to leave in a URL parser.
-        paths = {u[len(base):] for u in locs if u.startswith(base)}
-        courses = sorted(p for p in paths if COURSE_PATH.match(p))
-        in_sitemap = len(courses)
-    except Unreachable:
-        pass
-
-    # **The index crawl is run even when the sitemap worked**, because the
-    # page quotes the gap between them — "an index crawl of PWCS finds 73 of
-    # its 817" — and that figure lived in a code comment, which is the one
-    # place this repo says a figure may not live.
-    crawled = crawl(base)
-    if in_sitemap:
-        return sorted(courses), {"how": "sitemap", "has_sitemap": True,
-                                 "courses_in_sitemap": in_sitemap,
-                                 "courses_in_index_crawl": len(crawled)}
-
-    return sorted(crawled), {"how": "index crawl", "has_sitemap": has_sitemap,
-                             "courses_in_sitemap": in_sitemap,
-                             "courses_in_index_crawl": len(crawled)}
-
-
-#: Index pages are paginated and the pager is followed. Reading only the
-#: first page found 73 of PWCS's 817 courses — and the sample was then drawn
-#: from whatever the first page happened to link to, which is a biased subset
-#: rather than a small one. The cap is a safety net, not an expectation.
-MAX_PAGES = 40
-
-
-def crawl(base: str) -> set[str]:
-    """Course paths the catalogue's own index pages link to, following the pager.
-
-    The districts do not agree on where the index lives, so each candidate is
-    tried and the results pooled. Drupal paginates with `?page=n` and stops
-    yielding new paths at the end, which is what terminates this — not the
-    cap.
-    """
-    found: set[str] = set()
-    for index in ("/courses", "/high-school-courses", "/middle-school-courses",
-                  "/high-school-course-catalog", ""):
-        # **Per candidate**, not against everything seen so far. Subtracting
-        # the global set meant an index whose first page happened to link only
-        # paths another index had already yielded was abandoned entirely —
-        # every later page of it included. Reproduced: two real courses lost.
-        # The pager's own repetition is what should stop it, and that is a
-        # fact about this index rather than about the ones before it.
-        seen_here: set[str] = set()
-        for page in range(MAX_PAGES):
-            url = f"{base}{index}" + (f"?page={page}" if page else "")
-            try:
-                markup = get(url)
-            except Unreachable:
-                break
-            here = {path for path in
-                    (same_host(href, base) for href in HREF.findall(markup))
-                    if path}
-            if not here - seen_here:
-                # This index has stopped yielding paths IT has not already
-                # yielded: the pager has run out, or the page does not
-                # paginate. Both mean move to the next candidate.
-                break
-            seen_here |= here
-        found |= seen_here
-    return found
 
 
 
@@ -234,9 +87,22 @@ def crawl(base: str) -> set[str]:
 
 
 
-def district(name: str, base: str, sample: int = SAMPLE) -> dict:
+
+
+
+
+
+
+
+
+
+
+
+
+def district(name: str, base: str, sample: int = SAMPLE,
+             calibrate: bool = False) -> dict:
     """One district, measured the same way as every other."""
-    paths, how = course_paths(base)
+    paths, how = course_paths(base, calibrate=calibrate)
     if not paths:
         # THE SAME KEYS as every other district. A short entry is a KeyError
         # waiting for the first consumer that iterates the record, and it
@@ -244,6 +110,7 @@ def district(name: str, base: str, sample: int = SAMPLE) -> dict:
         return {"base": base, **how, "candidate_course_paths": 0,
                 "sampled": 0, "read": 0, "unreachable": 0,
                 "sampled_but_not_a_course": 0, "kinds": {},
+                "unreachable_by_status": {},
                 "state_a_prerequisite_in_either_field": 0,
                 "percent_stating_in_either_field": None,
                 "with_a_typed_prerequisite": 0,
@@ -374,7 +241,10 @@ def measure(sample: int = SAMPLE) -> dict:
         "seed": SEED,
         "sample_per_district": sample,
         "vendor_client_list": "https://www.cleancatalog.com/k12/",
-        "districts": {name: district(name, base, sample)
+        # Only the calibration district crawls as well as reading its
+        # sitemap — see `course_paths`.
+        "districts": {name: district(name, base, sample,
+                                     calibrate=name == CALIBRATION_DISTRICT)
                       for name, base in DISTRICTS.items()},
     }
 

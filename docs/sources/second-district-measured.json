@@ -1,6 +1,6 @@
 {
   "_": "Measured by `python -m etl.probe_second_district --record`. The same fields, the same classifier and the same seed on every district. The sample size is the same CEILING everywhere and is smaller where a district publishes fewer pages than the ceiling — see `sampled` and `read` per district, and divide by `read`, never by the ceiling. Enumeration differs by necessity: three districts publish no sitemap, which is recorded per district and is itself part of the finding.",
-  "retrieved_at": "2026-09-08",
+  "retrieved_at": "2026-09-09",
   "seed": 19,
   "sample_per_district": 60,
   "vendor_client_list": "https://www.cleancatalog.com/k12/",
@@ -16,6 +16,7 @@
       "read": 60,
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
+      "unreachable_by_status": {},
       "kinds": {
         "typed": 17,
         "says none": 16,
@@ -72,6 +73,7 @@
       "read": 60,
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
+      "unreachable_by_status": {},
       "kinds": {
         "prose": 31,
         "says none": 13,
@@ -132,6 +134,7 @@
       "read": 60,
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
+      "unreachable_by_status": {},
       "kinds": {
         "no field": 59,
         "prose": 1
@@ -163,6 +166,7 @@
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
       "kinds": {},
+      "unreachable_by_status": {},
       "state_a_prerequisite_in_either_field": 0,
       "percent_stating_in_either_field": null,
       "with_a_typed_prerequisite": 0,
@@ -172,7 +176,7 @@
       "percent_of_links_that_resolve": null,
       "with_a_nonempty_prose_field": 0,
       "prose_examples": [],
-      "note": "the catalogue publishes no two-segment course paths — pathway pages only — so there is nothing to attach a prerequisite to and no sample to draw"
+      "note": "no two-segment course path was FOUND — by this method, from this catalogue's sitemap and five index candidates. A district publishing courses at another depth would produce the same entry, so this is not found rather than does not exist. The record outlives the page; it must not say more."
     },
     "Central Islip (NY)": {
       "base": "https://hs-catalogue.centralislip.k12.ny.us",
@@ -185,6 +189,7 @@
       "read": 60,
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
+      "unreachable_by_status": {},
       "kinds": {
         "no field": 32,
         "prose": 23,
@@ -235,7 +240,7 @@
     }
   },
   "code": {
-    "commit": "221a6679ae9e0c4faed3329772aa79735fc4e18c",
+    "commit": "41245e52f1b4e46e4f3eed4f5905d3440eef1ba4",
     "dirty": true,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

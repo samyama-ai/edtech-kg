@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 # The single-page fixture builder lives with the single-page tests.
 from tests.test_course_page import page
+from etl import catalogue_pages
 from etl import probe_second_district as probe
 
 
@@ -43,11 +42,12 @@ def test_two_runs_of_the_probe_read_the_same_pages(monkeypatch):
     import etl.probe_second_district as module
     paths = [f"/s/c{i}" for i in range(200)]
     monkeypatch.setattr(module, "course_paths",
-                        lambda base: (paths, {"how": "index crawl",
+                        lambda base, calibrate=False: (paths, {"how": "index crawl",
                                               "has_sitemap": False,
                                               "courses_in_sitemap": 0,
                                               "courses_in_index_crawl": 200}))
-    monkeypatch.setattr(module, "DELAY", 0)
+    # DELAY lives with get() in catalogue_pages, which is where it is read.
+    monkeypatch.setattr(catalogue_pages, "DELAY", 0)
 
     def run():
         asked = []
@@ -91,11 +91,12 @@ def test_an_unreachable_page_leaves_the_denominator_honest(monkeypatch):
     import etl.probe_second_district as module
     paths = [f"/s/c{i}" for i in range(10)]
     monkeypatch.setattr(module, "course_paths",
-                        lambda base: (paths, {"how": "index crawl",
+                        lambda base, calibrate=False: (paths, {"how": "index crawl",
                                               "has_sitemap": False,
                                               "courses_in_sitemap": 0,
                                               "courses_in_index_crawl": 10}))
-    monkeypatch.setattr(module, "DELAY", 0)
+    # DELAY lives with get() in catalogue_pages, which is where it is read.
+    monkeypatch.setattr(catalogue_pages, "DELAY", 0)
 
     def one_refusal(url):
         if url.endswith("/s/c0"):
@@ -113,57 +114,8 @@ def test_an_unreachable_page_leaves_the_denominator_honest(monkeypatch):
     assert found["percent_of_pages_with_a_typed_prerequisite"] == 11.1
 
 
-def test_the_crawl_follows_the_pager(monkeypatch):
-    """**The bug that skewed the whole measurement, and nothing guarded it.**
-
-    Drupal paginates its index with `?page=n`. Reading only the first page
-    found 73 of PWCS's 817 courses — and the sample was then drawn from
-    whatever that page happened to link to, which is a BIASED subset rather
-    than a small one. Arlington measured 101 pages and publishes 698.
-    """
-    import etl.probe_second_district as module
-    monkeypatch.setattr(module, "DELAY", 0)
-    pages = {
-        "https://x.test/courses": '<a href="/s/a">a</a><a href="/s/b">b</a>',
-        "https://x.test/courses?page=1": '<a href="/s/c">c</a>',
-        "https://x.test/courses?page=2": '<a href="/s/d">d</a>',
-        # page 3 repeats page 2 — the end of a Drupal pager
-        "https://x.test/courses?page=3": '<a href="/s/d">d</a>',
-    }
-    asked = []
-
-    def fake(url):
-        asked.append(url)
-        if url in pages:
-            return pages[url]
-        raise module.Unreachable(url)
-
-    monkeypatch.setattr(module, "get", fake)
-    found = module.crawl("https://x.test")
-    assert found == {"/s/a", "/s/b", "/s/c", "/s/d"}, (
-        "the pager was not followed; only the first page's courses were found")
-    assert "https://x.test/courses?page=3" in asked, "page 3 was never asked for"
-    assert "https://x.test/courses?page=4" not in asked, (
-        "a page yielding no NEW course must stop the loop — otherwise a "
-        "server that ignores ?page runs to the cap")
 
 
-def test_the_crawl_stops_rather_than_running_to_the_cap(monkeypatch):
-    """A server ignoring `?page` returns the same index forever."""
-    import etl.probe_second_district as module
-    monkeypatch.setattr(module, "DELAY", 0)
-    asked = []
-
-    def same(url):
-        asked.append(url)
-        return '<a href="/s/a">a</a>'
-
-    monkeypatch.setattr(module, "get", same)
-    assert module.crawl("https://x.test") == {"/s/a"}
-    per_index = [u for u in asked if u.startswith("https://x.test/courses")]
-    assert len(per_index) <= 2, (
-        f"asked for {len(per_index)} pages of one index; a repeat must stop "
-        f"the loop, not the {module.MAX_PAGES}-page cap")
 
 
 
@@ -179,10 +131,11 @@ def test_a_pathway_page_leaves_the_denominator(monkeypatch):
     the denominator and deflated the percentage the conclusion rests on."""
     import etl.probe_second_district as module
     from etl.pwcs_pages import PATHWAY_FIELD_PRESENT
-    monkeypatch.setattr(module, "DELAY", 0)
+    # DELAY lives with get() in catalogue_pages, which is where it is read.
+    monkeypatch.setattr(catalogue_pages, "DELAY", 0)
     paths = [f"/s/c{i}" for i in range(4)]
     monkeypatch.setattr(module, "course_paths",
-                        lambda base: (paths, {"how": "index crawl",
+                        lambda base, calibrate=False: (paths, {"how": "index crawl",
                                               "has_sitemap": False,
                                               "courses_in_sitemap": 0,
                                               "courses_in_index_crawl": 4}))
@@ -198,78 +151,16 @@ def test_a_pathway_page_leaves_the_denominator(monkeypatch):
     assert found["read"] == 4 - found["sampled_but_not_a_course"]
 
 
-def test_an_index_is_not_abandoned_because_another_already_found_its_courses(
-        monkeypatch):
-    """The crawl subtracted the GLOBAL set, so an index whose first page
-    linked only paths another index had already yielded was abandoned —
-    every later page of it included."""
-    import etl.probe_second_district as module
-    monkeypatch.setattr(module, "DELAY", 0)
-    pages = {
-        "https://x.test/courses": '<a href="/s/a">a</a>',
-        "https://x.test/high-school-courses": '<a href="/s/a">a</a>',
-        "https://x.test/high-school-courses?page=1":
-            '<a href="/s/b">b</a><a href="/s/c">c</a>',
-    }
-    monkeypatch.setattr(module, "get",
-                        lambda url: pages.get(url) if url in pages
-                        else (_ for _ in ()).throw(module.Unreachable(url)))
-    found = module.crawl("https://x.test")
-    assert found == {"/s/a", "/s/b", "/s/c"}, (
-        f"the second index was abandoned on its first page; got {found}")
-
-
-def test_a_soft_404_is_not_a_sitemap(monkeypatch):
-    """`has_sitemap` was set from a 200 alone, so a themed "not found" page
-    answering 200 was indistinguishable from a real sitemap listing no
-    courses — a distinction the page states as fact."""
-    import etl.probe_second_district as module
-    monkeypatch.setattr(module, "DELAY", 0)
-    monkeypatch.setattr(module, "crawl", lambda base: {"/s/a"})
-    monkeypatch.setattr(module, "get",
-                        lambda url: "<html><body>Page not found</body></html>")
-    _, how = module.course_paths("https://x.test")
-    assert how["has_sitemap"] is False, (
-        "a 200 that is not a sitemap was recorded as one")
 
 
 
 
 
 
-def test_a_429_stops_the_run_rather_than_shrinking_the_denominator(monkeypatch):
-    """`URLError` is `HTTPError`'s parent, so catching it first swallowed a
-    429: a district that began rate-limiting mid-sample got 59 more requests,
-    and each throttled page landed in `unreachable` — quietly shrinking the
-    denominator instead of stopping."""
-    import urllib.error
-    import etl.probe_second_district as module
-    monkeypatch.setattr(module, "DELAY", 0)
-
-    def throttled(request, timeout=None):
-        raise urllib.error.HTTPError(
-            "u", 429, "Too Many Requests", {"Retry-After": "120"}, None)
-
-    monkeypatch.setattr(module.urllib.request, "urlopen", throttled)
-    with pytest.raises(module.Refused, match="429"):
-        module.get("https://x.test/a")
 
 
-def test_the_politeness_delay_cannot_be_skipped(monkeypatch):
-    """It used to sit after each successful call, so it was skipped on exactly
-    the paths where a host is struggling — a sitemap 404 fell straight into
-    the crawl, and five failing index candidates fired five back-to-back
-    requests."""
-    import urllib.error
-    import etl.probe_second_district as module
-    slept = []
-    monkeypatch.setattr(module.time, "sleep", lambda s: slept.append(s))
-    monkeypatch.setattr(
-        module.urllib.request, "urlopen",
-        lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("down")))
-    with pytest.raises(module.Unreachable):
-        module.get("https://x.test/a")
-    assert slept, "no delay before a request that failed"
+
+
 
 
 def test_the_record_guard_is_not_all_or_nothing(monkeypatch, capsys, tmp_path):
@@ -328,10 +219,11 @@ def test_the_pathway_fixture_is_not_built_from_the_code_under_test(monkeypatch):
         "the hard-coded pathway fixture no longer matches the repo's own "
         "pattern — one of the two has moved and this test is why you know")
 
-    monkeypatch.setattr(module, "DELAY", 0)
+    # DELAY lives with get() in catalogue_pages, which is where it is read.
+    monkeypatch.setattr(catalogue_pages, "DELAY", 0)
     paths = [f"/s/c{i}" for i in range(4)]
     monkeypatch.setattr(module, "course_paths",
-                        lambda base: (paths, {"how": "index crawl",
+                        lambda base, calibrate=False: (paths, {"how": "index crawl",
                                               "has_sitemap": False,
                                               "courses_in_sitemap": 0,
                                               "courses_in_index_crawl": 4}))
@@ -340,3 +232,24 @@ def test_the_pathway_fixture_is_not_built_from_the_code_under_test(monkeypatch):
     found = module.district("D", "https://x.test", sample=4)
     assert found["sampled_but_not_a_course"] == 1
     assert found["read"] == 3
+
+
+
+
+def test_a_district_with_no_paths_carries_every_key():
+    """The empty branch promises "the same keys as every other district" and
+    had lost `unreachable_by_status` — the same KeyError its own comment
+    guards against, a second time."""
+    import etl.probe_second_district as module
+    import inspect
+    source = inspect.getsource(module.district)
+    empty = source[source.index("if not paths:"):source.index("published = set")]
+    for key in ("sampled_but_not_a_course", "unreachable_by_status",
+                "state_a_prerequisite_in_either_field", "prose_examples"):
+        assert f'"{key}"' in empty, (
+            f"the empty-district branch omits {key}; a short entry is a "
+            f"KeyError waiting for the first consumer that iterates")
+
+
+
+

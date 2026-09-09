@@ -63,7 +63,12 @@ DIV_OR_BOUNDARY = re.compile(r"<div\b|</div>|</article|</main|<footer", re.I)
 #: district linking its prerequisites as `https://catalog.example.edu/x/y`
 #: was silently counted as having none — the finding this probe exists to
 #: measure, produced by not looking. `same_host` strips the prefix.
-HREF = re.compile(r'href="([^"#?]+)"')
+#: An `href` value, with any query string or fragment left OUT of the capture
+#: rather than disqualifying the whole attribute. `[^"#?]+` between the quotes
+#: matched nothing at all for `href="/maths/algebra-1?from=x"`, so a
+#: prerequisite carrying a query string was invisible — and `links` is the
+#: denominator of the "every link resolves" claim.
+HREF = re.compile(r'href="([^"#?]*)[^"]*"')
 
 
 #: A CANDIDATE course path — two segments. **Candidate, not course**: the
@@ -274,7 +279,19 @@ def field_ends_at(markup: str, after: int) -> int:
 #: Regions whose contents are not markup: HTML comments, script and style
 #: bodies, and quoted attribute values.
 NOT_MARKUP = re.compile(
-    r"<!--.*?-->|<script\b.*?</script>|<style\b.*?</style>|\"[^\"]*\"|'[^']*'",
+    # Comments and script/style bodies, wholesale.
+    r"<!--.*?-->|<script\b.*?</script>|<style\b.*?</style>"
+    # A TAG, with its attribute values masked and its angle brackets kept.
+    # Masking every quoted run instead treated apostrophes in PROSE as
+    # delimiters — "Teacher's note about student's work" blanked the text
+    # between them, and a `</div>` in that span would have gone with it.
+    # Quotes only delimit an attribute inside a tag, so only tags are
+    # searched for them.
+    #
+    # **The quoted alternatives come first**, so an attribute value holding an
+    # angle bracket does not end the tag: `[^<>]*` alone stopped at the `>`
+    # inside `data-x="<div>"`, and the block then started mid-attribute.
+    r"|<[a-zA-Z/!](?:\"[^\"]*\"|'[^']*'|[^<>])*>",
     re.S | re.I)
 
 
@@ -293,7 +310,16 @@ def masked(markup: str) -> str:
     Same LENGTH, so every offset the caller computes still points at the same
     character of the original.
     """
-    return NOT_MARKUP.sub(lambda m: " " * len(m.group(0)), markup)
+    def blank(found: re.Match) -> str:
+        text = found.group(0)
+        if text.startswith("<!--") or text[:7].lower() in ("<script", "<style "):
+            return " " * len(text)
+        # A tag: keep the brackets and the element name so the div counter
+        # can still see it, blank only the attribute VALUES.
+        return re.sub(r"(\"[^\"]*\"|'[^']*')",
+                      lambda q: " " * len(q.group(0)), text)
+
+    return NOT_MARKUP.sub(blank, markup)
 
 
 def field_openings(markup: str):

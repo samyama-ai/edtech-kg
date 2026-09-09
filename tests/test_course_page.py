@@ -234,3 +234,138 @@ def test_a_sibling_field_still_ends_the_block():
     block = course_page.field_block(markup, "pr")
     assert "goggles" not in block, "the field ran into its neighbour"
     assert "recommendation" in block
+
+
+# --------------------------------------------------------------------------
+# The bounds this module documents, each tested against the case that put it
+# here. The file's premise is "every bound exists because it was once
+# absent" — these are the ones that had no test.
+
+
+def test_a_denial_is_not_a_stated_prerequisite():
+    """**The bug that reached the record.** The sentinel matched four exact
+    strings, so a trailing full stop flipped the answer: `None.` counted as a
+    stated prerequisite, on the district the headline comparison depends on.
+
+    `course-prerequisites.md` records the same mistake as a past correction.
+    """
+    for denial in ("None", "None.", "NONE.", "none", "N/A", "n/a.", "NA",
+                   "-", "–", "—", "Prerequisite: None", "Prerequisites: none.",
+                   "nil", "Not applicable"):
+        assert course_page.states_a_prerequisite(denial) is False, denial
+
+
+def test_an_explicit_denial_written_as_a_sentence_is_not_one_either():
+    """"NO PRIOR FILM EXPERIENCE REQUIRED." is in the record. It is not a
+    prerequisite, and counting it as one is the same mistake as counting
+    "None" — one clause longer."""
+    for denial in ("Open to all Grade 11 students. NO PRIOR FILM EXPERIENCE "
+                   "REQUIRED.",
+                   "No prior experience required.",
+                   "No previous coursework is necessary."):
+        assert course_page.states_a_prerequisite(denial) is False, denial
+
+
+def test_a_denial_that_names_courses_still_counts():
+    """"None; after successful completion of 23132 or 23130" names courses.
+    The pattern is anchored at both ends so it catches the bare forms only —
+    over-tightening would lose real prerequisites, which is the same error in
+    the other direction."""
+    for real in ("None; after successful completion of 23132 or 23130",
+                 "None required for students who passed Algebra I",
+                 "Spanish I, or equivalent proficiency"):
+        assert course_page.states_a_prerequisite(real) is True, real
+
+
+def test_an_entity_is_decoded_before_the_field_is_judged_empty():
+    """`&nbsp;` survived `plain()` as six literal characters and could never
+    look empty, so a field holding only whitespace read as a statement."""
+    for empty in ("&nbsp;", "&#160;", "&nbsp; &nbsp;", "  ", "&mdash;"):
+        assert course_page.states_a_prerequisite(empty) is False, empty
+
+
+def test_a_div_inside_a_comment_does_not_move_the_depth_count():
+    """The depth counter is a token scan. A `<div` in a comment incremented
+    it and never came back — and once the count is off, the field's own
+    `</div>` reads as a child's and the block runs into its neighbour."""
+    markup = ('<div class="field field--name-field-pr">'
+              '<!-- <div> a comment -->'
+              '<div class="field__item">See counsellor.</div></div>'
+              '<div class="field field--name-field-notes">'
+              '<div class="field__item">not eligible for credit</div></div>')
+    found = course_page.classify(markup, set())
+    assert found["kind"] == "prose"
+    assert "not eligible" not in found["text"], (
+        "the comment's <div> pushed the depth count and the block ran into "
+        "its neighbour")
+
+
+def test_a_div_inside_an_attribute_value_does_not_move_the_depth_count():
+    """Same failure through an attribute. This one regenerated the exact
+    string the page retracts as an artifact."""
+    markup = ('<div class="field field--name-field-pr" data-x="<div>">'
+              '<div class="field__item">See counsellor.</div></div>'
+              '<div class="field field--name-field-notes">'
+              '<div class="field__item">not eligible for credit</div></div>')
+    found = course_page.classify(markup, set())
+    assert found["text"] == "See counsellor.", (
+        f"the attribute's angle brackets leaked into the block: "
+        f"{found['text']!r}")
+
+
+def test_an_apostrophe_in_prose_is_not_an_attribute_delimiter():
+    """Masking every quoted run treated `Teacher's … student's` as a quoted
+    span and blanked the text between them — and a `</div>` in that span
+    would have gone with it."""
+    markup = ('<div class="field field--name-field-prerequisite-courses">'
+              '<div class="field__item">Teacher\'s note on student\'s work'
+              '<a href="/m/a">Algebra</a></div></div>')
+    assert "student" in course_page.masked(markup), (
+        "prose between two apostrophes was masked")
+    assert course_page.classify(markup, {"/m/a"})["links"] == ["/m/a"]
+
+
+def test_a_field_name_inside_a_script_body_is_not_a_field():
+    """A `field--name-field-pr` in a `<script>` blob is text. Selecting it
+    would bound the block from a position no element opens at."""
+    markup = ('<div class="field field--name-field-prerequisite-courses">'
+              '<script>var x = "field--name-field-pr";</script>'
+              '<div class="field__item"><a href="/m/a">A</a></div></div>')
+    found = course_page.classify(markup, {"/m/a"})
+    assert found["kind"] == "typed"
+    assert found["links"] == ["/m/a"]
+
+
+def test_a_comment_leaves_no_stray_marker_in_the_text():
+    """`<[^>]+>` stops at the first `>`, so `<!-- <div> -->` left a stray
+    `-->` — which then read as prose content and, in a prose field, as a
+    stated prerequisite."""
+    assert "-->" not in course_page.plain("<!-- <div> -->text")
+    assert course_page.plain("<!-- x --> Real text") == "Real text"
+
+
+def test_an_unclosed_div_cannot_swallow_the_rest_of_the_page():
+    """Depth never goes negative on malformed markup, so without a ceiling
+    the block would run to the end of the document. MAX_NESTING is the
+    backstop for when the heuristic is wrong."""
+    markup = ('<div class="field field--name-field-pr">'
+              '<div class="field__item">See counsellor.'
+              + "<div>" * (course_page.MAX_NESTING + 10) +
+              '</div></div>'
+              '<div class="field field--name-field-notes">'
+              '<div class="field__item">not eligible</div></div>')
+    found = course_page.classify(markup, set())
+    assert "not eligible" not in found.get("text", ""), (
+        "an unclosed <div> let the block swallow the next field")
+
+
+def test_a_link_carrying_a_query_string_is_still_a_link():
+    """`[^"#?]+` matched nothing at all for `href="/maths/algebra-1?from=x"`,
+    so a prerequisite with a query string was invisible — and `links` is the
+    denominator of the "every link resolves" claim."""
+    for href, expected in (('/maths/algebra-1?from=x', "/maths/algebra-1"),
+                           ('/maths/algebra-1#top', "/maths/algebra-1"),
+                           ('/maths/algebra-1', "/maths/algebra-1")):
+        found = course_page.classify(
+            page(typed=f'<a href="{href}">A</a>'), PUBLISHED)
+        assert found["links"] == [expected], href
