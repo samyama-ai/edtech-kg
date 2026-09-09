@@ -1,6 +1,6 @@
 {
   "_": "Measured by `python -m etl.probe_case --record`. Each route records the status it answered with, so a 403 is a measured refusal and not an absence.",
-  "retrieved_at": "2026-09-08",
+  "retrieved_at": "2026-09-09",
   "case_network": {
     "base": "https://casenetwork.imsglobal.org",
     "root_status": 200,
@@ -75,18 +75,76 @@
         3
       ]
     ],
-    "documents_with_a_licence_uri": 0,
-    "documents_with_a_subject": 7
+    "documents_with_a_subject": 7,
+    "documents_by_licence_field": {
+      "licenseUri": 0,
+      "licenceUri": 0,
+      "rights": 0,
+      "rightsHolder": 0
+    },
+    "keys_observed": {
+      "identifier": 95,
+      "uri": 95,
+      "creator": 95,
+      "title": 95,
+      "lastChangeDateTime": 95,
+      "CFPackageURI": 95,
+      "adoptionStatus": 76,
+      "language": 31,
+      "subjectURI": 27,
+      "publisher": 26,
+      "officialSourceURL": 23,
+      "description": 8,
+      "notes": 7,
+      "version": 7,
+      "subject": 7,
+      "statusStartDate": 3,
+      "statusEndDate": 1
+    }
   },
   "cpalms": {
-    "url": "https://www.cpalms.org/PreviewCourse/Preview/13087",
-    "status": 200,
-    "bytes": 63041,
+    "pages": [
+      {
+        "url": "https://www.cpalms.org/PreviewCourse/Preview/13087",
+        "course_id": "13087",
+        "status": 200,
+        "bytes": 63041,
+        "standard_links": 0,
+        "standard_codes": 0,
+        "names_its_own_course_id": false
+      },
+      {
+        "url": "https://www.cpalms.org/PreviewCourse/Preview/17414",
+        "course_id": "17414",
+        "status": 200,
+        "bytes": 63041,
+        "standard_links": 0,
+        "standard_codes": 0,
+        "names_its_own_course_id": false
+      },
+      {
+        "url": "https://www.cpalms.org/PreviewCourse/Preview/20205",
+        "course_id": "20205",
+        "status": 200,
+        "bytes": 63041,
+        "standard_links": 0,
+        "standard_codes": 0,
+        "names_its_own_course_id": false
+      }
+    ],
+    "answered": 3,
     "standard_links": 0,
-    "standard_codes": 0
+    "standard_codes": 0,
+    "distinct_documents": 1,
+    "serves_one_document_for_every_course": true,
+    "sha256_by_course_id": {
+      "13087": "10233b04975f748ffcd2e1339d881c0fa1d95462d2a7abc7799787f248ae566b",
+      "17414": "10233b04975f748ffcd2e1339d881c0fa1d95462d2a7abc7799787f248ae566b",
+      "20205": "10233b04975f748ffcd2e1339d881c0fa1d95462d2a7abc7799787f248ae566b"
+    }
   },
   "code": {
-    "commit": "539398bd482c3ae9aa55873111a62071e3be8aa0",
+    "commit": "95bd5e5f21cce3588faf779dfab302313764d27a",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
