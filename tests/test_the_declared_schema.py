@@ -199,18 +199,34 @@ def test_the_dataset_card_counts_the_labels_that_hold_nothing():
                 for label in labels(path.read_text(encoding="utf-8"))}
     loaders = sorted((ROOT / "etl").glob("load_*.py"))
     assert loaders, "no loaders found; the subtraction below would be vacuous"
+    # **Two ways of naming a label, because there are two kinds of loader.**
+    # The pattern finds literal labels — `CREATE (n:Course …` — and is blind
+    # to a loader that parameterises them, which `etl/load_education.py`
+    # does. It reported four written where the answer is seven, and the card
+    # would have understated the graph with this check agreeing.
+    #
+    # So a loader may also DECLARE its labels in a `WRITES` tuple. Declared
+    # beats inferred: the inference is a regex over source, and a loader that
+    # says what it writes is not guessing.
     written = {label for loader in loaders
                for label in re.findall(r"\(\s*\w+:(\w+)",
                                        loader.read_text(encoding="utf-8"))
                if label in declared}
+    for loader in loaders:
+        declared_by = re.search(r"^WRITES = \(([^)]*)\)",
+                                loader.read_text(encoding="utf-8"), re.M)
+        if declared_by:
+            written |= {name.strip().strip('"\'')
+                        for name in declared_by.group(1).split(",")
+                        if name.strip().strip('"\'') in declared}
     empty = declared - written
 
     card = (ROOT / "DATASET-CARD.md").read_text(encoding="utf-8")
     said = re.search(r"\*\*(\w+) labels are declared and (\w+) are written\*\*",
                      card)
     assert said, "the card no longer states the declared/written counts"
-    words = {"four": 4, "six": 6, "eight": 8, "ten": 10, "twelve": 12,
-             "sixteen": 16}
+    words = {"four": 4, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+             "ten": 10, "twelve": 12, "sixteen": 16}
     assert words.get(said.group(1).lower()) == len(declared), (
         f"the card says {said.group(1)} labels are declared; the schema "
         f"declares {len(declared)}")

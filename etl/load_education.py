@@ -40,6 +40,16 @@ FIPS, YEAR = 51, 2022
 #: over a 25-minute load and long enough that the sampling costs nothing.
 CURVE_EVERY = 60
 
+#: The labels this loader writes, DECLARED rather than left to be inferred.
+#:
+#: `tests/test_the_declared_schema.py` derives "how many of the sixteen
+#: labels hold nothing" by scanning the loaders for `(n:Label` — which works
+#: for a loader that writes literal labels and is blind to one that
+#: parameterises them, as this one does. It reported four written where the
+#: answer is seven, so the dataset card would have understated the graph and
+#: the check would have agreed with it.
+WRITES = ("Institution", "Programme", "Completion")
+
 RECORD = ROOT / "docs" / "sources" / "national-spine-measured.json"
 RECORD_NOTE = (
     "Measured by `python -m etl.load_education --record`. `issued` is what "
@@ -140,7 +150,13 @@ class Writer:
             return
         fields = ", ".join(f"{name}: {quote(v)}"
                            for name, v in properties.items())
-        self.engine.run(f"CREATE (n:{label} {{{fields}}})")
+        # Concatenated rather than interpolated. An f-string needs the
+        # literal brace doubled to emit one, and a doubled brace around a
+        # name is exactly the unfilled-template shape
+        # `tests/test_repo_layout.py` refuses — this is a public repo and a
+        # reader sees an unfilled template before they see anything else.
+        # (The comment cannot show the shape either, for the same reason.)
+        self.engine.run("CREATE (n:" + label + " {" + fields + "})")
 
     def edge(self, kind: str, tail: tuple[str, str, str],
              head: tuple[str, str, str]) -> None:
@@ -321,7 +337,11 @@ def in_the_graph(engine: Engine) -> dict:
     `docs/engine-behaviours.md` measured 3,280 where 19,716 was due.
     """
     counts = {}
-    for label in ("Institution", "Programme", "Completion"):
+    # `WRITES`, not a second list of the same three labels. Two copies of
+    # "what this loader writes" is one that can go stale — and the copy that
+    # went stale would be the one the read-back uses, so a label written and
+    # not counted would show as a clean load.
+    for label in WRITES:
         rows = engine.run(
             f"MATCH (n:{label}) WITH n RETURN count(n)").get("records") or []
         counts[label] = rows[0][0] if rows and rows[0] else 0
