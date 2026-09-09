@@ -9,18 +9,24 @@
       "/ims/case/v1p0/CFDocuments": {
         "status": 403,
         "bytes": 44,
+        "content_type": "application/json",
+        "body_head": "{\"message\":\"Invalid credentials provided 1\"}",
         "is_case_json": false,
         "same_as_root": false
       },
       "/uri/": {
         "status": 403,
         "bytes": 44,
+        "content_type": "application/json",
+        "body_head": "{\"message\":\"Invalid credentials provided 1\"}",
         "is_case_json": false,
         "same_as_root": false
       },
       "/CFDocuments": {
         "status": 200,
         "bytes": 3282,
+        "content_type": "text/html",
+        "body_head": "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,minimal-ui\"><link rel=\"apple-touch-icon\" size",
         "is_case_json": false,
         "same_as_root": true
       }
@@ -146,7 +152,7 @@
     }
   },
   "code": {
-    "commit": "2bccd2db08104c76b5c9369e485379fa983d2fb0",
+    "commit": "07cc6c3909f209e92c60a9a2edacc177442913c7",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
