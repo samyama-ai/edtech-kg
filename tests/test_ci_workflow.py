@@ -101,16 +101,19 @@ def test_the_checkout_is_deep_enough_for_the_ratchets(workflow):
 
 
 def test_the_workflow_fetches_no_actions(workflow):
-    """**#109's finding, asserted so it cannot come back by habit.**
+    """One fewer external dependency on a runner nobody here can inspect.
 
-    Measured over this repository's whole history: the workflow that uses
-    actions had 242 runs and 0 successes; the two that use none had 7 runs and
-    7 successes. The runner executes jobs; it cannot fetch an action. Every
-    red tick this repo has ever shown was that fetch, one step after checkout,
-    so the `Tests` step had never executed once.
+    **This is NOT asserted as the fix for #109, and an earlier version of this
+    docstring said it was.** That claim rested on the #109 diagnostics having
+    7 runs and 7 successes without actions — and those diagnostics carry
+    `continue-on-error: true` on every step by design, so a workflow built to
+    be unfailable did not fail. Removing the actions here did not turn the
+    tick green either.
 
-    A single `uses:` reintroduced anywhere in this file takes the suite back
-    to never running, and it would look like an ordinary tidy-up.
+    What is true: this workflow has 242 runs and 0 successes, and the shell
+    these two actions were wrapping is cheap enough that not fetching them
+    costs nothing. The test exists so the dependency is not reintroduced
+    without someone deciding to, not because it is known to matter.
     """
     offending = [line for line in workflow.splitlines()
                  if re.match(r"\s*-?\s*uses:", line)]

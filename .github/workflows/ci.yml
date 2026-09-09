@@ -52,28 +52,32 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # **NO `uses:` ANYWHERE IN THIS FILE, AND THAT IS THE POINT (#109).**
+      # **NO `uses:` ANYWHERE IN THIS FILE (#109), AND IT IS NOT KNOWN TO BE
+      # THE FIX.**
       #
-      # This workflow had never produced a successful run. Measured over the
-      # repository's whole history at the time of writing:
+      # The fact: this workflow has 242 runs and 0 successes, so the `Tests`
+      # step has never executed and the tick has never been a statement about
+      # this repo's tests.
       #
-      #     workflow                   uses actions?   runs   successes
-      #     test (this file)           yes              242           0
-      #     probe / what-can-this-...  no                 7           7
+      # The cause is NOT established, and the argument that first went in
+      # here was wrong. It compared this workflow against the #109
+      # diagnostics — 7 runs, 7 successes, no actions — and concluded the
+      # runner cannot fetch an action. **Those diagnostics carry
+      # `continue-on-error: true` on every step and `|| true` inside them, by
+      # design.** A workflow built so that nothing can fail it did not fail.
+      # That is not evidence its steps worked.
       #
-      # 0 of 242 against 7 of 7 is not a flaky runner. The runner executes
-      # jobs perfectly well; it cannot FETCH AN ACTION. Every red tick this
-      # repository has ever shown was that fetch failing one step after
-      # checkout — the `Tests` step had never executed once, so the tick has
-      # never been a statement about this repo's tests.
+      # Removing the actions was then tried, and the first run of THIS file
+      # without them failed too. So the action fetch is at most part of it.
       #
-      # So the two actions are replaced by the shell they were wrapping.
-      # `git clone` and the runner's own Python are things it already has.
+      # The two actions stay out because the shell they were wrapping is
+      # cheap and one fewer external dependency on a runner nobody here can
+      # inspect is worth having. That is the whole claim. Reverting to
+      # `uses:` is a two-line change if the cause turns out to be elsewhere.
       #
-      # This is a workaround and it is named as one: the runner's action
-      # cache is the real fix and it is not in this repository. What IS in
-      # this repository is a suite that has never run, and the workaround
-      # makes it run.
+      # What would settle it is the step log of a failing run, which needs a
+      # web session — the API token can read run status and not step output,
+      # and has no admin scope to list the runner or its labels.
       - name: Check out, with full history
         # **A FULL clone, not a shallow one.** The size ratchets compare this
         # branch against `main`, and a shallow clone has no `main` to compare
