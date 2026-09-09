@@ -22,6 +22,7 @@ a fresh clone skips rather than fetching 960 pages from a school district.
 
 from __future__ import annotations
 
+import hashlib
 import pathlib
 import re
 
@@ -32,6 +33,7 @@ from etl.pwcs_pages import segments
 from etl import probe_pwcs as source
 
 CACHE = pathlib.Path(__file__).resolve().parents[1] / "data" / "pwcs"
+BASE = "https://catalog.pwcs.edu"
 
 
 def cache_is_complete() -> bool:
@@ -130,3 +132,70 @@ def test_the_classifier_finds_the_prerequisites_the_district_publishes():
         f"only {typed} cached PWCS pages carry a typed prerequisite; the "
         f"pattern or the corpus has changed and every figure resting on it "
         f"is now suspect")
+
+
+def test_the_recorded_classification_covers_the_corpus_the_page_quotes():
+    """**This file's three other tests skip in a fresh clone**, because
+    `data/` is gitignored — so the claim "961 cached PWCS pages, 0 classified
+    differently" rested on a corpus nobody else has, in the guard most likely
+    to catch a reader regression. It did not catch two of them.
+
+    `docs/sources/pwcs-classification-measured.json` is what a reader without
+    the cache can check: every page's path, a hash of its markup, and what
+    `classify` answered. The markup is NOT stored — it is the district's
+    course text and this repo does not republish it.
+
+    This test needs no cache and so cannot skip.
+    """
+    import json
+
+    record = (pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources"
+              / "pwcs-classification-measured.json")
+    assert record.exists(), (
+        "the corpus claim has no committed artefact; run "
+        "`python -m etl.probe_pwcs_classification --record`")
+    found = json.loads(record.read_text(encoding="utf-8"))
+    assert found["pages"] > 900, found["pages"]
+    assert sum(found["kinds"].values()) == found["pages"]
+    assert set(found["digest_by_kind"]) == set(found["kinds"])
+    assert len(found["digest"]) == 64
+
+
+@needs_cache
+def test_the_classifier_still_says_what_the_record_says():
+    """The regression the corpus is for, made checkable rather than narrated.
+
+    A drift here is either the reader changing or the page changing, and the
+    stored hash is what tells them apart — which is the whole reason the hash
+    is stored alongside the answer.
+    """
+    import json
+
+    record = (pathlib.Path(__file__).resolve().parents[1] / "docs" / "sources"
+              / "pwcs-classification-measured.json")
+    found = json.loads(record.read_text(encoding="utf-8"))
+    pages = {url[len(BASE):] if url.startswith(BASE) else url: markup
+             for url, markup in course_pages()}
+    published = set(pages)
+
+    by_kind = {}
+    every = hashlib.sha256()
+    for path, markup in sorted(pages.items()):
+        now = course_page.classify(markup, published, BASE)
+        line = (f"{path}\t{hashlib.sha256(markup.encode()).hexdigest()}\t"
+                f"{now['kind']}\t{','.join(now.get('links') or [])}")
+        every.update(line.encode())
+        by_kind.setdefault(now["kind"], []).append(line)
+
+    if every.hexdigest() == found["digest"]:
+        return
+    # A drift. Say WHICH answer moved — the per-kind digests are there so
+    # this does not have to be "something changed".
+    now_by_kind = {kind: hashlib.sha256("".join(lines).encode()).hexdigest()
+                   for kind, lines in sorted(by_kind.items())}
+    moved = sorted(set(now_by_kind.items()) ^ set(found["digest_by_kind"].items()))
+    pytest.fail(
+        f"the corpus classification no longer matches the record. Either the "
+        f"reader changed or the cached pages did — the markup hashes are "
+        f"inside the digest, so re-record only after checking which. Kinds "
+        f"that moved: {sorted({kind for kind, _ in moved})}")
