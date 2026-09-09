@@ -32,6 +32,7 @@ import urllib.request
 import zipfile
 
 from etl.identity import USER_AGENT
+from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "texas-cte-measured.json"
@@ -153,10 +154,12 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     if args.record:
-        RECORD.parent.mkdir(parents=True, exist_ok=True)
-        RECORD.write_text(json.dumps({"_": RECORD_NOTE, **result}, indent=2,
-                                     ensure_ascii=False) + "\n",
-                          encoding="utf-8")
+        # Through the one stamped writer, like the other twelve. Writing the
+        # JSON here instead left this record with no `code` stamp, so the
+        # DATASET-CARD sentence "records carry a `code` stamp" was false of
+        # this one file — which is exactly the drift `write_record` exists to
+        # stop, arriving through the probe that skipped it.
+        write_record(RECORD, {"_": RECORD_NOTE, **result})
         print(f"wrote {RECORD.relative_to(ROOT)}")
     elif args.json:
         print(json.dumps(result, indent=2))
