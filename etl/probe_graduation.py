@@ -88,10 +88,6 @@ class Unreachable(RuntimeError):
     """A host did not answer. Distinct from refusing us."""
 
 
-class Refused(RuntimeError):
-    """robots.txt says not to. Not an error — an answer."""
-
-
 def robots_for(url: str) -> dict:
     """What the host's robots.txt says about this URL, before anything asks.
 
