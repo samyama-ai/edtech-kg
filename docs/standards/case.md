@@ -55,21 +55,51 @@ creators**. But the creators are not state education agencies:
 working CASE endpoint holding demonstration data — which is what a reference
 implementation is for, and is not fifty states.
 
-**0 of the 95 documents
-carry a licence URI**, so even here the licence question the issue asks cannot
-be answered from the data.
+**No document carries a licence field of any kind.** Checked as the CASE
+v1p0 model spells it — `licenseUri` — and as three plausible alternatives:
 
-## Route 3 — Florida publishes no alignment in its markup
+| field | documents carrying it |
+|---|---:|
+| `licenseUri` | 0 |
+| `licenceUri` | 0 |
+| `rights` | 0 |
+| `rightsHolder` | 0 |
+
+The zero is checkable because the **whole key set is recorded**: across all
+95 documents the server publishes
+17 distinct keys, and licensing is not among them.
+
+An earlier version of this page counted `licenceUri` — the British spelling,
+which is in no version of the specification — so the zero was a property of
+the key name rather than of OpenSALT, and the test could not catch it because
+the fixture fed the same misspelling. The count agreed with itself. Recording
+what the documents actually carry is what makes the claim checkable.
+
+## Route 3 — CPALMS serves one document for every course
 
 CPALMS is where the issue says to look for the edge that *"makes this useful
 rather than merely present"* — a state publishing a **course → standard**
 alignment.
 
-A CPALMS course page answers **200** with 63,041 bytes and
-carries **0 links to a standard** and
-**0 standard codes**. The alignment exists — a person
-sees it — and it is assembled by JavaScript after the document is served. An
-alignment a browser builds is not an alignment anything else can read.
+**Three different course ids return byte-identical documents**, and none of
+them contains its own id:
+
+| course id | status | bytes | standard links | names its own id |
+|---|---:|---:|---:|---|
+| 13087 | 200 | 63,041 | 0 | **no** |
+| 17414 | 200 | 63,041 | 0 | **no** |
+| 20205 | 200 | 63,041 | 0 | **no** |
+
+**1 distinct document for 3 course
+ids.** So the missing alignment is not a separate fact — *the whole page is an
+application shell*, the same shape as route 1. The server publishes no course
+content at all, and a browser assembles it afterwards.
+
+An earlier version of this page measured one course id and said Florida
+*"publishes no alignment in its markup"*, inferring that a browser assembles
+it. The inference was right and the measurement was too narrow to support it:
+one page carrying no alignment is consistent with several explanations, and
+three identical pages leave one.
 
 ## The verdict: standards do not become a node tier
 
@@ -88,7 +118,7 @@ is the only kind this repo can load.
 
 ## What this does not establish
 
-Three routes on 2026-09-08, one course page at CPALMS, and one
+Three routes on 2026-09-09, 3 course pages at CPALMS, and one
 reference server. A **403** is a refusal to *this* client — an account, an API
 key or an agreement might open the registry, and none was sought. What is
 settled is that **no unauthenticated machine route was found**, which is the

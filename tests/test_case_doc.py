@@ -60,23 +60,55 @@ def test_opensalt_is_reported_as_a_sandbox_with_its_evidence():
     assert top & shown, (
         f"none of the recorded creators {sorted(top)} is on the page; the "
         f"sandbox claim rests on who authored these")
-    assert SALT["documents_with_a_licence_uri"] == 0, (
-        "documents now carry a licence URI; the page says none do")
+    # EVERY spelling checked, and the whole key set recorded. The first
+    # version counted `licenceUri` — the British spelling, in no version of
+    # the specification — so the zero was a property of the key name rather
+    # than of the server, and the fixture fed the same misspelling so the
+    # code only agreed with itself.
+    for field, n in SALT["documents_by_licence_field"].items():
+        row = re.search(rf"\| `{re.escape(field)}` \| (\d+) \|", PAGE)
+        assert row, f"{field}'s row is not on the page"
+        assert int(row.group(1)) == n
+    assert "licenseUri" in SALT["documents_by_licence_field"], (
+        "the CASE spec spelling is not among the fields checked")
+    assert not any(SALT["documents_by_licence_field"].values()), (
+        "a licence field is now populated; the page's claim that the licence "
+        "question cannot be answered from the data no longer holds")
+    assert "licenseUri" not in SALT["keys_observed"], (
+        "the key set says licenseUri IS published; the counts and the key "
+        "set disagree and one of them is wrong")
 
 
-def test_the_cpalms_zero_is_the_measured_one():
-    """Route three, and the one that would have changed the verdict. A state
-    publishing a course-to-standard alignment in its markup is the edge the
-    issue says makes standards worth having."""
-    said = re.search(
-        r"\*\*(\d+) links to a standard\*\* and \*\*(\d+) standard codes\*\*",
-        PAGE)
-    assert said, "the page no longer states the CPALMS counts"
-    assert int(said.group(1)) == FL["standard_links"]
-    assert int(said.group(2)) == FL["standard_codes"]
-    assert FL["status"] == 200, (
-        "CPALMS no longer answers 200; a zero from a page that did not load "
+def test_the_cpalms_rows_are_the_measured_ones():
+    """Route three. **Three course ids, not one** — a single page carrying no
+    alignment is consistent with several explanations, and three identical
+    ones leave one."""
+    for page in FL["pages"]:
+        row = re.search(
+            rf"\| {page['course_id']} \| (\d+) \| ([\d,]+) \| (\d+) \|", PAGE)
+        assert row, f"course {page['course_id']}'s row no longer parses"
+        assert int(row.group(1)) == page["status"]
+        assert int(row.group(2).replace(",", "")) == page["bytes"]
+        assert int(row.group(3)) == page["standard_links"]
+    assert FL["answered"] == len(FL["pages"]), (
+        "a CPALMS page did not answer; a zero from a page that did not load "
         "is a different finding")
+
+
+def test_the_shell_finding_rests_on_both_halves_of_its_evidence():
+    """Identical bytes ALONE could be a coincidence of length. It is
+    conclusive because no page carries its own course id."""
+    said = re.search(
+        r"\*\*(\d+) distinct document for (\d+) course\s*ids\.\*\*", PAGE)
+    assert said, "the page no longer states the distinct-document count"
+    assert int(said.group(1)) == FL["distinct_documents"]
+    assert int(said.group(2)) == len(FL["pages"])
+    assert FL["serves_one_document_for_every_course"] is True, (
+        "CPALMS now serves distinct documents per course; route 3 measured "
+        "something else and the section needs rewriting")
+    assert not any(p["names_its_own_course_id"] for p in FL["pages"]), (
+        "a page names its own course id, so identical bytes no longer prove "
+        "a shell")
 
 
 def test_the_page_does_not_claim_the_standards_are_absent():
@@ -100,5 +132,7 @@ def test_the_page_states_the_403_is_a_refusal_to_this_client():
 def test_the_measurement_is_dated_and_says_to_re_run():
     """A host that refuses today may serve tomorrow, and the registry was
     rebranded once already."""
-    assert RECORD["retrieved_at"] in PAGE
+    assert RECORD["retrieved_at"] in PAGE, (
+        f"the page does not carry the measurement date "
+        f"{RECORD['retrieved_at']}")
     assert "Re-run the probe" in PAGE

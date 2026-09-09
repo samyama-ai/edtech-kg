@@ -32,6 +32,7 @@ import collections
 import datetime
 import json
 import pathlib
+import hashlib
 import re
 import sys
 import urllib.error
@@ -48,7 +49,15 @@ RECORD_NOTE = ("Measured by `python -m etl.probe_case --record`. Each route "
 
 CASE_NETWORK = "https://casenetwork.imsglobal.org"
 OPENSALT = "https://opensalt.net"
-CPALMS_COURSE = "https://www.cpalms.org/PreviewCourse/Preview/13087"
+#: Several course pages, not one. "Florida publishes no alignment in its
+#: markup" was a claim about a single URL — one extra request each makes it a
+#: claim about CPALMS. Ids are spread across the catalogue rather than
+#: consecutive, so a run of pages from one subject cannot stand in for it.
+CPALMS_COURSES = (
+    "https://www.cpalms.org/PreviewCourse/Preview/13087",
+    "https://www.cpalms.org/PreviewCourse/Preview/17414",
+    "https://www.cpalms.org/PreviewCourse/Preview/20205",
+)
 
 #: The paths a CASE server must serve. From the specification, so a server
 #: answering none of them is not a CASE endpoint whatever it is called.
@@ -146,26 +155,88 @@ def opensalt() -> dict:
         "top_creators": creators.most_common(10),
         # Recorded because it decides whether these are state standards. A
         # creator naming a vendor or a test is not a state education agency.
-        "documents_with_a_licence_uri": sum(1 for d in docs if d.get("licenceUri")),
         "documents_with_a_subject": sum(1 for d in docs if d.get("subject")),
+        **licence_fields(docs),
+    }
+
+
+#: How the CASE v1p0 `CFDocument` model spells it. **American, and it was
+#: written here as `licenceUri`** — so the count was a property of the key
+#: name rather than of the server, and returned 0 whatever OpenSALT published.
+#: It underwrote the page's claim that the licence question cannot be answered
+#: from the data.
+#:
+#: A `LinkURI` is an object rather than a bare string, so truthiness is the
+#: test — a populated one is a non-empty dict.
+LICENCE_FIELDS = ("licenseUri", "licenceUri", "rights", "rightsHolder")
+
+
+def licence_fields(docs: list[dict]) -> dict:
+    """What the documents say about licensing, and every key they carry.
+
+    **The key set is recorded, not just the counts.** A count of a key that
+    does not exist is zero however the server behaves, and the test could not
+    catch it because the fixture fed the same misspelling — the code agreeing
+    with itself. Recording what the documents ACTUALLY carry makes a zero
+    checkable and a future field rename visible rather than silent.
+    """
+    keys: dict[str, int] = {}
+    for doc in docs:
+        for key in doc:
+            keys[key] = keys.get(key, 0) + 1
+    return {
+        "documents_by_licence_field": {
+            field: sum(1 for d in docs if d.get(field))
+            for field in LICENCE_FIELDS},
+        # Every key any document carries, with how many carry it. This is the
+        # evidence behind "no licence field is published at all".
+        "keys_observed": dict(sorted(keys.items(), key=lambda kv: -kv[1])),
     }
 
 
 def cpalms() -> dict:
-    """Does Florida's course page carry its standards in the served markup?
+    """Do Florida's course pages carry their standards in the served markup?
 
     The edge the issue calls the one that "makes this useful rather than
     merely present". Measured on the DOCUMENT the server sends — an alignment
     a browser assembles is not an alignment anything else can read.
     """
-    status, body = fetch(CPALMS_COURSE)
+    pages, digests = [], {}
+    for url in CPALMS_COURSES:
+        status, body = fetch(url)
+        course_id = url.rsplit("/", 1)[-1]
+        digests[course_id] = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        pages.append({
+            "url": url,
+            "course_id": course_id,
+            "status": status,
+            "bytes": len(body),
+            "standard_links": len(set(re.findall(
+                r"PreviewStandard/Preview/(\d+)", body))),
+            "standard_codes": len(set(FLORIDA_CODE.findall(body))),
+            # **Does the page mention the course it is for?** Three ids
+            # returning identical bytes is only conclusive if none of them
+            # carries its own identifier — otherwise a coincidence of length
+            # could look like a shell.
+            "names_its_own_course_id": course_id in body,
+        })
+    answered = [p for p in pages if p["status"] == 200]
+    distinct = len(set(digests.values()))
     return {
-        "url": CPALMS_COURSE,
-        "status": status,
-        "bytes": len(body),
-        "standard_links": len(set(re.findall(
-            r"PreviewStandard/Preview/(\d+)", body))),
-        "standard_codes": len(set(FLORIDA_CODE.findall(body))),
+        "pages": pages,
+        "answered": len(answered),
+        # Totals across the pages that answered. A page that did not load is
+        # not a page publishing no alignment.
+        "standard_links": sum(p["standard_links"] for p in answered),
+        "standard_codes": sum(p["standard_codes"] for p in answered),
+        "distinct_documents": distinct,
+        # The finding this measurement turned out to carry. If three
+        # different course ids return ONE document, the server is not
+        # publishing courses at all — the whole page is assembled in a
+        # browser, and the missing alignment is a consequence rather than a
+        # separate fact.
+        "serves_one_document_for_every_course": distinct == 1 and len(answered) > 1,
+        "sha256_by_course_id": digests,
     }
 
 
@@ -199,9 +270,16 @@ def report(measured: dict) -> None:
         print(f"      {n:>3}  {creator}")
 
     fl = measured["cpalms"]
-    print(f"\n  CPALMS  status {fl['status']}, {fl['bytes']} bytes")
-    print(f"    standard links in the served markup: {fl['standard_links']}")
-    print(f"    standard codes in the served markup: {fl['standard_codes']}")
+    print(f"\n  CPALMS  {fl['answered']} of {len(fl['pages'])} pages answered")
+    for page in fl["pages"]:
+        print(f"    {str(page['status']):<5} {page['bytes']:>7} bytes  "
+              f"links={page['standard_links']}  codes={page['standard_codes']}  "
+              f"names_own_id={page['names_its_own_course_id']}  "
+              f"{page['course_id']}")
+    print(f"    across the answered pages: {fl['standard_links']} links, "
+          f"{fl['standard_codes']} codes")
+    print(f"    distinct documents for {len(fl['pages'])} course ids: "
+          f"{fl['distinct_documents']}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -226,8 +304,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     report(measured)
     if args.record:
-        # A run where every route failed to CONNECT measured nothing — as
-        # distinct from every route refusing, which is the finding.
+        # REFUSED when no route produced a status. Unreachable is raised
+        # before this today — `fetch` propagates it and `main` returns 1 —
+        # so this cannot fire on the current code. It is kept deliberately:
+        # `fetch` returns a status rather than raising for every case that
+        # matters here, and the day a non-raising failure path is added, a
+        # record of nothing must not overwrite a record of something.
         if not any(measured[route].get("status") or
                    measured[route].get("root_status")
                    for route in ("case_network", "opensalt", "cpalms")):
