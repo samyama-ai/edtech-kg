@@ -68,7 +68,7 @@ def test_the_probe_refuses_a_loaded_engine(monkeypatch):
                         (200, {"storage": {"nodes": 4392}, "version": "1.7.0"}))
     # Its own labels are cleared first — that is what makes the probe
     # re-runnable — so the count that decides is what is LEFT afterwards.
-    monkeypatch.setattr(probe, "clear_our_own", lambda engine: 4392)
+    monkeypatch.setattr(probe, "clear_our_own", lambda engine, url: 4392)
     with pytest.raises(probe.Unusable) as refused:
         probe.measure("http://localhost:9999")
     assert "4392" in str(refused.value)
@@ -83,7 +83,7 @@ def test_a_graph_holding_only_a_previous_run_is_cleared_not_refused(monkeypatch)
     monkeypatch.setattr(probe, "api",
                         lambda url, path, *a, **k:
                         (200, {"storage": {"nodes": 33000}, "version": "1.7.0"}))
-    monkeypatch.setattr(probe, "clear_our_own", lambda engine: 0)
+    monkeypatch.setattr(probe, "clear_our_own", lambda engine, url: 0)
     monkeypatch.setattr(probe, "remove_is_a_no_op", lambda e: {"ok": 1})
     monkeypatch.setattr(probe, "tenant_is_ignored", lambda u, e: {"ok": 1})
     monkeypatch.setattr(probe, "merge_ignores_the_index",
@@ -198,3 +198,139 @@ def test_a_refused_constraint_is_recorded_rather_than_swallowed():
             return {"records": []}
 
     assert bench.declare_constraint(Accepts(), "X") == "declared"
+
+
+class Status:
+    """An /api/status the guard can be driven against."""
+
+    def __init__(self, payload, code=200):
+        self.payload, self.code = payload, code
+
+    def __call__(self, url, path, method="GET", body=None):
+        if path == "/api/status":
+            return self.code, self.payload
+        return 200, {"records": [[0]]}
+
+
+def test_a_status_without_a_node_count_refuses_rather_than_reads_as_empty(
+        monkeypatch):
+    """**Blocker 1. The guard failed open.** A 200 at /api/status carrying no
+    `storage.nodes` key left `nodes` as None, so the whole `if nodes:` block
+    was skipped and the probe wrote ~16,400 unremovable nodes into whatever it
+    was pointed at.
+
+    This is the guard between a `--url` typo and the :8200 accident the probe
+    exists because of. `probe_engine_capability.py` raises for a missing
+    version rather than recording "unknown"; the same rule belongs here.
+    """
+    monkeypatch.setattr(probe, "api", Status({"storage": {}}))
+    with pytest.raises(probe.Unusable, match="storage.nodes"):
+        probe.measure("http://engine.test")
+    monkeypatch.setattr(probe, "api", Status({}))
+    with pytest.raises(probe.Unusable, match="storage.nodes"):
+        probe.measure("http://engine.test")
+
+
+def test_an_unmeasurable_cleanup_refuses_rather_than_reports_empty(monkeypatch):
+    """**Blocker 1, the other half.** `clear_our_own` ended
+    `return scalar(...) or 0`, so "I could not measure this" became "the graph
+    is empty" — and with `storage.nodes` at 50,000 the probe proceeded."""
+    monkeypatch.setattr(probe, "api", Status({"storage": {}}, code=500))
+    with pytest.raises(probe.Unusable):
+        probe.still_held("http://engine.test")
+
+
+def test_the_refusal_rests_on_an_instance_wide_count(monkeypatch):
+    """**Blocker 2. The guard's safety depended on a defect holding still.**
+    The leftover count ran under `graph="default"` while this repo loads its
+    district under `graph="edtech"`. It saw that data only because graph
+    scoping does not work — the same class of defect this probe measures for
+    `tenant`. An engine build that FIXED scoping would report an empty default
+    on a loaded instance and let the probe run.
+
+    `/api/status` is instance-wide, so the decision no longer rests on the
+    defect it is measuring.
+    """
+    asked = []
+
+    def api(url, path, method="GET", body=None):
+        asked.append((path, (body or {}).get("graph")))
+        return 200, {"storage": {"nodes": 50_000}}
+
+    monkeypatch.setattr(probe, "api", api)
+    assert probe.still_held("http://engine.test") == 50_000
+    assert asked == [("/api/status", None)], (
+        "the count went through a graph-scoped query, which is the defect "
+        "this probe measures")
+
+
+class Api:
+    """/api/tenants and /api/query, scripted, with a scriptable query status."""
+
+    def __init__(self, count=1, query_status=200, create=201):
+        self.count, self.query_status, self.create = count, query_status, create
+        self.bodies = []
+
+    def __call__(self, url, path, method="GET", body=None):
+        if path == "/api/status":
+            return 200, {"storage": {"nodes": 0}}
+        if path.startswith("/api/tenants"):
+            return (self.create if method == "POST" else 200), {}
+        self.bodies.append(body)
+        if self.query_status != 200:
+            return self.query_status, {}
+        return 200, {"records": [[self.count]]}
+
+
+class Engine:
+    def __init__(self, count=1):
+        self.count = count
+
+    def run(self, cypher):
+        return {"records": [[self.count]]}
+
+
+def test_a_refused_query_is_not_read_as_the_defect_being_fixed(monkeypatch):
+    """**Blocker 4.** The 422 guard covered the tenant CREATE and stopped one
+    call short: `status` was unpacked from the query calls and never checked.
+
+    Driven with /api/tenants at 201 and /api/query at 400, all three counts
+    came back None, `len(seen) == 1` held, and the probe reported #149 FIXED —
+    the same false-absence the guard exists for, one call along, with nothing
+    in the record to reveal it.
+    """
+    monkeypatch.setattr(probe, "api", Api(query_status=400))
+    with pytest.raises(probe.Unusable, match="refused"):
+        probe.tenant_is_ignored("http://engine.test", Engine())
+
+
+def test_the_query_statuses_are_recorded_beside_the_counts(monkeypatch):
+    """A count of None means "refused" or "zero" and the record could not say
+    which."""
+    monkeypatch.setattr(probe, "api", Api())
+    found = probe.tenant_is_ignored("http://engine.test", Engine())
+    assert set(found["query_status_by_tenant"]) == {
+        "default", "probe-scratch", "nonexistent-tenant-xyz"}
+    assert all(s == 200 for s in found["query_status_by_tenant"].values())
+
+
+def test_a_nonsense_field_is_the_control_for_tenant_being_ignored(monkeypatch):
+    """**Blocker 3. `still_defective` could not report anything else.**
+
+    A field named `zzz_not_a_field` produces a byte-identical response: the
+    engine discards unknown body fields wholesale, and `etl/engine.py` already
+    records that /api/query accepts only `query` and `graph`. So "tenant is
+    ignored" read true forever — including on an engine with perfect
+    isolation. Unfalsifiable, and contradicting a fact this repo has measured.
+
+    With the control, the finding sharpens into the better-supported claim:
+    there is no `tenant` parameter on /api/query at all.
+    """
+    api = Api()
+    monkeypatch.setattr(probe, "api", api)
+    found = probe.tenant_is_ignored("http://engine.test", Engine())
+    assert any("zzz_not_a_field" in (b or {}) for b in api.bodies), (
+        "no null control was sent, so 'tenant is ignored' cannot be told "
+        "from 'tenant is not a parameter'")
+    assert found["unknown_body_fields_are_discarded"] is True
+    assert found["reads_as_no_tenant_parameter"] is True

@@ -109,7 +109,7 @@ def api(url: str, path: str, method: str = "GET",
 OUR_LABELS = (LABEL, BENCH_LABEL, f"{BENCH_LABEL}Fresh")
 
 
-def clear_our_own(engine: Engine) -> int:
+def clear_our_own(engine: Engine, url: str) -> int:
     """Delete this probe's own nodes; return how many others remain.
 
     Zero means the graph held nothing but a previous run of this probe and is
@@ -117,7 +117,33 @@ def clear_our_own(engine: Engine) -> int:
     """
     for label in OUR_LABELS:
         engine.run(f"MATCH (n:{label}) DETACH DELETE n")
-    return scalar(engine, "MATCH (n) WITH n RETURN count(n)") or 0
+    return still_held(url)
+
+
+def still_held(url: str) -> int:
+    """How many nodes the ENGINE says it holds, from /api/status.
+
+    **Not a Cypher count.** Two things were wrong with counting in the graph:
+
+      * `scalar(...) or 0` turned "I could not measure this" into "the graph
+        is empty". Driven with `storage.nodes` at 50,000 and the count
+        answering nothing, the probe proceeded.
+      * the count ran under `graph="default"` while this repo loads its
+        district under `graph="edtech"`. It saw that data only because graph
+        scoping does not work — the same class of defect this probe measures
+        for `tenant`. An engine build that FIXED scoping would report an
+        empty default on a loaded instance and let the probe run.
+
+    `/api/status` is instance-wide and is the number the refusal should rest
+    on. A missing count raises rather than reading as zero.
+    """
+    status, body = api(url, "/api/status")
+    held = ((body or {}).get("storage") or {}).get("nodes")
+    if status != 200 or held is None:
+        raise Unusable(
+            f"{url} would not say how many nodes it holds after the cleanup "
+            f"({status}), so whether it is safe to write to is unknown.")
+    return int(held)
 
 
 def one(engine: Engine, cypher: str) -> list:
@@ -286,14 +312,30 @@ def tenant_is_ignored(url: str, engine: Engine) -> dict:
             f"that the API ACCEPTS these calls and scopes nothing; if it no "
             f"longer accepts them the finding needs re-stating, not "
             f"re-recording.")
-    counts = {}
+    counts, query_status = {}, {}
+    count_query = f"MATCH (n:{LABEL}) WITH n RETURN count(n)"
     try:
         for tenant in ("default", "probe-scratch", "nonexistent-tenant-xyz"):
-            status, body = api(url, "/api/query", "POST", {
-                "query": f"MATCH (n:{LABEL}) WITH n RETURN count(n)",
-                "tenant": tenant})
+            status, body = api(url, "/api/query", "POST",
+                               {"query": count_query, "tenant": tenant})
+            query_status[tenant] = status
             records = (body or {}).get("records") or []
             counts[tenant] = records[0][0] if records and records[0] else None
+
+        # **THE NULL CONTROL.** Without it this measurement cannot tell
+        # "`tenant` is ignored" from "`tenant` is not a parameter at all" —
+        # and `etl/engine.py` already records that /api/query accepts only
+        # `query` and `graph`. A field named `zzz_not_a_field` producing a
+        # byte-identical response means the engine discards unknown body
+        # fields wholesale, so `still_defective` would read true forever,
+        # including on an engine with perfect isolation. Unfalsifiable, and
+        # contradicting a fact this repo has already measured.
+        nonsense, nonsense_body = api(url, "/api/query", "POST",
+                                      {"query": count_query,
+                                       "zzz_not_a_field": "probe-scratch"})
+        nonsense_records = (nonsense_body or {}).get("records") or []
+        control = (nonsense_records[0][0]
+                   if nonsense_records and nonsense_records[0] else None)
     finally:
         # The tenant goes even if a query raises. It leaked otherwise, and a
         # leaked tenant is the one piece of state this probe creates that a
@@ -301,18 +343,46 @@ def tenant_is_ignored(url: str, engine: Engine) -> dict:
         dropped, _ = api(url, "/api/tenants/probe-scratch", "DELETE")
     after_drop = scalar(engine, f"MATCH (n:{LABEL}) WITH n RETURN count(n)")
 
+    # **THE QUERY STATUSES ARE CHECKED, not merely stored.** The 422 guard
+    # covered the tenant CREATE and stopped one call short: driven with
+    # /api/tenants at 201 and /api/query at 400, all three counts came back
+    # None, `len(seen) == 1` held, and the probe reported #149 FIXED. That is
+    # the same false-absence this probe's own guard exists to prevent, one
+    # call further along.
+    refused = {tenant: status for tenant, status in query_status.items()
+               if status != 200}
+    if refused:
+        raise Unusable(
+            f"/api/query refused a tenant-scoped count: {refused}. #149's "
+            f"claim is that the API ACCEPTS these calls and scopes nothing; "
+            f"a refusal means the finding needs re-stating, not re-recording.")
+
     seen = set(counts.values())
+    one_graph = len(seen) == 1 and baseline in seen
     return {
         "issue": 149,
         "baseline": baseline,
         "counts_by_tenant": counts,
+        "query_status_by_tenant": query_status,
         "create_status": created,
         "delete_status": dropped,
         "nodes_after_dropping_the_tenant": after_drop,
-        "every_tenant_sees_one_graph": len(seen) == 1 and baseline in seen,
+        "every_tenant_sees_one_graph": one_graph,
         # The compounding consequence: dropping a tenant does not drop data.
         "dropping_a_tenant_deleted_nothing": after_drop == baseline,
-        "still_defective": len(seen) == 1 and baseline in seen,
+        # The null control, recorded beside the finding it qualifies.
+        "count_under_a_nonsense_field": control,
+        "nonsense_field_status": nonsense,
+        "unknown_body_fields_are_discarded": (
+            nonsense == 200 and control == baseline),
+        "still_defective": one_graph,
+        # **The better-supported claim.** If a field the API has never heard
+        # of produces the same answer as `tenant` does, the finding is not
+        # "tenant is ignored" but "there is no tenant parameter on
+        # /api/query at all" — which is what etl/engine.py already documents
+        # and what a reader can act on.
+        "reads_as_no_tenant_parameter": (
+            one_graph and nonsense == 200 and control == baseline),
     }
 
 
@@ -322,6 +392,19 @@ def measure(url: str, full: bool = False, image: str = DEFAULT_IMAGE) -> dict:
     if status != 200:
         raise Unusable(f"{url} answered {status} at /api/status")
     nodes = ((body or {}).get("storage") or {}).get("nodes")
+    if nodes is None:
+        # **RAISED, not treated as empty.** A /api/status answering 200
+        # without a `storage.nodes` key left this None, the whole guard was
+        # skipped, and the probe wrote ~16,400 unremovable nodes into
+        # whatever it was pointed at. `probe_engine_capability.py` already
+        # raises for a missing version rather than recording "unknown"; the
+        # same rule belongs on the guard between a `--url` typo and the :8200
+        # accident this probe exists because of.
+        raise Unusable(
+            f"{url} answered 200 at /api/status without a storage.nodes "
+            f"count, so how much this graph holds could not be measured. "
+            f"This probe writes tens of thousands of nodes and cannot tidy "
+            f"up after itself; it will not start on an unmeasured graph.")
     if nodes:
         # A graph holding ONLY this probe's own labels is its own previous
         # run, and refusing that made the probe single-use: it left ~33,000
@@ -334,7 +417,7 @@ def measure(url: str, full: bool = False, image: str = DEFAULT_IMAGE) -> dict:
         # of thousands of nodes into a graph it cannot tidy. Running it
         # against a loaded one is how :8200 came to hold four copies of one
         # district (#149).
-        leftover = clear_our_own(Engine(url))
+        leftover = clear_our_own(Engine(url), url)
         if leftover:
             raise Unusable(
                 f"{url} holds {leftover} node(s) this probe did not write. It "
