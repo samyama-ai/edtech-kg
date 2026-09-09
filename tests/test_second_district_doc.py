@@ -263,10 +263,20 @@ def test_the_correction_is_recorded_not_quietly_replaced():
     the first page of each index and sampled from that, a BIASED subset rather
     than a small one. A page that silently swapped the numbers would leave the
     next reader with no way to know the method changed."""
-    # THREE, and the third is the largest — the metric redefinition that put
-    # Arlington above PWCS. A page listing only the re-measurements would let
-    # a reader mistake a redefinition for a re-run.
-    assert "Three corrections are recorded" in PAGE
+    # **The COUNT IS DERIVED from the table, not pinned as a string.** It was
+    # pinned as "Three corrections are recorded" and a fourth correction was
+    # added below it, so the guard held the wrong number in place — the same
+    # shape as the row-count drift it was written to catch, one paragraph
+    # over.
+    import re as _re
+    stated = _re.search(r"\*\*(\w+) corrections are recorded", PAGE)
+    assert stated, "the page no longer states how many corrections it records"
+    numbered = _re.findall(r"^\| \*\*(\d+)\*\* \|",
+                           DOC.read_text(encoding="utf-8"), _re.M)
+    words = {1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six"}
+    assert stated.group(1) == words[len(numbered)], (
+        f"the page says {stated.group(1).lower()} corrections and the table "
+        f"has {len(numbered)} rows")
     assert "not following the catalogue's pager" in PAGE
     assert "not deduplicated" in PAGE
     assert "the metric was redefined" in PAGE
@@ -278,6 +288,26 @@ def test_the_correction_is_recorded_not_quietly_replaced():
             f"the superseded figure {superseded!r} is not named; the "
             f"correction is invisible to a reader of the current page")
     assert str(APS["candidate_course_paths"]) in PAGE
+
+    # The superseded figures are named AS superseded. They were measured on
+    # the seeded sample correction 4 retired, and sat two paragraphs under a
+    # table of current ones with nothing distinguishing them.
+    assert "measured on the SEEDED sample that" in PAGE
+    for current, figure in (("APS (Arlington, VA)", "percent_stating_in_either_field"),
+                            ("PWCS (Prince William County, VA)", "percent_stating_in_either_field")):
+        assert f"{RECORD['districts'][current][figure]}%" in PAGE
+
+
+def test_the_clover_park_paragraph_is_the_measured_one():
+    """It said "carries neither field — the only district here that states no
+    prerequisites at all" while the table two rows above printed a non-zero
+    rate. Only the table row was checked, and that paragraph is exactly what
+    drifted."""
+    clover = RECORD["districts"]["Clover Park (WA)"]
+    assert f"{clover['kinds']['no field']} of Clover Park's " \
+           f"{clover['read']} read" in PAGE, (
+        "the page's Clover Park sentence is not the measured one")
+    assert f"{clover['percent_stating_in_either_field']}%" in PAGE
 
     # And the sentinel correction, which is the one this repo had already
     # made once in course-prerequisites.md.

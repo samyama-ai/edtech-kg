@@ -173,7 +173,7 @@ publishes them on pages this sample did not draw".
 the four crawl-enumerated districts that means "the index links it too". No
 link was HEAD-checked.
 
-**Three corrections are recorded rather than swapped in**, because a page
+**Four corrections are recorded rather than swapped in**, because a page
 that silently replaced its numbers would leave the next reader unable to tell
 a re-measurement from a redefinition.
 
@@ -192,6 +192,11 @@ non-statements. That took Arlington from 60.0% to
 56.7% and PWCS from 39.0% to
 40.0% — the direction survived, the margin
 narrowed.
+
+**All four of those figures were measured on the SEEDED sample that
+correction 4 then retired, and none of them is a current figure.** The
+current ones are in the table at the top — Arlington 65.0%, PWCS 45.0% — and
+they are not comparable to these, which is the whole of correction 4.
 
 **Correction 4 is also why the fourth-round rewrite of the page reader can be
 trusted.** Re-running the probe after that rewrite showed Arlington's typed

@@ -13,14 +13,14 @@ Clean Catalog, the vendor says it serves other districts, "so the structure may
 repeat". The vendor's own K-12 page names its district clients, which is how
 the four below were found — not by guessing at hostnames.
 
-**Same method, same field, same sample size, seed recorded.** The comparison is
-worthless otherwise: a different sampling rule on the second district would
-measure the rule rather than the district.
+**Same method, same field, same sample size, sampling rule recorded.** The
+comparison is worthless otherwise: a different sampling rule on the second
+district would measure the rule rather than the district.
 
 What is measured, per district:
 
   * how many course pages the index publishes
-  * how many of a seeded sample state a prerequisite at all
+  * how many of the sample state a prerequisite at all
   * of those, how many state it as a LINK rather than as prose — this is the
     distinction the whole question turns on, because only a link resolves
   * of the links, how many point at a course page the same index publishes
@@ -49,7 +49,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "second-district-measured.json"
 RECORD_NOTE = (
     "Measured by `python -m etl.probe_second_district --record`. The same "
-    "fields, the same classifier and the same seed on every district. The "
+    "fields, the same classifier and the same sampling rule on every "
+    "district — see `sampling`; it is NOT a seeded draw, and this note said "
+    "it was for one round after the change. The "
     "sample size is the same CEILING everywhere and is smaller where a "
     "district publishes fewer pages than the ceiling — see `sampled` and "
     "`read` per district, and divide by `read`, never by the ceiling. "
