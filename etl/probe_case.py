@@ -80,7 +80,13 @@ class Unreachable(RuntimeError):
     """A host did not answer at all. Distinct from answering with a refusal."""
 
 
-def fetch(url: str) -> tuple[int | str, str]:
+#: How much of a body is recorded. Enough to see what a refusal SAYS, short
+#: enough that nothing unbounded lands in a record — the page prints these
+#: verbatim, so an unbounded field would put a whole SPA shell in a table.
+BODY_HEAD = 256
+
+
+def fetch(url: str) -> tuple[int | str, str, str]:
     """The STATUS and the body — a refusal is a measurement, not an error.
 
     A 403 on a registry advertised as "free to browse and use" is the finding,
@@ -90,7 +96,9 @@ def fetch(url: str) -> tuple[int | str, str]:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=45) as response:
-            return response.status, response.read().decode("utf-8", "replace")
+            return (response.status,
+                    response.read().decode("utf-8", "replace"),
+                    response.headers.get("Content-Type", ""))
     except urllib.error.HTTPError as refused:
         # **THE REFUSAL'S BODY IS READ.** Discarding it recorded `bytes: 0,
         # is_json: false` for the two spec paths — an artefact of the discard,
@@ -103,7 +111,9 @@ def fetch(url: str) -> tuple[int | str, str]:
         # application" over-reads that; "no UNAUTHENTICATED machine route"
         # is what the body supports, and it points at asking 1EdTech rather
         # than at a dead end.
-        return refused.code, refused.read().decode("utf-8", "replace")
+        return (refused.code,
+                refused.read().decode("utf-8", "replace"),
+                refused.headers.get("Content-Type", ""))
     except (urllib.error.URLError, TimeoutError, OSError) as gone:
         raise Unreachable(f"{url}: {gone}") from gone
 
@@ -116,13 +126,21 @@ def case_network() -> dict:
     application — the standards are behind JavaScript, and "machine-readable"
     describes the format rather than the access.
     """
-    root_status, root = fetch(f"{CASE_NETWORK}/")
+    root_status, root, _ = fetch(f"{CASE_NETWORK}/")
     paths = {}
     for path in CASE_PATHS:
-        status, body = fetch(f"{CASE_NETWORK}{path}")
+        status, body, content_type = fetch(f"{CASE_NETWORK}{path}")
         paths[path] = {
             "status": status,
             "bytes": len(body),
+            # **THE BODY AND ITS TYPE ARE MEASURED, not described.** The
+            # record gained `bytes: 44` and the page then printed the literal
+            # payload and asserted "44 bytes of application/json" as PROSE —
+            # so editing that cell to `{"ok":true}` left every test green.
+            # The over-read moved from an artefact of a discard to an
+            # unchecked assertion, which is the same failure one step along.
+            "content_type": content_type,
+            "body_head": body[:BODY_HEAD],
             "is_case_json": is_case_json(body),
             # The tell: a path answering 200 with the ROOT's markup is the
             # app's own catch-all, not an endpoint.
@@ -163,7 +181,19 @@ def is_case_json(body: str) -> bool:
         return False
     if not isinstance(payload, dict):
         return False
-    return any(key in payload for key in CASE_KEYS)
+    # **A NON-EMPTY container.** `{"CFDocuments": null}` and
+    # `{"CFDocuments": []}` both returned True, so OpenSALT answering
+    # `{"error":"maintenance","CFDocuments":null}` took the "server answered
+    # CASE" branch, reported `documents: 0`, and `--record` overwrote the
+    # 95-document record. The doc test catches it before merge; the record on
+    # disk is already gone by then.
+    for key in CASE_KEYS:
+        held = payload.get(key)
+        if isinstance(held, dict) and held:
+            return True
+        if isinstance(held, list) and held:
+            return True
+    return False
 
 
 def opensalt() -> dict:
@@ -174,7 +204,7 @@ def opensalt() -> dict:
     holds test fixtures is not the same finding as one that holds a state's
     standards.
     """
-    status, body = fetch(f"{OPENSALT}/ims/case/v1p0/CFDocuments")
+    status, body, _ = fetch(f"{OPENSALT}/ims/case/v1p0/CFDocuments")
     if not is_case_json(body):
         return {"base": OPENSALT, "status": status, "documents": 0,
                 "note": "the reference implementation did not return CASE JSON"}
@@ -249,7 +279,7 @@ def cpalms() -> dict:
     """
     pages, digests = [], {}
     for url in CPALMS_COURSES:
-        status, body = fetch(url)
+        status, body, _ = fetch(url)
         course_id = url.rsplit("/", 1)[-1]
         digests[course_id] = hashlib.sha256(body.encode("utf-8")).hexdigest()
         pages.append({
@@ -363,6 +393,28 @@ def main(argv: list[str] | None = None) -> int:
             print("refusing to --record: no route answered at all.",
                   file=sys.stderr)
             return 3
+
+        # **A RATCHET ON THE DOCUMENT COUNT.** The emptiness check above asks
+        # whether anything ANSWERED; it does not ask whether the answer was
+        # smaller than the one already on disk. OpenSALT answering 200 with
+        # an error page gives `documents: 0` through a branch that reads as
+        # success, and the record of 95 is overwritten before any test runs.
+        #
+        # A drop is not refused outright — the source may genuinely shrink —
+        # but a drop to ZERO from a recorded non-zero is the shape of a
+        # source having a bad day, and the committed measurement is worth
+        # more than that.
+        if RECORD.exists():
+            held = json.loads(RECORD.read_text(encoding="utf-8"))
+            was = (held.get("opensalt") or {}).get("documents") or 0
+            now = (measured.get("opensalt") or {}).get("documents") or 0
+            if was and not now:
+                print(f"refusing to --record: OpenSALT answered "
+                      f"{measured['opensalt'].get('status')} with 0 documents "
+                      f"where {was} are recorded. Re-run, or delete the "
+                      f"record deliberately if the source really is empty.",
+                      file=sys.stderr)
+                return 3
         write_record(RECORD, measured)
         print(f"\n  -> {RECORD.relative_to(ROOT)}")
     return 0

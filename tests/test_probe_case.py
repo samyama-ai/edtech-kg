@@ -26,7 +26,7 @@ def test_a_refusal_is_a_measurement_and_not_an_exception(monkeypatch):
         probe.urllib.request, "urlopen",
         lambda *a, **k: (_ for _ in ()).throw(
             urllib.error.HTTPError("u", 403, "Forbidden", {}, None)))
-    status, body = probe.fetch("https://x.test/uri/")
+    status, body, _ = probe.fetch("https://x.test/uri/")
     assert status == 403
     assert body == ""
 
@@ -47,7 +47,7 @@ def test_the_apps_own_markup_is_not_an_endpoint(monkeypatch):
     shell. Counting that as a served path would report a browser app as a
     CASE API."""
     shell = "<html><body>Standards Satchel</body></html>"
-    monkeypatch.setattr(probe, "fetch", lambda url: (200, shell))
+    monkeypatch.setattr(probe, "fetch", lambda url: (200, shell, "text/html"))
     found = probe.case_network()
     assert found["reachable_as_data"] is False
     assert all(f["same_as_root"] for f in found["paths"].values()), (
@@ -61,7 +61,7 @@ def test_real_case_json_is_recognised(monkeypatch):
     body = '{"CFDocuments": [{"identifier": "x", "creator": "A State"}]}'
     monkeypatch.setattr(
         probe, "fetch",
-        lambda url: (200, body) if url.endswith("CFDocuments") else (200, "<html>"))
+        lambda url: (200, body, "application/json") if url.endswith("CFDocuments") else (200, "<html>", "text/html"))
     found = probe.case_network()
     assert found["reachable_as_data"] is True
     assert found["serves_case_json"]
@@ -78,7 +78,7 @@ def test_opensalt_reports_who_authored_the_documents(monkeypatch):
             '{"creator": "PCG Test Prep"}, {"creator": "PCG Test Prep"},'
             '{"creator": "ETS", "licenseUri": {"title": "CC BY", '
             '"uri": "http://x"}}]}')
-    monkeypatch.setattr(probe, "fetch", lambda url: (200, body))
+    monkeypatch.setattr(probe, "fetch", lambda url: (200, body, "text/html"))
     found = probe.opensalt()
     assert found["documents"] == 3
     assert found["distinct_creators"] == 2
@@ -105,7 +105,7 @@ def test_a_non_case_answer_from_opensalt_is_not_counted_as_zero_documents(
     """A server returning HTML has not published no standards — it has not
     answered the question. Reporting 0 would fold a broken route into the
     finding."""
-    monkeypatch.setattr(probe, "fetch", lambda url: (200, "<html>nope</html>"))
+    monkeypatch.setattr(probe, "fetch", lambda url: (200, "<html>nope</html>", "text/html"))
     found = probe.opensalt()
     assert found["documents"] == 0
     assert "did not return CASE JSON" in found["note"]
@@ -116,7 +116,7 @@ def test_the_cpalms_search_looks_for_links_and_codes(monkeypatch):
     report a zero that was never asked of the other."""
     markup = ('<a href="/PreviewStandard/Preview/91">MA.912.AR.1.1</a>'
               '<a href="/PreviewStandard/Preview/92">x</a>')
-    monkeypatch.setattr(probe, "fetch", lambda url: (200, markup))
+    monkeypatch.setattr(probe, "fetch", lambda url: (200, markup, "text/html"))
     found = probe.cpalms()
     pages = len(probe.CPALMS_COURSES)
     assert found["standard_links"] == 2 * pages
@@ -128,7 +128,7 @@ def test_identical_documents_for_different_courses_are_recognised(monkeypatch):
     three course ids means the server publishes no course content at all —
     the whole page is assembled in a browser, and the missing alignment is a
     consequence rather than a separate fact."""
-    monkeypatch.setattr(probe, "fetch", lambda url: (200, "<html>shell</html>"))
+    monkeypatch.setattr(probe, "fetch", lambda url: (200, "<html>shell</html>", "text/html"))
     found = probe.cpalms()
     assert found["distinct_documents"] == 1
     assert found["serves_one_document_for_every_course"] is True
@@ -140,7 +140,7 @@ def test_distinct_documents_are_not_reported_as_a_shell(monkeypatch):
     genuinely publishing per-course pages must not be called a shell."""
     monkeypatch.setattr(
         probe, "fetch",
-        lambda url: (200, f"<html>course {url.rsplit('/', 1)[-1]}</html>"))
+        lambda url: (200, f"<html>course {url.rsplit('/', 1)[-1]}</html>", "text/html"))
     found = probe.cpalms()
     assert found["distinct_documents"] == len(probe.CPALMS_COURSES)
     assert found["serves_one_document_for_every_course"] is False
@@ -168,7 +168,7 @@ def test_a_refusals_body_is_recorded_not_discarded(monkeypatch):
         raise Refused()
 
     monkeypatch.setattr(probe.urllib.request, "urlopen", raise_403)
-    status, body = probe.fetch("https://x/CFDocuments")
+    status, body, _ = probe.fetch("https://x/CFDocuments")
     assert status == 403
     assert "Invalid credentials" in body, (
         "the refusal's body was discarded, so `bytes: 0` is the probe's own "
@@ -190,8 +190,11 @@ def test_case_json_means_a_case_payload_not_merely_parseable(monkeypatch):
     for not_case in ('{"anything": 1}', "[]", '"a string"', "42",
                      '{"error": "nope"}'):
         assert not probe.is_case_json(not_case), not_case
-    for case in ('{"CFDocuments": []}', '{"CFDocument": {"identifier": "x"}}',
-                 '{"CFItems": [], "extra": 1}'):
+    # A container has to be NON-EMPTY: see
+    # `test_an_empty_case_container_is_not_a_case_payload`.
+    for case in ('{"CFDocuments": [{"identifier": "x"}]}',
+                 '{"CFDocument": {"identifier": "x"}}',
+                 '{"CFItems": [{"identifier": "y"}], "extra": 1}'):
         assert probe.is_case_json(case), case
 
 
@@ -238,3 +241,62 @@ def test_the_report_prints_a_licence_figure_that_exists(monkeypatch, capsys):
     probe.report(found)
     printed = capsys.readouterr().out
     assert "3 carrying a licence field" in printed, printed
+
+
+def test_an_empty_case_container_is_not_a_case_payload():
+    """**Blocker 3.** `{"CFDocuments": null}` and `{"CFDocuments": []}` both
+    returned True, so OpenSALT answering
+    `{"error":"maintenance","CFDocuments":null}` took the "server answered
+    CASE" branch and reported `documents: 0`."""
+    for empty in ('{"CFDocuments": null}', '{"CFDocuments": []}',
+                  '{"CFItems": [], "CFDocuments": []}',
+                  '{"error":"maintenance","CFDocuments":null}'):
+        assert not probe.is_case_json(empty), empty
+    assert probe.is_case_json('{"CFDocuments": [{"identifier": "x"}]}')
+
+
+def test_record_refuses_to_overwrite_a_count_with_zero(monkeypatch, tmp_path,
+                                                       capsys):
+    """The emptiness guard asks whether anything ANSWERED; it does not ask
+    whether the answer was smaller than the one on disk. A 200 with an error
+    page overwrote 95 documents with 0, and the doc test catches that only
+    after the record is already gone."""
+    record = tmp_path / "case-measured.json"
+    record.write_text(json.dumps({"opensalt": {"documents": 95}}),
+                      encoding="utf-8")
+    monkeypatch.setattr(probe, "RECORD", record)
+    monkeypatch.setattr(probe, "measure", lambda: {
+        "case_network": {"root_status": 200}, "cpalms": {"status": 200},
+        "opensalt": {"status": 200, "documents": 0}})
+    monkeypatch.setattr(probe, "report", lambda m: None)
+    assert probe.main(["--record"]) == 3
+    assert "0 documents where 95 are recorded" in capsys.readouterr().err
+    assert json.loads(record.read_text())["opensalt"]["documents"] == 95
+
+
+def test_the_refusals_content_type_and_body_are_recorded(monkeypatch):
+    """**Blocker 2.** The record gained `bytes: 44`, and the page then printed
+    the literal payload and asserted "44 bytes of application/json" as prose —
+    so editing that cell to `{"ok":true}` left every test green. The over-read
+    moved from an artefact of a discard to an unchecked assertion.
+    """
+    class Refused(urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__(
+                "https://x/CFDocuments", 403, "Forbidden",
+                {"Content-Type": "application/json"},
+                io.BytesIO(b'{"message":"Invalid credentials provided 1"}'))
+
+    monkeypatch.setattr(probe.urllib.request, "urlopen",
+                        lambda request, timeout=None: (_ for _ in ()).throw(
+                            Refused()))
+    status, body, content_type = probe.fetch("https://x/CFDocuments")
+    assert status == 403
+    assert content_type == "application/json"
+    assert "Invalid credentials" in body
+
+
+def test_a_recorded_body_is_bounded():
+    """The page prints these verbatim. An unbounded field would put a whole
+    SPA shell into a table."""
+    assert probe.BODY_HEAD <= 512

@@ -69,8 +69,14 @@ def test_opensalt_is_reported_as_a_sandbox_with_its_evidence():
         row = re.search(rf"\| `{re.escape(field)}` \| (\d+) \|", PAGE)
         assert row, f"{field}'s row is not on the page"
         assert int(row.group(1)) == n
-    assert "licenseUri" in SALT["documents_by_licence_field"], (
-        "the CASE spec spelling is not among the fields checked")
+    # **THE SPEC SPELLING IS `licenseURI`, WITH A CAPITAL `URI`.** This line
+    # asserted `licenseUri` with the message "the CASE spec spelling is not
+    # among the fields checked" — and passed only because that misspelling
+    # survives as a deliberate negative control. Drop the controls later and
+    # it fails while pointing at the wrong spelling, which is the same trap
+    # that produced two wrong versions of this page.
+    assert "licenseURI" in SALT["documents_by_licence_field"], (
+        "the CASE v1p0 spelling `licenseURI` is not among the fields checked")
     assert not any(SALT["documents_by_licence_field"].values()), (
         "a licence field is now populated; the page's claim that the licence "
         "question cannot be answered from the data no longer holds")
@@ -155,3 +161,62 @@ def test_the_licence_table_lists_exactly_the_fields_the_probe_checks():
         f"the page's licence table and the probe disagree: "
         f"page has {sorted(rows - set(LICENCE_FIELDS))} extra, "
         f"missing {sorted(set(LICENCE_FIELDS) - rows)}")
+
+
+def test_the_verdict_does_not_claim_more_than_the_evidence_section():
+    """**The heading moved and the summary did not.**
+
+    Route 1's heading was narrowed to "has no unauthenticated machine route"
+    on the strength of the 403 body — 44 bytes of `application/json` reading
+    *"Invalid credentials provided"* — and the page says two paragraphs later
+    that "that is an authenticated API asking for credentials". The verdict
+    bullet four lines under the new heading still said "is not an API",
+    contradicting both.
+
+    A verdict that over-reads its own evidence section is the failure this
+    page has now had twice: once from a discarded body, once from a summary
+    that outlived it.
+    """
+    assert "is not an API" not in PAGE, (
+        "the verdict claims more than route 1 establishes")
+    assert "no unauthenticated" in PAGE
+
+
+def test_the_creator_counts_on_the_page_are_the_measured_ones():
+    """The regex captured creator NAMES and discarded the counts, so
+    `| PCG Test Prep | 9 |` could become `| 99 |` and stay green. Mutation
+    confirmed it twice."""
+    for creator, n in SALT["top_creators"][:5]:
+        row = re.search(rf"\| {re.escape(creator)} \| (\d+) \|",
+                        DOC.read_text(encoding="utf-8"))
+        assert row, f"{creator} has no row on the page"
+        assert int(row.group(1)) == n, (
+            f"the page says {creator} authored {row.group(1)}; the record "
+            f"says {n}")
+
+
+def test_the_key_count_on_the_page_is_the_measured_one():
+    """"17 distinct keys" was matched by nothing — `17 -> 44` passed."""
+    assert f"{len(SALT['keys_observed'])} distinct keys" in PAGE
+
+
+def test_the_spelling_prose_names_the_spec_spelling_exactly():
+    """The page's own sentence about which spelling is right was unpinned, so
+    it could go back to claiming the wrong one in prose while the table stayed
+    correct. Mutation confirmed: "`licenseURI`, with a capital `URI`" to
+    "`licenseUri`, with a lowercase `ri`" passed."""
+    assert "`licenseURI`, with a capital `URI`" in PAGE
+
+
+def test_each_refusals_body_and_content_type_come_from_the_record():
+    """**The page printed the literal payload and asserted "44 bytes of
+    application/json" as prose**, so editing that cell to `{"ok":true}` left
+    every test green. The over-read moved from an artefact of a discarded
+    body to an unchecked assertion — the same failure one step along."""
+    for path, found in NET["paths"].items():
+        if found["status"] == 200:
+            continue
+        assert found["body_head"], f"{path} recorded no body"
+        assert found["body_head"] in PAGE, (
+            f"the page's body cell for {path} is not the recorded one")
+        assert found["content_type"].split(";")[0] in PAGE

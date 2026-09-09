@@ -134,7 +134,8 @@ three identical pages leave one.
 stays out** — and standards do not clear it, for a reason simpler than
 relevance: **the data is not obtainable.**
 
-- The registry that claims fifty states is not an API.
+- The registry that claims fifty states serves no unauthenticated
+  machine route.
 - The API that works holds test fixtures.
 - The state alignment that would make standards useful is rendered, not
   published.
