@@ -191,11 +191,22 @@ def test_the_sample_ceiling_is_described_as_a_ceiling():
                                  - found["sampled_but_not_a_course"]), name
 
 
-def test_the_seed_and_the_client_list_are_on_the_page():
-    """The issue asks for a recorded seed, and the districts must be traceable
-    to the vendor's list rather than reading as hosts that happened to
-    answer."""
-    assert re.search(rf"seed `{RECORD['seed']}`", PAGE), "the seed is not stated"
+def test_how_it_sampled_and_the_client_list_are_on_the_page():
+    """The issue asks for a reproducible sample, and the districts must be
+    traceable to the vendor's list rather than reading as hosts that happened
+    to answer.
+
+    **It asked for a seed, and a seed is not what makes this reproducible.**
+    The population is a live catalogue: Arlington went 698 -> 697 paths
+    between two runs and a seeded draw kept 4 of 60 pages. So the page states
+    the METHOD, and the test requires the page and the record to name the
+    same one — a page describing a draw the probe no longer makes is worse
+    than one describing none.
+    """
+    assert "sha1" in RECORD["sampling"], (
+        "the record no longer describes a hash-ordered sample; the page's "
+        "claim and this test both need re-deriving from whatever replaced it")
+    assert "sha1(path)" in PAGE, "the page does not say how it sampled"
     assert RECORD["vendor_client_list"] in PAGE
 
 

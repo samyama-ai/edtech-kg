@@ -1,7 +1,7 @@
 {
   "_": "Measured by `python -m etl.probe_second_district --record`. The same fields, the same classifier and the same seed on every district. The sample size is the same CEILING everywhere and is smaller where a district publishes fewer pages than the ceiling — see `sampled` and `read` per district, and divide by `read`, never by the ceiling. Enumeration differs by necessity: three districts publish no sitemap, which is recorded per district and is itself part of the finding.",
   "retrieved_at": "2026-09-09",
-  "seed": 19,
+  "sampling": "the 60 paths with the lowest sha1(path), stable across catalogue edits",
   "sample_per_district": 60,
   "vendor_client_list": "https://www.cleancatalog.com/k12/",
   "districts": {
@@ -10,7 +10,7 @@
       "how": "sitemap",
       "has_sitemap": true,
       "courses_in_sitemap": 817,
-      "courses_in_index_crawl": 792,
+      "courses_in_index_crawl": 791,
       "candidate_course_paths": 817,
       "sampled": 60,
       "read": 60,
@@ -18,47 +18,47 @@
       "sampled_but_not_a_course": 0,
       "unreachable_by_status": {},
       "kinds": {
-        "typed": 17,
-        "says none": 16,
         "no field": 20,
-        "prose": 7
+        "says none": 13,
+        "prose": 7,
+        "typed": 20
       },
-      "with_a_typed_prerequisite": 17,
-      "percent_of_pages_with_a_typed_prerequisite": 28.3,
-      "links": 18,
-      "links_resolving_to_a_published_course": 18,
+      "with_a_typed_prerequisite": 20,
+      "percent_of_pages_with_a_typed_prerequisite": 33.3,
+      "links": 21,
+      "links_resolving_to_a_published_course": 21,
       "percent_of_links_that_resolve": 100.0,
       "with_a_nonempty_prose_field": 7,
-      "state_a_prerequisite_in_either_field": 24,
-      "percent_stating_in_either_field": 40.0,
+      "state_a_prerequisite_in_either_field": 27,
+      "percent_stating_in_either_field": 45.0,
       "prose_examples": [
         {
-          "path": "/the-governors-school-innovation-park-math/gs-pre-calculus",
-          "text": "Algebra 2 &nbsp; or Trigonometry"
+          "path": "/math-computer-electives/ib-computer-science-sl",
+          "text": "Advanced Computer Mathematics or teacher recommendation"
         },
         {
-          "path": "/english-cambridge-programme/aice-english-language-and-composition-as",
-          "text": "IGCSE English 10 or &nbsp;a grade of B or better in&nbsp; English 10"
+          "path": "/science-cambridge-programme/aice-chemistry-as-level",
+          "text": "Chemistry 1 or IGCSE Chemistry Algebra 2 or IGCSE Advanced Algebra 2"
         },
         {
-          "path": "/math-advanced-placement/ap-precalculus-for-bc",
-          "text": "Advanced Algebra 2 or Algebra 2 (with a B or better and teacher recommendation)"
+          "path": "/the-governors-school-innovation-park-science/gs-college-physics-1-lab",
+          "text": "Algebra 2 or Trigonometry; and a grade of C or better in Chemistry"
         },
         {
-          "path": "/math-advanced-placement/ap-calculus-bc",
-          "text": "Precalculus with Trigonometry for BC or AP Precalculus for BC"
+          "path": "/world-languages-modern-roman-alphabet/spanish-4",
+          "text": "Spanish 3, Advanced Spanish Language 3, or Spanish for Fluent Speakers 3 - Advanced Level"
         },
         {
-          "path": "/english-center-for-fine-and-performing-arts-creative-writing-program/advanced-genre-focus-poetry",
-          "text": "A grade of C or better in Creative Writing Exploration"
+          "path": "/science-electives/earth-science-2-oceanography",
+          "text": "Environmental Science or Earth Science 1 or Advanced Earth Science 1Biology 1 or Advanced Biology 1"
         },
         {
-          "path": "/technology-and-engineering-education/graphic-communications-systems",
-          "text": "Communication Systems , strongly recommended"
+          "path": "/english-cambridge-programme/aice-english-literature-as-level",
+          "text": "AICE English Language and Composition (AS) or a grade of B or better in English 11"
         },
         {
-          "path": "/world-languages-modern-non-roman-alphabet/arabic-2",
-          "text": "Arabic 1 or teacher recommendation based on existing language proficiency"
+          "path": "/business-and-information-technology/business-law",
+          "text": "Principles of Business and Marketing, recommended"
         }
       ]
     },
@@ -67,59 +67,58 @@
       "how": "index crawl",
       "has_sitemap": false,
       "courses_in_sitemap": 0,
-      "courses_in_index_crawl": 698,
-      "candidate_course_paths": 698,
+      "courses_in_index_crawl": 697,
+      "candidate_course_paths": 697,
       "sampled": 60,
       "read": 60,
       "unreachable": 0,
       "sampled_but_not_a_course": 0,
       "unreachable_by_status": {},
       "kinds": {
-        "prose": 31,
+        "prose": 39,
         "says none": 13,
-        "no field": 13,
-        "typed": 3
+        "no field": 8
       },
-      "with_a_typed_prerequisite": 3,
-      "percent_of_pages_with_a_typed_prerequisite": 5.0,
-      "links": 4,
-      "links_resolving_to_a_published_course": 4,
-      "percent_of_links_that_resolve": 100.0,
-      "with_a_nonempty_prose_field": 31,
-      "state_a_prerequisite_in_either_field": 34,
-      "percent_stating_in_either_field": 56.7,
+      "with_a_typed_prerequisite": 0,
+      "percent_of_pages_with_a_typed_prerequisite": 0.0,
+      "links": 0,
+      "links_resolving_to_a_published_course": 0,
+      "percent_of_links_that_resolve": null,
+      "with_a_nonempty_prose_field": 39,
+      "state_a_prerequisite_in_either_field": 39,
+      "percent_stating_in_either_field": 65.0,
       "prose_examples": [
         {
-          "path": "/world-languages/spanish-ii",
-          "text": "Spanish I, or equivalent proficiency in the language as determined by a placement test."
+          "path": "/career-technical-courses/space-force-junior-rotc-iv",
+          "text": "Completion of SFJROTC I, II &amp; III compliance with USAF grooming standards, and concurrently enrolled in SFJROTC III"
         },
         {
-          "path": "/business-information-technology-it/computer-network-software-operations-advanced",
-          "text": "For none dual enrollment, the prerequisite is Computer Network Software Operations (26657). If taking the course as dual"
+          "path": "/science/biology-ap-laboratory-course",
+          "text": "Successful completion of Intensified Science sequence or first level courses in biology and chemistry and permission of "
         },
         {
-          "path": "/science/remedial-independent-self-paced-education-rise-earth-science",
-          "text": "Students have passed the class(es) but failed the SOL assessments) and are lacking the necessary verified credits to gra"
+          "path": "/international-baccalaureate/ib-psychology-sl",
+          "text": "Recommendation of previous social studies teacher or permission of the instructor. Open to all Grade 11 and 12 W-L stude"
         },
         {
-          "path": "/international-baccalaureate/ib-visual-arts-part-i-hl",
-          "text": "Permission of the instructor upon evaluation and examination of a body of work which demonstrates ability commensurate w"
+          "path": "/technology-education/architectural-drawing-and-design",
+          "text": "Technical Drawing and Design (28439) (98439W)"
         },
         {
-          "path": "/career-technical-courses/aircraft-pilot-training-ii",
-          "text": "Prerequisite: Aircraft Pilot Training I (28731) Students must be fifteen years of age."
+          "path": "/career-technical-courses/carpentry-iii",
+          "text": "Carpentry I and II"
         },
         {
-          "path": "/mathematics/algebra-i-part-i",
-          "text": "None; after successful completion of 23132 or 23130"
+          "path": "/english-language-development/eld-1-slife-literacy-development",
+          "text": "Placement based on SLIFE status."
         },
         {
-          "path": "/international-baccalaureate/ib-biology-laboratory-class-hl-part-ii",
-          "text": "Successful completion of IB Biology HL Part I. Open to all Grade 12 W-L students who meet the prerequisites."
+          "path": "/wakefield-immersion-program/intensified-biology-laboratory-course-immersion",
+          "text": "Enrollment in the Immersion Program"
         },
         {
-          "path": "/international-baccalaureate/ib-arabic-sl-part-ii",
-          "text": "Successful completion of IB Arabic SL Pt I. Open to all Grade 12 W-L students who meet the prerequisites."
+          "path": "/science/earth-science-part-i",
+          "text": "Successful completion of Biology. Student must be identified as in need of Special Education services."
         }
       ]
     },
@@ -136,21 +135,25 @@
       "sampled_but_not_a_course": 0,
       "unreachable_by_status": {},
       "kinds": {
-        "no field": 59,
-        "prose": 1
+        "no field": 58,
+        "prose": 2
       },
       "with_a_typed_prerequisite": 0,
       "percent_of_pages_with_a_typed_prerequisite": 0.0,
       "links": 0,
       "links_resolving_to_a_published_course": 0,
       "percent_of_links_that_resolve": null,
-      "with_a_nonempty_prose_field": 1,
-      "state_a_prerequisite_in_either_field": 1,
-      "percent_stating_in_either_field": 1.7,
+      "with_a_nonempty_prose_field": 2,
+      "state_a_prerequisite_in_either_field": 2,
+      "percent_stating_in_either_field": 3.3,
       "prose_examples": [
         {
-          "path": "/human-services/careers-in-education",
-          "text": "Prerequisites Early Childhood Ed"
+          "path": "/world-language/spanish-iii",
+          "text": "Prerequisites Spanish 2 Semester1"
+        },
+        {
+          "path": "/art-visual/drawpaint-iii",
+          "text": "Prerequisites Drawing and Painting 2"
         }
       ]
     },
@@ -191,57 +194,58 @@
       "sampled_but_not_a_course": 0,
       "unreachable_by_status": {},
       "kinds": {
-        "no field": 32,
-        "prose": 23,
-        "typed": 5
+        "no field": 33,
+        "typed": 3,
+        "says none": 2,
+        "prose": 22
       },
-      "with_a_typed_prerequisite": 5,
-      "percent_of_pages_with_a_typed_prerequisite": 8.3,
-      "links": 5,
-      "links_resolving_to_a_published_course": 5,
+      "with_a_typed_prerequisite": 3,
+      "percent_of_pages_with_a_typed_prerequisite": 5.0,
+      "links": 3,
+      "links_resolving_to_a_published_course": 3,
       "percent_of_links_that_resolve": 100.0,
-      "with_a_nonempty_prose_field": 23,
-      "state_a_prerequisite_in_either_field": 28,
-      "percent_stating_in_either_field": 46.7,
+      "with_a_nonempty_prose_field": 22,
+      "state_a_prerequisite_in_either_field": 25,
+      "percent_stating_in_either_field": 41.7,
       "prose_examples": [
         {
-          "path": "/science/physics-lab",
-          "text": "Algebra 2 and Chemistry with passing scores on both regents exams or recommendation from Algebra 2 and Chemistry teacher"
+          "path": "/family-consumer-sciences-education/food-preparation-and-nutrition",
+          "text": "FN1"
         },
         {
-          "path": "/mathematics/algebra-ii-trigonometry-honors",
-          "text": "Pass Geometry H with a final course grade of 80 and an 80 or higher on the Common Core Geometry Regents."
+          "path": "/bilingual-enl-program/bilingual-intermediate-algebra",
+          "text": "Successful completion of Algebra and Geometry"
         },
         {
-          "path": "/language-other-than-english/ap-spanish-language",
-          "text": "Students must have successfully completed Spanish 4R with at least a 85 average and passed the Checkpoint B Spanish Exam"
+          "path": "/visual-arts-education/studio-in-drawing-and-painting",
+          "text": "Studio in Art and teacher recommendation"
         },
         {
-          "path": "/high-school-musical-exploratory-courses/advanced-piano",
-          "text": "Successful Completion of Beginning Piano"
+          "path": "/bilingual-enl-program/home-language-arts-4",
+          "text": "Native Language Arts 3 and Teacher Recommendation"
         },
         {
-          "path": "/social-studies/participation-in-government-0",
-          "text": "Students must have completed and maintained an 80 or better cumulative average or higher in the following three courses:"
+          "path": "/bilingual-enl-program/bilingual-algebra-1",
+          "text": "Recommendation of teacher and requisite score of a 3 or a 4 on the NYS 8th Grade Mathematics Assessment and a final grad"
         },
         {
-          "path": "/visual-arts-education/advanced-studio-art",
-          "text": "Approval of the High School Principal"
+          "path": "/technology/it-essentials-1",
+          "text": "Media Production 2, Graphic Design, Design & Drawing"
         },
         {
-          "path": "/mathematics/geometry-honors",
-          "text": "Successfully complete Algebra in 8th grade."
+          "path": "/bilingual-enl-program/bilingual-integrated-algebra-i",
+          "text": "A score of a 1 or a 2 on the NYS 8th Grade Math Assessment."
         },
         {
-          "path": "/hs-musical-skills-development-courses/show-choir",
-          "text": "Audition and Teacher Recommendation"
+          "path": "/language-other-than-english/french-2",
+          "text": "French 1R and Teacher Recommendation"
         }
       ]
     }
   },
   "code": {
-    "commit": "41245e52f1b4e46e4f3eed4f5905d3440eef1ba4",
-    "dirty": true,
+    "commit": "a57b0dc41a765fa2496c4bdc6ce09e600d293943",
+    "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
   }
