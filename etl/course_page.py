@@ -107,6 +107,36 @@ def same_host(href: str, base: str) -> str | None:
     return href if COURSE_PATH.match(href) else None
 
 
+class Hrefs(HTMLParser):
+    """Every `href` on a page, in document order.
+
+    An index page is not a field, so it does not need `FieldReader` — but it
+    does need the same parser rather than the `HREF` regex that used to serve
+    both. That regex read `href="([^"#?]*)[^"]*"`: double quotes only, and a
+    capture that matched NOTHING when a query string was present. An index
+    whose pager links carry `?page=` yielded no paths at all, which reads as
+    "this catalogue has no courses".
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.found: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "a":
+            return
+        for name, value in attrs:
+            if name.lower() == "href" and value:
+                self.found.append(value)
+
+
+def hrefs(markup: str) -> list[str]:
+    reader = Hrefs()
+    reader.feed(markup)
+    reader.close()
+    return reader.found
+
+
 class Field:
     """One field's collected text and links, and whether it was BOUNDED.
 

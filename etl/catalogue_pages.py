@@ -17,11 +17,16 @@ import time
 import urllib.error
 import urllib.request
 
-from etl.course_page import COURSE_PATH, HREF, same_host
+from etl.course_page import COURSE_PATH, hrefs, same_host
 from etl.identity import USER_AGENT
 
-
-                     #: that a 0% and an 89% are not the same measurement.
+#: Seconds between requests to one host. The politeness budget, and the reason
+#: the sample is 60 pages per district rather than all of them.
+#:
+#: This line arrived as an orphan comment fragment — "that a 0% and an 89% are
+#: not the same measurement" — whose other half stayed behind in
+#: `probe_second_district.SAMPLE` when the 500-line split cut between them. A
+#: comment split across two modules explains nothing in either.
 DELAY = 0.4
 
 
@@ -170,7 +175,7 @@ def crawl(base: str) -> set[str]:
             except Unreachable:
                 break
             here = {path for path in
-                    (same_host(href, base) for href in HREF.findall(markup))
+                    (same_host(href, base) for href in hrefs(markup))
                     if path}
             if not here - seen_here:
                 # This index has stopped yielding paths IT has not already

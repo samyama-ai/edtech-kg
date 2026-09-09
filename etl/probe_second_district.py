@@ -69,34 +69,13 @@ DISTRICTS = {
 }
 
 
-
-
 SEED = 19            #: The issue number, so the sample is reproducible and
                      #: nobody has to wonder whether it was chosen after the
                      #: fact.
 SAMPLE = 60          #: Per district. Small enough to be polite, large enough
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                     #: that a 0% and an 89% are not the same measurement —
+                     #: the other half of this sentence went to
+                     #: `catalogue_pages.DELAY` in the 500-line split.
 
 
 def district(name: str, base: str, sample: int = SAMPLE,
@@ -147,9 +126,11 @@ def district(name: str, base: str, sample: int = SAMPLE,
             reason = str(gone).rsplit(": ", 1)[-1]
             key = reason if reason.startswith("HTTP ") else "transport"
             by_status[key] = by_status.get(key, 0) + 1
-            # Sleep on the FAILURE path too. Skipping it meant a host that
-            # started refusing got hammered at full speed — the opposite of
-            # what politeness is for.
+            # No sleep here: `get` pauses BEFORE every request, including
+            # the one after this failure, so the failure path is already
+            # paced. The comment that used to sit here described a sleep this
+            # branch stopped doing when the fetch moved into
+            # `catalogue_pages`.
             continue
         # **A pathway page is not a course**, and the repo already says so.
         # `etl/pwcs_pages.classify` decides by the MARKUP — a page rendering
