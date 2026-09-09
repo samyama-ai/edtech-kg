@@ -95,9 +95,18 @@ def test_the_checkout_is_deep_enough_for_the_ratchets(workflow):
     assert re.search(r"refs/heads/\*:refs/remotes/origin/\*", workflow), (
         "the clone does not fetch all branches, so the size ratchets have no "
         "`main` to compare against and never run in CI")
-    assert re.search(r"git branch -f main origin/main", workflow), (
+    # **The refspec is asserted; the exact shell line is not.** Pinning
+    # `git branch -f main origin/main` character-for-character is the same
+    # brittleness as the `fetch-depth: 0` assertion this test replaced —
+    # reformatting the block would break it for no semantic reason.
+    assert re.search(r"branch\s+-f\s+main\s+origin/main", workflow), (
         "`main` is not made resolvable locally, which is what the ratchets "
         "look for")
+    assert not re.search(r"branch\s+-f\s+main\s+origin/main[^\n]*\|\|", workflow), (
+        "the failure to produce `main` is swallowed, which makes the one "
+        "thing this step guarantees silently optional — the ratchets would "
+        "then skip, and SAMYAMA_CI=1 would fail the build somewhere that does "
+        "not name the cause")
 
 
 def test_the_workflow_fetches_no_actions(workflow):
@@ -114,6 +123,11 @@ def test_the_workflow_fetches_no_actions(workflow):
     these two actions were wrapping is cheap enough that not fetching them
     costs nothing. The test exists so the dependency is not reintroduced
     without someone deciding to, not because it is known to matter.
+    
+    **If the cause turns out to be elsewhere, DELETE this test — do not work
+    around it.** A ratchet resting on an unproven belief is worth keeping only
+    while the belief is unfalsified, and the honest way to drop it is to drop
+    it rather than to add an exception to it.
     """
     offending = [line for line in workflow.splitlines()
                  if re.match(r"\s*-?\s*uses:", line)]
@@ -127,7 +141,51 @@ def test_the_python_version_is_asserted_rather_than_assumed(workflow):
     image ships is now what runs, so the version is checked in the job — a
     suite quietly running on a different interpreter than the repo targets is
     the same silent drift this file exists to stop."""
-    assert "sys.version_info[:2] == (3, 11)" in workflow
+    # **The FLOOR, not an equality.** `pyproject.toml` declares
+    # `requires-python = ">=3.11"`, so `== (3, 11)` would hard-fail CI on a
+    # 3.12 or 3.13 runner image this package fully supports — a new permanent
+    # red with no in-repo remedy, on a change whose purpose is a green tick.
+    assert re.search(r"version_info\[:2\]\s*>=\s*\(3,\s*11\)", workflow), (
+        "the workflow does not assert the Python floor the project declares")
+    assert "version_info[:2] == (3, 11)" not in workflow, (
+        "CI pins an exact Python where pyproject declares a floor")
+    assert "python3 --version" in workflow, (
+        "the version is asserted but never printed, so drift is invisible "
+        "until it crosses the floor")
+
+
+def test_the_checkout_is_given_the_token_it_uses():
+    """**`GITHUB_TOKEN` is not ambient in a `run:` step.**
+
+    It is exposed as `${{ github.token }}` and must be put into the step env.
+    Without that it expands to empty, the header becomes
+    `basic eC1hY2Nlc3MtdG9rZW46` — literally `x-access-token:` — and the fetch
+    goes out unauthenticated.
+
+    The first version of this workflow used the variable and never set it,
+    which is a plausible cause of its first run failing and is checkable here
+    rather than from a step log nobody can read.
+    """
+    import yaml
+
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    checkout = [s for s in steps["jobs"]["test"]["steps"]
+                if "GITHUB_TOKEN" in str(s.get("run", ""))]
+    assert checkout, "no step uses GITHUB_TOKEN"
+    for step in checkout:
+        assert "GITHUB_TOKEN" in (step.get("env") or {}), (
+            f"step {step.get('name')!r} uses $GITHUB_TOKEN and never sets it; "
+            f"it expands to empty and the fetch is unauthenticated")
+
+
+def test_the_checkout_can_run_twice_in_one_workspace():
+    """`git remote add` exits 3 on a workspace that already has the remote,
+    and a runner that reuses workspaces then fails at step one."""
+    # `re.S`, because the command is wrapped across two lines — the point is
+    # the fallback existing, not where the line breaks fall.
+    assert re.search(r"remote add origin.*?\|\|.*?remote set-url",
+                     WORKFLOW.read_text(encoding="utf-8"), re.S), (
+        "a reused workspace would fail on `git remote add`")
 
 
 def test_a_merged_commit_is_not_left_without_a_run(workflow):

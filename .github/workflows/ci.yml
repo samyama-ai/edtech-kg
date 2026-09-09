@@ -79,6 +79,14 @@ jobs:
       # web session — the API token can read run status and not step output,
       # and has no admin scope to list the runner or its labels.
       - name: Check out, with full history
+        # **`GITHUB_TOKEN` IS NOT AN AMBIENT VARIABLE IN A `run:` STEP.** It
+        # is exposed as `${{ github.token }}` and has to be put into the step
+        # env, which the first version of this did not do — so it expanded to
+        # empty, the header became `basic eC1hY2Nlc3MtdG9rZW46`, and the
+        # fetch went out unauthenticated. That is a plausible cause of the
+        # first no-actions run failing, and it is testable without a step log.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         # **A FULL clone, not a shallow one.** The size ratchets compare this
         # branch against `main`, and a shallow clone has no `main` to compare
         # with — they would skip, and with SAMYAMA_CI=1 a skip fails the
@@ -86,12 +94,25 @@ jobs:
         # CI is a ratchet that is not there, which is this workflow's own
         # subject one layer down.
         run: |
+          set -euo pipefail
           git init -q .
-          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          # Re-run-safe: a reused workspace already has the remote, and
+          # `git remote add` exits 3 on it rather than doing nothing.
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            2>/dev/null || git remote set-url origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          # `$GITHUB_REF` as well as the SHA: on a pull_request event the SHA
+          # can be a merge ref that no branch reaches, and fetching a bare SHA
+          # needs the server to allow arbitrary-SHA want.
           git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')" \
-              fetch --quiet origin "+refs/heads/*:refs/remotes/origin/*" "$GITHUB_SHA"
+              fetch --quiet origin "+refs/heads/*:refs/remotes/origin/*" \
+                                   "+${GITHUB_REF}:refs/ci/head" "$GITHUB_SHA"
           git checkout -q "$GITHUB_SHA"
-          git branch -f main origin/main 2>/dev/null || true
+          # **NOT `|| true`.** The size ratchets compare against `main`, and
+          # swallowing this makes the one thing this step exists to guarantee
+          # silently optional — the ratchets would then skip, and SAMYAMA_CI=1
+          # would fail the build somewhere else, for a reason that does not
+          # name the cause.
+          git branch -f main origin/main
           echo "checked out $(git rev-parse --short HEAD), $(git rev-list --count HEAD) commits of history"
 
       - name: Report the Python in use
@@ -100,10 +121,16 @@ jobs:
         # than assumed. A suite that quietly ran on a different interpreter
         # than the one the repo targets is the same class of silent drift this
         # file exists to stop.
+        #
+        # **The FLOOR the project declares, not an equality.** `pyproject.toml`
+        # says `requires-python = ">=3.11"`, so pinning `== (3, 11)` would
+        # hard-fail CI on a 3.12 or 3.13 runner image this package fully
+        # supports — a new permanent red with no in-repo remedy, on a change
+        # whose whole purpose is to get the tick green.
         run: |
           python3 --version
-          python3 -c 'import sys; assert sys.version_info[:2] == (3, 11), \
-            f"CI is on {sys.version.split()[0]}; this repo targets 3.11"'
+          python3 -c 'import sys; assert sys.version_info[:2] >= (3, 11), \
+            f"CI is on {sys.version.split()[0]}; this repo requires >= 3.11"'
 
       - name: Install test dependencies
         # `pip install -e .` is NOT used, and that is still deliberate — but
