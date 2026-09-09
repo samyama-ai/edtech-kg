@@ -1,0 +1,56 @@
+{
+  "_": "Measured by `python -m etl.probe_graduation --record`. Every fetch is gated on robots.txt, checked before the first request to a host. A source recorded as `refused` was never fetched.",
+  "retrieved_at": "2026-09-09",
+  "sources": {
+    "ECS 50-state comparison": {
+      "url": "https://reports.ecs.org/comparisons/high-school-graduation-requirements-01",
+      "what": "the compilation the issue names — credits by subject, normalised across states",
+      "is_the_compilation": true,
+      "robots_url": "https://reports.ecs.org/robots.txt",
+      "robots_status": 200,
+      "allowed": false,
+      "blanket_disallow": true,
+      "crawl_delay": null,
+      "why": "robots.txt disallows this path",
+      "status": null,
+      "bytes": 0,
+      "fetched": false
+    },
+    "ECS landing page": {
+      "url": "https://www.ecs.org/50-state-comparison-high-school-graduation-requirements/",
+      "what": "where the comparison is published for a reader",
+      "robots_url": "https://www.ecs.org/robots.txt",
+      "robots_status": 403,
+      "allowed": true,
+      "why": "no readable robots.txt; the convention is that absence permits",
+      "status": 403,
+      "bytes": 0,
+      "fetched": false
+    },
+    "NCES state education reforms": {
+      "url": "https://nces.ed.gov/programs/statereform/tab5_1.asp",
+      "what": "the federal collection of state policy tables. This one is COMPULSORY ATTENDANCE AGE, not graduation requirements — the collection publishes no graduation-credit table, and this page is here for what its SOURCE line says rather than for its figures",
+      "robots_url": "https://nces.ed.gov/robots.txt",
+      "robots_status": 200,
+      "allowed": true,
+      "blanket_disallow": false,
+      "crawl_delay": null,
+      "why": "robots.txt permits this path",
+      "status": 200,
+      "bytes": 37556,
+      "fetched": true,
+      "cites": [
+        "Education Commission of the States, Age Requirements for Free and Compulsory Education , retrieved January 8, 20"
+      ],
+      "shape": {
+        "not_analysed": "this page is not the graduation-requirements compilation; it is here for its SOURCE line"
+      }
+    }
+  },
+  "code": {
+    "commit": "f3d991ef66f801dc250788ef8529c2dc439b5458",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
