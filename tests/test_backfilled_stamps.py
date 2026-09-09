@@ -39,6 +39,15 @@ EXPECTED_BACKFILL = {
     "florida-registry-measured.json",
     "geography-measured.json",
     "prerequisite-sweep-measured.json",
+    # `texas-cte-measured.json` LEFT THIS LIST, which is the ratchet doing
+    # what it is for. #174 merged after the stamped-writer guard landed and
+    # turned main red, and the record it had already committed was annotated
+    # like the others. #185 then RE-RAN the probe on a clean tree, so it
+    # carries a live stamp now — a stamp from a run, not one added to an old
+    # record — and it must not carry a `backfilled` marker as well.
+    #
+    # This is the one way out the list allows: re-measurement, never deletion
+    # of the marker.
 }
 BACKFILLED = [r for r in RECORDS if r.name in EXPECTED_BACKFILL]
 

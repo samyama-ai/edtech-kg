@@ -218,6 +218,7 @@ def cache_is_complete() -> bool:
     not cache_is_complete(),
     reason=("the cached catalogue is incomplete — run `python -m etl.probe_pwcs` "
             "first; a partial cache would fetch the remainder from the district"))
+@pytest.mark.network  # deliberately live — see the docstring
 def test_the_record_still_matches_the_live_sources():
     """The other half: is the RECORD still what the sources say?
 

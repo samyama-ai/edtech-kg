@@ -45,4 +45,10 @@ mcp = ["fastmcp>=0.1.0"]
 include = ["etl*", "mcp_server*", "demo*"]
 
 [tool.pytest.ini_options]
+# Registered so the marker survives --strict-markers and a
+# filterwarnings=error config. tests/conftest.py refuses a socket to
+# every test that does not carry it.
+markers = [
+    "network: this test deliberately reaches a live source",
+]
 testpaths = ["tests"]

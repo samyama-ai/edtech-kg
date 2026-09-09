@@ -1,0 +1,25 @@
+{
+  "_": "Measured by `python -m etl.probe_pwcs_classification --record` over the cached PWCS corpus. Per page: the path, a sha256 of the markup, and what `etl.course_page.classify` answered. The MARKUP IS NOT STORED — it is the district's course text and this repo does not republish it. The hash is what lets a later run say whether a classification changed because the reader changed or because the page did. A DIGEST, not a row per page: 961 rows is ten times this repo's 500-line review limit, and a record nobody reads is not a record. It localises nothing by design — where the cache exists the sibling tests name the page, and where it does not, what a reader needs is whether the claim still holds.",
+  "base": "https://catalog.pwcs.edu",
+  "pages": 961,
+  "kinds": {
+    "no field": 393,
+    "typed": 229,
+    "says none": 170,
+    "prose": 169
+  },
+  "unbounded": 0,
+  "digest": "212bb05948a9c5d29700b6b99c9a14c35cf849a5edf28851919916c2d1104f66",
+  "digest_by_kind": {
+    "no field": "b2e6a481e953414619887cf92702a8d4000beb9e849a2003047a18fa649bb614",
+    "prose": "d8d2180caeeb5cbf896e81a42fd0d4c4c4af623af11a55ec4ab5004886f29e73",
+    "says none": "2f3e7e70521a04ff958d23dc70eb2589a8cad5008d35ab767e94c8ace6d92904",
+    "typed": "3d13986e3205788357c55e33fdc5f83faa68d1716f15d9401a7605f0c159ac9d"
+  },
+  "code": {
+    "commit": "7e5c46d231bea8c2a6e3d5be9f55c81c7b87f278",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}

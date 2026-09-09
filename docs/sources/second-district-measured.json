@@ -1,0 +1,252 @@
+{
+  "_": "Measured by `python -m etl.probe_second_district --record`. The same fields, the same classifier and the same seed on every district. The sample size is the same CEILING everywhere and is smaller where a district publishes fewer pages than the ceiling — see `sampled` and `read` per district, and divide by `read`, never by the ceiling. Enumeration differs by necessity: three districts publish no sitemap, which is recorded per district and is itself part of the finding.",
+  "retrieved_at": "2026-09-09",
+  "sampling": "the 60 paths with the lowest sha1(path), stable across catalogue edits",
+  "sample_per_district": 60,
+  "vendor_client_list": "https://www.cleancatalog.com/k12/",
+  "districts": {
+    "PWCS (Prince William County, VA)": {
+      "base": "https://catalog.pwcs.edu",
+      "how": "sitemap",
+      "has_sitemap": true,
+      "courses_in_sitemap": 817,
+      "courses_in_index_crawl": 791,
+      "candidate_course_paths": 817,
+      "sampled": 60,
+      "read": 60,
+      "unreachable": 0,
+      "sampled_but_not_a_course": 0,
+      "unreachable_by_status": {},
+      "kinds": {
+        "no field": 20,
+        "says none": 13,
+        "prose": 7,
+        "typed": 20
+      },
+      "with_a_typed_prerequisite": 20,
+      "percent_of_pages_with_a_typed_prerequisite": 33.3,
+      "links": 21,
+      "links_resolving_to_a_published_course": 21,
+      "percent_of_links_that_resolve": 100.0,
+      "with_a_nonempty_prose_field": 7,
+      "state_a_prerequisite_in_either_field": 27,
+      "percent_stating_in_either_field": 45.0,
+      "prose_examples": [
+        {
+          "path": "/math-computer-electives/ib-computer-science-sl",
+          "text": "Advanced Computer Mathematics or teacher recommendation"
+        },
+        {
+          "path": "/science-cambridge-programme/aice-chemistry-as-level",
+          "text": "Chemistry 1 or IGCSE Chemistry Algebra 2 or IGCSE Advanced Algebra 2"
+        },
+        {
+          "path": "/the-governors-school-innovation-park-science/gs-college-physics-1-lab",
+          "text": "Algebra 2 or Trigonometry; and a grade of C or better in Chemistry"
+        },
+        {
+          "path": "/world-languages-modern-roman-alphabet/spanish-4",
+          "text": "Spanish 3, Advanced Spanish Language 3, or Spanish for Fluent Speakers 3 - Advanced Level"
+        },
+        {
+          "path": "/science-electives/earth-science-2-oceanography",
+          "text": "Environmental Science or Earth Science 1 or Advanced Earth Science 1Biology 1 or Advanced Biology 1"
+        },
+        {
+          "path": "/english-cambridge-programme/aice-english-literature-as-level",
+          "text": "AICE English Language and Composition (AS) or a grade of B or better in English 11"
+        },
+        {
+          "path": "/business-and-information-technology/business-law",
+          "text": "Principles of Business and Marketing, recommended"
+        }
+      ]
+    },
+    "APS (Arlington, VA)": {
+      "base": "https://catalog.apsva.us",
+      "how": "index crawl",
+      "has_sitemap": false,
+      "courses_in_sitemap": 0,
+      "courses_in_index_crawl": 697,
+      "candidate_course_paths": 697,
+      "sampled": 60,
+      "read": 60,
+      "unreachable": 0,
+      "sampled_but_not_a_course": 0,
+      "unreachable_by_status": {},
+      "kinds": {
+        "prose": 39,
+        "says none": 13,
+        "no field": 8
+      },
+      "with_a_typed_prerequisite": 0,
+      "percent_of_pages_with_a_typed_prerequisite": 0.0,
+      "links": 0,
+      "links_resolving_to_a_published_course": 0,
+      "percent_of_links_that_resolve": null,
+      "with_a_nonempty_prose_field": 39,
+      "state_a_prerequisite_in_either_field": 39,
+      "percent_stating_in_either_field": 65.0,
+      "prose_examples": [
+        {
+          "path": "/career-technical-courses/space-force-junior-rotc-iv",
+          "text": "Completion of SFJROTC I, II &amp; III compliance with USAF grooming standards, and concurrently enrolled in SFJROTC III"
+        },
+        {
+          "path": "/science/biology-ap-laboratory-course",
+          "text": "Successful completion of Intensified Science sequence or first level courses in biology and chemistry and permission of "
+        },
+        {
+          "path": "/international-baccalaureate/ib-psychology-sl",
+          "text": "Recommendation of previous social studies teacher or permission of the instructor. Open to all Grade 11 and 12 W-L stude"
+        },
+        {
+          "path": "/technology-education/architectural-drawing-and-design",
+          "text": "Technical Drawing and Design (28439) (98439W)"
+        },
+        {
+          "path": "/career-technical-courses/carpentry-iii",
+          "text": "Carpentry I and II"
+        },
+        {
+          "path": "/english-language-development/eld-1-slife-literacy-development",
+          "text": "Placement based on SLIFE status."
+        },
+        {
+          "path": "/wakefield-immersion-program/intensified-biology-laboratory-course-immersion",
+          "text": "Enrollment in the Immersion Program"
+        },
+        {
+          "path": "/science/earth-science-part-i",
+          "text": "Successful completion of Biology. Student must be identified as in need of Special Education services."
+        }
+      ]
+    },
+    "Clover Park (WA)": {
+      "base": "https://catalog.cloverpark.k12.wa.us",
+      "how": "index crawl",
+      "has_sitemap": false,
+      "courses_in_sitemap": 0,
+      "courses_in_index_crawl": 1585,
+      "candidate_course_paths": 1585,
+      "sampled": 60,
+      "read": 60,
+      "unreachable": 0,
+      "sampled_but_not_a_course": 0,
+      "unreachable_by_status": {},
+      "kinds": {
+        "no field": 58,
+        "prose": 2
+      },
+      "with_a_typed_prerequisite": 0,
+      "percent_of_pages_with_a_typed_prerequisite": 0.0,
+      "links": 0,
+      "links_resolving_to_a_published_course": 0,
+      "percent_of_links_that_resolve": null,
+      "with_a_nonempty_prose_field": 2,
+      "state_a_prerequisite_in_either_field": 2,
+      "percent_stating_in_either_field": 3.3,
+      "prose_examples": [
+        {
+          "path": "/world-language/spanish-iii",
+          "text": "Prerequisites Spanish 2 Semester1"
+        },
+        {
+          "path": "/art-visual/drawpaint-iii",
+          "text": "Prerequisites Drawing and Painting 2"
+        }
+      ]
+    },
+    "Kenosha (WI)": {
+      "base": "https://catalogs.kusd.org",
+      "how": "index crawl",
+      "has_sitemap": true,
+      "courses_in_sitemap": 0,
+      "courses_in_index_crawl": 0,
+      "candidate_course_paths": 0,
+      "sampled": 0,
+      "read": 0,
+      "unreachable": 0,
+      "sampled_but_not_a_course": 0,
+      "kinds": {},
+      "unreachable_by_status": {},
+      "state_a_prerequisite_in_either_field": 0,
+      "percent_stating_in_either_field": null,
+      "with_a_typed_prerequisite": 0,
+      "percent_of_pages_with_a_typed_prerequisite": null,
+      "links": 0,
+      "links_resolving_to_a_published_course": 0,
+      "percent_of_links_that_resolve": null,
+      "with_a_nonempty_prose_field": 0,
+      "prose_examples": [],
+      "note": "no two-segment course path was FOUND — by this method, from this catalogue's sitemap and five index candidates. A district publishing courses at another depth would produce the same entry, so this is not found rather than does not exist. The record outlives the page; it must not say more."
+    },
+    "Central Islip (NY)": {
+      "base": "https://hs-catalogue.centralislip.k12.ny.us",
+      "how": "index crawl",
+      "has_sitemap": false,
+      "courses_in_sitemap": 0,
+      "courses_in_index_crawl": 202,
+      "candidate_course_paths": 202,
+      "sampled": 60,
+      "read": 60,
+      "unreachable": 0,
+      "sampled_but_not_a_course": 0,
+      "unreachable_by_status": {},
+      "kinds": {
+        "no field": 33,
+        "typed": 3,
+        "says none": 2,
+        "prose": 22
+      },
+      "with_a_typed_prerequisite": 3,
+      "percent_of_pages_with_a_typed_prerequisite": 5.0,
+      "links": 3,
+      "links_resolving_to_a_published_course": 3,
+      "percent_of_links_that_resolve": 100.0,
+      "with_a_nonempty_prose_field": 22,
+      "state_a_prerequisite_in_either_field": 25,
+      "percent_stating_in_either_field": 41.7,
+      "prose_examples": [
+        {
+          "path": "/family-consumer-sciences-education/food-preparation-and-nutrition",
+          "text": "FN1"
+        },
+        {
+          "path": "/bilingual-enl-program/bilingual-intermediate-algebra",
+          "text": "Successful completion of Algebra and Geometry"
+        },
+        {
+          "path": "/visual-arts-education/studio-in-drawing-and-painting",
+          "text": "Studio in Art and teacher recommendation"
+        },
+        {
+          "path": "/bilingual-enl-program/home-language-arts-4",
+          "text": "Native Language Arts 3 and Teacher Recommendation"
+        },
+        {
+          "path": "/bilingual-enl-program/bilingual-algebra-1",
+          "text": "Recommendation of teacher and requisite score of a 3 or a 4 on the NYS 8th Grade Mathematics Assessment and a final grad"
+        },
+        {
+          "path": "/technology/it-essentials-1",
+          "text": "Media Production 2, Graphic Design, Design & Drawing"
+        },
+        {
+          "path": "/bilingual-enl-program/bilingual-integrated-algebra-i",
+          "text": "A score of a 1 or a 2 on the NYS 8th Grade Math Assessment."
+        },
+        {
+          "path": "/language-other-than-english/french-2",
+          "text": "French 1R and Teacher Recommendation"
+        }
+      ]
+    }
+  },
+  "code": {
+    "commit": "a57b0dc41a765fa2496c4bdc6ce09e600d293943",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}

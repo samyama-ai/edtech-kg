@@ -185,3 +185,12 @@ def pytest_sessionfinish(session, exitstatus):
               "line. Either make the test run in CI, or give its reason an "
               "entry in SKIP_BUDGET with the argument for why it cannot.\n")
         session.exitstatus = 1
+
+
+class NetworkUsedInATest(RuntimeError):
+    """A test tried to open a socket. Stub the fetch instead.
+
+    Defined here rather than in `tests/conftest.py` so a test can import it
+    by name — pytest loads the nested conftest as a plugin, and `conftest`
+    on the path resolves to this file.
+    """
