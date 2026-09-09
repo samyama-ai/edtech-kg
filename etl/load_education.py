@@ -30,6 +30,7 @@ import sys
 import time
 
 from etl.engine import ENGINE_VERSION, Engine, Refused
+from etl.graph_writer import Writer, quote  # noqa: F401
 from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -52,7 +53,12 @@ WRITES = ("Institution", "Programme", "Completion")
 
 RECORD = ROOT / "docs" / "sources" / "national-spine-measured.json"
 RECORD_NOTE = (
-    "Measured by `python -m etl.load_education --record`. `issued` is what "
+    "Measured by `python -m etl.load_education --record`, which loads the "
+    "slice TWICE: `issued`/`in_graph` are the first pass and `second_run` is "
+    "the same load repeated against the graph it just made. `second_run."
+    "nodes_and_edges_created` is the idempotence claim, and it is the "
+    "loader's whole design — the first version created 2,000 duplicate edges "
+    "on a second pass and only the gap column showed it.  `issued` is what "
     "this loader sent; `in_graph` is what the graph answered when asked "
     "afterwards. They are stored separately on purpose — a loader reporting "
     "only what it issued is reporting its own intentions, and on 1.1.0 a "
@@ -79,8 +85,12 @@ class Missing(RuntimeError):
     """A downloaded table this loader needs is not in `data/`."""
 
 
-def held(name: str) -> dict:
-    path = CACHE / f"{name}-{FIPS}-{YEAR}.json"
+def held(name: str, cache: pathlib.Path | None = None) -> dict:
+    # **The cache is a PARAMETER, not a module global a test reassigns.**
+    # The engine-backed tests repointed `loader.CACHE` around each call,
+    # which is not concurrency-safe: under pytest-xdist two workers share the
+    # module and one would read the other's slice.
+    path = (cache or CACHE) / f"{name}-{FIPS}-{YEAR}.json"
     if not path.exists():
         raise Missing(
             f"{shown(path)} is not here. Run "
@@ -101,108 +111,26 @@ def completion_id(row: dict) -> str:
     return hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()
 
 
-def quote(value) -> str:
-    """A Cypher string literal. 1.1.0 has no escape sequence inside one.
+def refuse_unwritable(institutions: list[dict]) -> None:
+    """Raise if any value cannot be written, BEFORE the first write.
 
-    `etl/cypher_script.py` records why that matters: a quote character always
-    opens or closes a literal and never appears within, so a value carrying
-    one cannot be written at all. Refused rather than mangled — a silently
-    truncated institution name is a wrong answer that looks like a right one.
+    1.1.0 has no escape sequence inside a string literal, so a value carrying
+    a quote or a backslash cannot be written at all. Discovering that at row
+    40,000 leaves a partly loaded graph and no way back: there is no
+    transaction here, and the loader's own `DETACH DELETE` teardown is
+    measured to remove more than it names.
     """
-    text = str(value)
-    if '"' in text or "\\" in text:
-        raise Refused(400, f"cannot quote {text!r}: 1.1.0 has no escape "
-                           f"sequence inside a string literal")
-    return '"' + text + '"'
-
-
-class Writer:
-    """Lookup, then create only if absent — and count both.
-
-    The two round trips are the point, and they are still cheaper than one
-    `MERGE`: #169 measured `MERGE` ignoring the constraint's index and
-    scanning, falling from 692/sec at 1,500 nodes to 35/sec at 37,141.
-
-    This does not claim "does not degrade" — an earlier draft did, on a
-    2,000-row slice, which is exactly the size at which the `MERGE` problem
-    is also invisible. `docs/national-spine.md` carries the rate measured
-    across the whole load instead.
-    """
-
-    def __init__(self, engine: Engine, dry_run: bool = False):
-        self.engine = engine
-        self.dry_run = dry_run
-        self.looked_up = 0
-        self.created = 0
-        self.already_there = 0
-
-    def node(self, label: str, key: str, value: str, properties: dict) -> None:
-        self.looked_up += 1
-        if not self.dry_run:
-            found = self.engine.run(
-                f"MATCH (n:{label}) WHERE n.{key} = {quote(value)} "
-                f"WITH n RETURN n.{key}").get("records") or []
-            if found:
-                self.already_there += 1
-                return
-        self.created += 1
-        if self.dry_run:
-            return
-        fields = ", ".join(f"{name}: {quote(v)}"
-                           for name, v in properties.items())
-        # Concatenated rather than interpolated. An f-string needs the
-        # literal brace doubled to emit one, and a doubled brace around a
-        # name is exactly the unfilled-template shape
-        # `tests/test_repo_layout.py` refuses — this is a public repo and a
-        # reader sees an unfilled template before they see anything else.
-        # (The comment cannot show the shape either, for the same reason.)
-        self.engine.run("CREATE (n:" + label + " {" + fields + "})")
-
-    def edge(self, kind: str, tail: tuple[str, str, str],
-             head: tuple[str, str, str]) -> None:
-        """One edge between two existing nodes.
-
-        **Both endpoints matched with their own WHERE.** A `MATCH` whose
-        endpoints are BOTH already bound does not filter on 1.1.0 — it is
-        silently ignored, which `docs/engine-behaviours.md` records — so the
-        pattern is written with the endpoints introduced fresh.
-        """
-        self.looked_up += 1
-        if self.dry_run:
-            self.created += 1
-            return
-        tail_label, tail_key, tail_value = tail
-        head_label, head_key, head_value = head
-
-        # **LOOK FIRST — the node path did and this did not.** A second run
-        # over the same slice created 2,000 duplicate AT and IN edges: the
-        # nodes were idempotent and the edges were not. The loader's own
-        # issued-against-held report is what caught it, which is the argument
-        # for reading counts back from the graph rather than trusting the
-        # count of what was sent.
-        #
-        # An edge MERGE would not do it either: #163 records edge `MERGE`
-        # ignoring its property map on 1.1.0.
-        existing = self.engine.run(
-            f"MATCH (a:{tail_label})-[r:{kind}]->(b:{head_label}) "
-            f"WHERE a.{tail_key} = {quote(tail_value)} "
-            f"AND b.{head_key} = {quote(head_value)} "
-            f"WITH r RETURN count(r)").get("records") or []
-        if existing and existing[0] and existing[0][0]:
-            self.already_there += 1
-            return
-
-        self.engine.run(
-            f"MATCH (a:{tail_label}) WHERE a.{tail_key} = {quote(tail_value)} "
-            f"WITH a "
-            f"MATCH (b:{head_label}) WHERE b.{head_key} = {quote(head_value)} "
-            f"WITH a, b "
-            f"CREATE (a)-[:{kind}]->(b)")
-        self.created += 1
+    for row in institutions:
+        for field in ("unitid", "inst_name", "state_abbr"):
+            value = row.get(field)
+            if value is None:
+                continue
+            quote(value)          # raises Refused, naming the value
 
 
 def load(engine: Engine, dry_run: bool = False,
-         only_awarded: bool = True, limit: int | None = None) -> dict:
+         only_awarded: bool = True, limit: int | None = None,
+         cache: pathlib.Path | None = None) -> dict:
     """The spine, in dependency order — nodes before the edges that need them.
 
     `only_awarded` drops rows recording **zero** completions. Measured on
@@ -219,19 +147,32 @@ def load(engine: Engine, dry_run: bool = False,
     started = time.monotonic()
     writer = Writer(engine, dry_run)
 
-    institutions = held("institutions")["rows"]
+    institutions = held("institutions", cache)["rows"]
+    # **CHECKED BEFORE ANYTHING IS WRITTEN.** A `quote()` refusal used to
+    # raise part-way through, leaving a graph half loaded with no rollback —
+    # this engine has no transaction to roll back to. One unwritable
+    # institution name in a 58,317-row load would have left tens of thousands
+    # of nodes behind and a non-zero exit, which is the worst of both.
+    #
+    # The scan is over the values that actually reach a literal, and it costs
+    # a fraction of a second against a load measured in minutes.
+    refuse_unwritable(institutions)
     for row in institutions:
         writer.node("Institution", "unitid", row["unitid"],
                     {"unitid": row["unitid"], "name": row.get("inst_name") or "",
                      "state": row.get("state_abbr") or ""})
 
-    completions = held("completions")["rows"]
+    completions = held("completions", cache)["rows"]
     skipped_zero = 0
     if only_awarded:
         keep = [r for r in completions if (r.get("awards_6digit") or 0) > 0]
         skipped_zero = len(completions) - len(keep)
         completions = keep
-    if limit:
+    if limit is not None:
+        # `if limit:` read `--limit 0` as "no limit" and loaded the whole
+        # slice. Zero is a legitimate request — "parse and write nothing" —
+        # and answering it with 58,317 nodes is the opposite of what was
+        # asked, on the flag whose purpose is to bound the write.
         completions = completions[:limit]
 
     programmes = sorted({str(r["cipcode_6digit"]) for r in completions})
@@ -314,6 +255,7 @@ def load(engine: Engine, dry_run: bool = False,
         "statements_issued": writer.looked_up + writer.created,
         "nodes_and_edges_created": writer.created,
         "already_present": writer.already_there,
+        "created_by": dict(writer.created_by),
         "institutions_in": len(institutions),
         "programmes_in": len(programmes),
         "completions_in": len(seen),
@@ -352,8 +294,19 @@ def in_the_graph(engine: Engine) -> dict:
     return counts
 
 
-def report(loaded: dict, graph: dict) -> list[str]:
-    """Issued against held, per label — and the gap named, not assumed away."""
+def report(loaded: dict, graph: dict, before: dict | None = None) -> list[str]:
+    """What the graph held, what this run created, and what it holds now.
+
+    **The gap is against BEFORE PLUS CREATED, not against what was issued.**
+    Comparing a whole-graph label count with this run's issued count reports
+    any pre-existing data — another year's completions, another state's — as
+    a gap this run caused. On an empty engine the two readings agree, which is
+    exactly why the wrong one survived: every run so far has been on a fresh
+    container.
+
+    `before` is optional so a dry run, which reads nothing back, still
+    reports; it is treated as zero and the table says so.
+    """
     lines = [
         f"  {loaded['statements_issued']:,} statements in "
         f"{loaded['seconds']}s "
@@ -361,21 +314,16 @@ def report(loaded: dict, graph: dict) -> list[str]:
         f"  skipped {loaded['rows_skipped_zero_awards']:,} rows recording zero "
         f"awards, {loaded['duplicate_rows_skipped']:,} duplicate rows",
         "",
-        f"  {'':<14} {'issued':>9} {'in graph':>10}  gap",
+        f"  {'':<14} {'held before':>12} {'created':>9} {'in graph':>10}  gap",
     ]
-    for label, issued in (("Institution", loaded["institutions_in"]),
-                          ("Programme", loaded["programmes_in"]),
-                          ("Completion", loaded["completions_in"])):
-        holds = graph.get(label, 0)
-        gap = holds - issued
-        lines.append(f"  {label:<14} {issued:>9,} {holds:>10,}  "
-                     f"{'—' if gap == 0 else f'{gap:+,}'}")
-    # One edge of each kind per completion, so the issued count is the same.
-    edges_issued = loaded["completions_in"]
-    for kind in ("AT", "IN"):
-        holds = graph.get(kind, 0)
-        gap = holds - edges_issued
-        lines.append(f"  {kind:<14} {edges_issued:>9,} {holds:>10,}  "
+    before = before or {}
+    created = loaded.get("created_by") or {}
+    for name in ("Institution", "Programme", "Completion", "AT", "IN"):
+        was = before.get(name, 0)
+        made = created.get(name, 0)
+        holds = graph.get(name, 0)
+        gap = holds - (was + made)
+        lines.append(f"  {name:<14} {was:>12,} {made:>9,} {holds:>10,}  "
                      f"{'—' if gap == 0 else f'{gap:+,}'}")
     return lines
 
@@ -397,6 +345,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     engine = Engine(args.url)
+    # **Read BEFORE the load.** Without it the report has nothing to subtract
+    # and a graph that already held anything shows this run as having lost or
+    # gained nodes it never touched.
+    before = {} if args.dry_run else in_the_graph(engine)
     try:
         loaded = load(engine, dry_run=args.dry_run,
                       only_awarded=not args.all_rows, limit=args.limit)
@@ -408,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     graph = {} if args.dry_run else in_the_graph(engine)
-    for line in report(loaded, graph):
+    for line in report(loaded, graph, before):
         print(line)
 
     if args.record:
@@ -419,8 +371,24 @@ def main(argv: list[str] | None = None) -> int:
             print("--record describes the full default slice; drop --dry-run, "
                   "--limit and --all-rows", file=sys.stderr)
             return 4
+        # **THE IDEMPOTENCE RE-RUN IS PART OF THE RECORD.** The page claimed
+        # "175,762 statements, zero created" and that figure was in no
+        # record — it came from a run I did by hand, on a page whose opening
+        # sentence says every figure was substituted from the record. A
+        # second pass is the only way that claim can be true, and it is the
+        # claim the loader's whole design rests on.
+        print("  re-running to measure idempotence...")
+        again = load(engine, only_awarded=not args.all_rows)
+        after = in_the_graph(engine)
         write_record(RECORD, {
             "_": RECORD_NOTE,
+            "second_run": {
+                "seconds": again["seconds"],
+                "statements_issued": again["statements_issued"],
+                "nodes_and_edges_created": again["nodes_and_edges_created"],
+                "already_present": again["already_present"],
+                "in_graph_after": after,
+            },
             "engine_version_reported": ENGINE_VERSION,
             "fips": FIPS, "year": YEAR,
             "issued": loaded,

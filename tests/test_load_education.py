@@ -224,8 +224,54 @@ def test_the_record_keeps_issued_and_held_apart(monkeypatch, tmp_path):
         "from a different build reads as one from this one")
 
 
+def slice_on_disk(tmp_path, rows, institutions=None):
+    """Write a cache this loader will read, and return its directory."""
+    (tmp_path / f"institutions-{loader.FIPS}-{loader.YEAR}.json").write_text(
+        json.dumps({"rows": institutions if institutions is not None
+                    else [{"unitid": 1, "inst_name": "X", "state_abbr": "VA"}]}),
+        encoding="utf-8")
+    (tmp_path / f"completions-{loader.FIPS}-{loader.YEAR}.json").write_text(
+        json.dumps({"rows": rows}), encoding="utf-8")
+    return tmp_path
+
+
+def completions(n, first=0, **over):
+    """`n` rows with DISTINCT keys, starting at `first`.
+
+    `first` exists because a fixture that reused CIP codes across two calls
+    made the zero-award rows collide with the awarded ones — so a test about
+    zero-award skipping was measuring duplicate-key skipping as well, and
+    passed for the wrong reason.
+    """
+    return [{"unitid": 1, "cipcode_6digit": 110701 + first + i,
+             "award_level": 5, "majornum": 1, "race": 1, "sex": 1,
+             "awards_6digit": 1, **over}
+            for i in range(n)]
+
+
+def test_the_rate_curve_closes_on_the_run_even_with_no_periodic_sample(
+        monkeypatch, tmp_path):
+    """**The interval is LONGER than the run**, so no periodic sample fires
+    and the closing sample is the only thing that can produce a curve.
+
+    That is the whole of the claim, and the previous version could not test
+    it: with `CURVE_EVERY` at 0.001 a sample fired on nearly every row, so
+    `curve[-1]["completions_held"] == completions_in` held whatever the
+    closing logic did. Setting a tiny interval to test a closing sample tests
+    the sampling instead.
+    """
+    monkeypatch.setattr(loader, "CURVE_EVERY", 3600)
+    summary = loader.load(Recorder(),
+                          cache=slice_on_disk(tmp_path, completions(4)))
+    curve = summary["rate_curve"]
+    assert len(curve) == 1, (
+        f"a run shorter than one interval should record exactly the closing "
+        f"sample, not {len(curve)}")
+    assert curve[0]["completions_held"] == summary["completions_in"] == 4
+
+
 def test_the_rate_curve_is_sampled_from_the_run_that_reports_it(monkeypatch,
-                                                               tmp_path):
+                                                                tmp_path):
     """**The curve used to come from a different load than the record.**
 
     A second process polled the graph once a minute while a load ran, and the
@@ -236,26 +282,158 @@ def test_the_rate_curve_is_sampled_from_the_run_that_reports_it(monkeypatch,
     The loader already knows how many completions it has written and when it
     started, so the curve costs no extra query.
     """
-    # **A REALISTIC interval.** Set to 0 this sampled every row, so the last
-    # sample equalled the total for free and the assertion below passed
-    # without the code being right. Measured on a live 2,500-row load: the
-    # curve stopped at 2,449, because the final partial interval was never
-    # recorded.
-    monkeypatch.setattr(loader, "CURVE_EVERY", 0.001)
-    monkeypatch.setattr(loader, "CACHE", tmp_path)
-    rows = [{"unitid": 1, "cipcode_6digit": 110701 + i, "award_level": 5,
-             "majornum": 1, "race": 1, "sex": 1, "awards_6digit": 1}
-            for i in range(4)]
-    (tmp_path / f"institutions-{loader.FIPS}-{loader.YEAR}.json").write_text(
-        json.dumps({"rows": [{"unitid": 1, "inst_name": "X",
-                              "state_abbr": "VA"}]}), encoding="utf-8")
-    (tmp_path / f"completions-{loader.FIPS}-{loader.YEAR}.json").write_text(
-        json.dumps({"rows": rows}), encoding="utf-8")
-
-    summary = loader.load(Recorder())
+    # A very short interval, so several samples fire. It is not a realistic
+    # one — an earlier comment here claimed it was — and the case that
+    # matters is the opposite, which the test above covers.
+    monkeypatch.setattr(loader, "CURVE_EVERY", 0.0001)
+    summary = loader.load(Recorder(),
+                          cache=slice_on_disk(tmp_path, completions(6)))
     curve = summary["rate_curve"]
-    assert curve, "the run reported no curve at all"
-    assert curve[-1]["completions_held"] == summary["completions_in"], (
-        "the curve's last sample and the run's own total disagree, so they "
-        "are not describing one load")
+    assert len(curve) > 1, "no periodic sample fired at all"
+    assert curve[-1]["completions_held"] == summary["completions_in"]
     assert all(point["seconds"] <= summary["seconds"] for point in curve)
+    held = [point["completions_held"] for point in curve]
+    assert held == sorted(held), "the curve goes backwards"
+
+
+def test_rows_recording_zero_awards_are_skipped_and_counted(tmp_path):
+    """69% of this slice says nobody finished, and dropping them is a SCOPE
+    decision — so the count of what was dropped is reported either way, or
+    the slice can be mistaken for the whole."""
+    rows = completions(3) + completions(2, first=3, awards_6digit=0)
+    summary = loader.load(Recorder(), cache=slice_on_disk(tmp_path, rows))
+    assert summary["rows_skipped_zero_awards"] == 2
+    assert summary["completions_in"] == 3
+
+
+def test_all_rows_loads_the_zero_award_rows_it_otherwise_skips(tmp_path):
+    """A zero row is a real IPEDS observation. The flag exists because this
+    is a scope decision and not a filter, and a flag nothing exercises is a
+    flag that has stopped working."""
+    rows = completions(3) + completions(2, first=3, awards_6digit=0)
+    summary = loader.load(Recorder(), only_awarded=False,
+                          cache=slice_on_disk(tmp_path, rows))
+    assert summary["rows_skipped_zero_awards"] == 0
+    assert summary["completions_in"] == 5
+
+
+def test_rows_collapsing_onto_one_key_are_skipped_and_counted(tmp_path):
+    """The API returns rows that reduce to one key — 169 of them in this
+    slice. Skipping them in the walk rather than leaving them to the lookup
+    keeps the issued count honest, and the count of them is reported."""
+    row = completions(1)[0]
+    summary = loader.load(Recorder(),
+                          cache=slice_on_disk(tmp_path, [row, dict(row), row]))
+    assert summary["completions_in"] == 1
+    assert summary["duplicate_rows_skipped"] == 2
+
+
+def test_a_dry_run_counts_what_it_would_send_and_sends_nothing(tmp_path):
+    """**A dry run used to count every node twice** — once as a lookup and
+    once as a create — so `statements_issued` came out roughly double and the
+    figure could not be compared with the real run it exists to predict.
+
+    One statement per object: three lookups per completion, plus the
+    institution and the programme.
+    """
+    engine = Recorder()
+    rows = completions(2)
+    summary = loader.load(engine, dry_run=True,
+                          cache=slice_on_disk(tmp_path, rows))
+    assert engine.sent == [], "a dry run sent statements to the engine"
+    assert summary["nodes_and_edges_created"] == 0
+    # 1 institution + 2 programmes + 2 completions + 2 AT + 2 IN.
+    assert summary["statements_issued"] == 9
+
+
+def test_limit_zero_loads_nothing_rather_than_everything(tmp_path):
+    """`if limit:` read `--limit 0` as "no limit" and loaded the whole slice
+    — the opposite of what was asked, on the flag whose purpose is to bound
+    the write."""
+    rows = completions(5)
+    assert loader.load(Recorder(), limit=0,
+                       cache=slice_on_disk(tmp_path, rows))["completions_in"] == 0
+    assert loader.load(Recorder(), limit=2,
+                       cache=slice_on_disk(tmp_path, rows))["completions_in"] == 2
+    assert loader.load(Recorder(),
+                       cache=slice_on_disk(tmp_path, rows))["completions_in"] == 5
+
+
+def test_a_value_that_cannot_be_written_is_refused_before_anything_is(tmp_path):
+    """**There is no transaction to roll back to.** A `quote()` refusal used
+    to raise part-way through, leaving a graph half loaded — one unwritable
+    institution name in a 58,317-row load would have left tens of thousands
+    of nodes behind and a non-zero exit, which is the worst of both.
+    """
+    engine = Recorder()
+    cache = slice_on_disk(
+        tmp_path, completions(3),
+        institutions=[{"unitid": 1, "inst_name": 'St. Mary"s',
+                       "state_abbr": "VA"}])
+    with pytest.raises(Refused):
+        loader.load(engine, cache=cache)
+    assert engine.sent == [], (
+        "the load wrote before discovering it could not finish")
+
+
+def test_the_report_compares_against_what_the_graph_already_held(tmp_path):
+    """**A whole-graph count against this run's issued count reports
+    pre-existing data as a gap this run caused.** Another year's completions,
+    another state's, would show as tens of thousands of unexplained nodes.
+
+    On an empty engine the two readings agree, which is exactly why the wrong
+    one survived — every run so far has been on a fresh container.
+    """
+    loaded = {"seconds": 1.0, "statements_issued": 3,
+              "nodes_and_edges_created": 3, "already_present": 0,
+              "institutions_in": 1, "programmes_in": 1, "completions_in": 1,
+              "rows_skipped_zero_awards": 0, "duplicate_rows_skipped": 0,
+              "created_by": {"Institution": 1, "Completion": 1, "AT": 1}}
+    before = {"Institution": 40, "Programme": 0, "Completion": 900,
+              "AT": 900, "IN": 0}
+    after = {"Institution": 41, "Programme": 0, "Completion": 901,
+             "AT": 901, "IN": 0}
+    printed = "\n".join(loader.report(loaded, after, before))
+    assert "+" not in printed, (
+        f"a graph that already held data was reported as a gap:\n{printed}")
+
+    lost = "\n".join(loader.report(loaded, {**after, "Completion": 900},
+                                   before))
+    assert "-1" in lost, "a node that did not arrive was not reported"
+
+
+def test_the_record_carries_the_idempotence_run_not_just_the_first(monkeypatch,
+                                                                   tmp_path):
+    """**The page claimed "175,762 statements, zero created" and that figure
+    was in no record.** It came from a run done by hand, on a page whose
+    opening sentence says every figure was substituted from the record.
+
+    A second pass is the only way that claim can be true, and it is the claim
+    the loader's whole design rests on — the first version created 2,000
+    duplicate edges on a second run and only the gap column showed it.
+    """
+    written = {}
+    monkeypatch.setattr(loader, "RECORD", tmp_path / "spine.json")
+    monkeypatch.setattr(loader, "write_record",
+                        lambda path, payload: written.update(payload))
+    monkeypatch.setattr(loader, "Engine", lambda url: Recorder())
+
+    runs = iter([
+        {"seconds": 10.0, "statements_issued": 6, "nodes_and_edges_created": 3,
+         "already_present": 0, "institutions_in": 1, "programmes_in": 1,
+         "completions_in": 1, "rows_skipped_zero_awards": 0,
+         "duplicate_rows_skipped": 0, "created_by": {}, "rate_curve": []},
+        {"seconds": 4.0, "statements_issued": 3, "nodes_and_edges_created": 0,
+         "already_present": 3, "institutions_in": 1, "programmes_in": 1,
+         "completions_in": 1, "rows_skipped_zero_awards": 0,
+         "duplicate_rows_skipped": 0, "created_by": {}, "rate_curve": []},
+    ])
+    monkeypatch.setattr(loader, "load", lambda *a, **k: next(runs))
+    monkeypatch.setattr(loader, "in_the_graph", lambda e: {"Completion": 1})
+
+    assert loader.main(["--record"]) == 0
+    assert "second_run" in written, (
+        "the record describes one pass, so the idempotence figure the page "
+        "quotes has no run behind it")
+    assert written["second_run"]["nodes_and_edges_created"] == 0
+    assert written["second_run"]["statements_issued"] == 3

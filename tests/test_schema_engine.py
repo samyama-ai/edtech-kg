@@ -34,15 +34,16 @@ from tests.schema_source import SCHEMA_DOC, section, statements
 SAMYAMA_URL = os.environ.get("SAMYAMA_URL", "http://localhost:8080")
 
 
-def engine_available():
+def engine_available(url: str | None = None):
     try:
-        urllib.request.urlopen(f"{SAMYAMA_URL}/api/tenants", timeout=2).read()
+        urllib.request.urlopen(f"{url or SAMYAMA_URL}/api/tenants",
+                               timeout=2).read()
         return True
     except Exception:
         return False
 
 
-def require_engine():
+def require_engine(url: str | None = None):
     """Skip, or FAIL under `SAMYAMA_REQUIRE_ENGINE=1`.
 
     Three copies of this existed, differing only in wording, and a fourth was
@@ -50,10 +51,20 @@ def require_engine():
     the guard that decides whether "verified against the engine" is a claim or
     a skip, and a copy that drifts is a file that quietly stops requiring what
     its siblings require.
+
+    **IT TAKES THE URL THE CALLER WILL ACTUALLY USE.** It probed `SAMYAMA_URL`
+    unconditionally while `tests/test_load_education_engine.py` connects to
+    `SAMYAMA_TEST_URL` — two variables, deliberately different, and the guard
+    was clearing the wrong one. With a live `SAMYAMA_URL` and a dead
+    `SAMYAMA_TEST_URL` it passed and the tests then failed on the connection
+    it had just declared fine; with both unset it reported the wrong address
+    in the skip message. A reachability guard that checks a different host
+    than the tests is not one.
     """
-    if engine_available():
+    url = url or SAMYAMA_URL
+    if engine_available(url):
         return
-    message = f"no Samyama engine at {SAMYAMA_URL}"
+    message = f"no Samyama engine at {url}"
     if os.environ.get("SAMYAMA_REQUIRE_ENGINE") == "1":
         pytest.fail(f"{message} — SAMYAMA_REQUIRE_ENGINE=1 forbids skipping this")
     pytest.skip(message)
