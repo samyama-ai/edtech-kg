@@ -170,7 +170,7 @@ def test_the_record_guard_is_not_all_or_nothing(monkeypatch, capsys, tmp_path):
     record.write_text(json.dumps(committed), encoding="utf-8")
     monkeypatch.setattr(module, "RECORD", record)
     monkeypatch.setattr(module, "measure", lambda *a, **k: {
-        "seed": 19, "sample_per_district": 60, "districts": {
+        "sampling": probe.SAMPLING, "sample_per_district": 60, "districts": {
             "A": {"candidate_course_paths": 700, "read": 60,
                   "with_a_typed_prerequisite": 3,
                   "percent_of_pages_with_a_typed_prerequisite": 5.0,
@@ -189,7 +189,7 @@ def test_the_first_run_can_still_write(monkeypatch, tmp_path):
     record = tmp_path / "absent.json"
     monkeypatch.setattr(module, "RECORD", record)
     monkeypatch.setattr(module, "measure", lambda *a, **k: {
-        "seed": 19, "sample_per_district": 60,
+        "sampling": probe.SAMPLING, "sample_per_district": 60,
         "districts": {"A": {
             "candidate_course_paths": 700, "read": 60,
             "with_a_typed_prerequisite": 3,
@@ -241,3 +241,30 @@ def test_a_district_with_no_paths_carries_every_key():
             f"KeyError waiting for the first consumer that iterates")
 
 
+def test_the_documented_command_prints_without_crashing(monkeypatch, capsys):
+    """**`report()` read `measured['seed']` after the key was renamed, and
+    nothing caught it.** The crawl of five districts ran first — about fifteen
+    minutes of live requests — and then died formatting its own summary.
+
+    `tests/test_registry_probe.py` records this exact failure: "every other
+    test passes `quiet=True`, so the reporting path had no coverage at all and
+    a name it references could go stale without a single assertion noticing."
+    The lesson was written down in one file and not applied in this one.
+    """
+    import etl.probe_second_district as module
+    measured = {
+        "sample_per_district": 60,
+        "sampling": module.SAMPLING,
+        "districts": {"D": {"base": "https://d.test", "how": "sitemap",
+                            "candidate_course_paths": 100, "read": 60,
+                            "with_a_typed_prerequisite": 5,
+                            "percent_of_pages_with_a_typed_prerequisite": 8.3,
+                            "links": 5,
+                            "links_resolving_to_a_published_course": 5}},
+    }
+    module.report(measured)
+    printed = capsys.readouterr().out
+    assert "60 courses per district" in printed
+    assert "sha1" in printed, (
+        "the summary does not say how it sampled, which is the one thing that "
+        "makes two runs comparable")

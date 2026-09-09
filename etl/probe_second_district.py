@@ -255,8 +255,12 @@ def measure(sample: int = SAMPLE) -> dict:
 
 
 def report(measured: dict) -> None:
-    print(f"  seed {measured['seed']}, {measured['sample_per_district']} "
-          f"courses per district\n")
+    # Indexed, not `.get`. A default here is how the previous version of this
+    # line survived the key being renamed: it would have printed a plausible
+    # blank and kept going. The crash is the better outcome, and the test
+    # below is the better outcome still.
+    print(f"  {measured['sample_per_district']} courses per district, "
+          f"sampled as {measured['sampling']}\n")
     header = (f"  {'district':<34} {'pages':>6} {'read':>5} {'typed':>6} "
               f"{'share':>7} {'links ok':>9}")
     print(header)
