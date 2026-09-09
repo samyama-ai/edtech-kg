@@ -169,12 +169,23 @@ CREATE CONSTRAINT ON (r:Requirement) ASSERT r.id IS UNIQUE;
 //
 // **THE FIVE-PART KEY WAS ALSO WRONG, AND THE FIRST LOAD FOUND IT (#7).**
 // IPEDS publishes a `majornum` — first major or second — and two rows at one
-// institution, CIP, award level and demographic differ only by it. Measured
-// over the Virginia 2022 slice: 190,770 rows hold 16,800 groups carrying more
-// than one `majornum`, and in 3,524 of those MORE THAN ONE HAS A NON-ZERO
-// AWARD COUNT. Keyed without it, each of those 3,524 merges two real
-// completions into one node and loses a count. Nothing would fail: the load
-// would report fewer nodes than rows, which is what a MERGE is supposed to do.
+// institution, CIP, award level and demographic differ only by it.
+//
+// Measured over the Virginia 2022 slice by `etl/probe_completion_key.py`, and
+// recorded in docs/sources/completion-key-measured.json rather than counted
+// once by hand: 190,770 rows hold
+// 16,800 groups carrying more than one
+// `majornum`, and in 3,524 of those MORE THAN ONE HAS
+// A NON-ZERO AWARD COUNT.
+//
+// Keyed without it, those 3,524 merge two real
+// completions into one node — **23,126 completions disappear**,
+// which is the figure to quote. The larger
+// 16,800 is NOT that number: in most of
+// those groups every other row is a zero and nothing is lost.
+//
+// Nothing would fail: the load would report fewer nodes than rows, which is
+// what a MERGE is supposed to do.
 //
 // So the key is six parts, and it is spelled once:
 //

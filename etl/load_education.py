@@ -102,9 +102,11 @@ def held(name: str, cache: pathlib.Path | None = None) -> dict:
 def completion_id(row: dict) -> str:
     """The Completion key, spelled exactly as `schema/edtech_kg.cypher` does.
 
-    Six parts. `majornum` is one of them: without it, 3,524 groups in this
-    slice merge two real completions into one node and lose a count — which
-    is what the first load found and what the schema now records.
+    Six parts. `majornum` is one of them: without it,
+    3,524 groups in this slice merge two real
+    completions into one node and 23,126 completions disappear.
+    Measured by `etl/probe_completion_key.py`, not counted once by hand —
+    these figures were in three files and no run.
     """
     parts = (row["unitid"], row["cipcode_6digit"], row["award_level"],
              row["majornum"], row["race"], row["sex"], YEAR)
