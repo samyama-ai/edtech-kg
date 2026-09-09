@@ -77,20 +77,54 @@ def test_the_engine_is_waited_for_rather_than_slept_on(workflow):
 
 
 def test_the_checkout_is_deep_enough_for_the_ratchets(workflow):
-    """`actions/checkout@v4` defaults to a shallow clone that fetches only the
-    PR ref. Neither `origin/main` nor `main` resolves in it, so both size
-    ratchets — the exception list and the review limit — return no baseline and
-    skip.
+    """A shallow clone fetches only the PR ref. Neither `origin/main` nor
+    `main` resolves in it, so both size ratchets — the exception list and the
+    review limit — return no baseline and skip.
 
     With `SAMYAMA_CI=1` that fails the build rather than passing quietly, so
     nothing is lost silently. The problem is one layer down: a ratchet that
     never runs in CI is a ratchet that is not there, and these two are what
     stop the size guard from being widened. Reproduced in a shallow clone
     before fixing — both skipped, exactly here.
+
+    **Asserted against the CLONE, not against `fetch-depth: 0`.** That option
+    belongs to `actions/checkout`, which this workflow no longer uses (#109),
+    and a test naming it would have passed only while the fix was absent.
+    What the ratchets actually need is a `main` to compare against.
     """
-    assert re.search(r"fetch-depth:\s*0", workflow), (
-        "actions/checkout is shallow, so the size ratchets have no `main` to "
-        "compare against and never run in CI")
+    assert re.search(r"refs/heads/\*:refs/remotes/origin/\*", workflow), (
+        "the clone does not fetch all branches, so the size ratchets have no "
+        "`main` to compare against and never run in CI")
+    assert re.search(r"git branch -f main origin/main", workflow), (
+        "`main` is not made resolvable locally, which is what the ratchets "
+        "look for")
+
+
+def test_the_workflow_fetches_no_actions(workflow):
+    """**#109's finding, asserted so it cannot come back by habit.**
+
+    Measured over this repository's whole history: the workflow that uses
+    actions had 242 runs and 0 successes; the two that use none had 7 runs and
+    7 successes. The runner executes jobs; it cannot fetch an action. Every
+    red tick this repo has ever shown was that fetch, one step after checkout,
+    so the `Tests` step had never executed once.
+
+    A single `uses:` reintroduced anywhere in this file takes the suite back
+    to never running, and it would look like an ordinary tidy-up.
+    """
+    offending = [line for line in workflow.splitlines()
+                 if re.match(r"\s*-?\s*uses:", line)]
+    assert not offending, (
+        f"this workflow fetches an action, which is the one thing this "
+        f"runner cannot do: {offending}")
+
+
+def test_the_python_version_is_asserted_rather_than_assumed(workflow):
+    """`actions/setup-python` pinned 3.11 and is gone. Whatever the runner
+    image ships is now what runs, so the version is checked in the job — a
+    suite quietly running on a different interpreter than the repo targets is
+    the same silent drift this file exists to stop."""
+    assert "sys.version_info[:2] == (3, 11)" in workflow
 
 
 def test_a_merged_commit_is_not_left_without_a_run(workflow):

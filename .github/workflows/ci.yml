@@ -52,18 +52,54 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          # The size ratchets compare this branch against `main`, and a shallow
-          # checkout has no `main` to compare with. They would skip — and with
-          # SAMYAMA_CI=1 a skip fails the build, so this is not a silent loss.
-          # But a ratchet that never runs in CI is a ratchet that is not there,
-          # which is this workflow's own subject one layer down.
-          fetch-depth: 0
+      # **NO `uses:` ANYWHERE IN THIS FILE, AND THAT IS THE POINT (#109).**
+      #
+      # This workflow had never produced a successful run. Measured over the
+      # repository's whole history at the time of writing:
+      #
+      #     workflow                   uses actions?   runs   successes
+      #     test (this file)           yes              242           0
+      #     probe / what-can-this-...  no                 7           7
+      #
+      # 0 of 242 against 7 of 7 is not a flaky runner. The runner executes
+      # jobs perfectly well; it cannot FETCH AN ACTION. Every red tick this
+      # repository has ever shown was that fetch failing one step after
+      # checkout — the `Tests` step had never executed once, so the tick has
+      # never been a statement about this repo's tests.
+      #
+      # So the two actions are replaced by the shell they were wrapping.
+      # `git clone` and the runner's own Python are things it already has.
+      #
+      # This is a workaround and it is named as one: the runner's action
+      # cache is the real fix and it is not in this repository. What IS in
+      # this repository is a suite that has never run, and the workaround
+      # makes it run.
+      - name: Check out, with full history
+        # **A FULL clone, not a shallow one.** The size ratchets compare this
+        # branch against `main`, and a shallow clone has no `main` to compare
+        # with — they would skip, and with SAMYAMA_CI=1 a skip fails the
+        # build, so it is not a silent loss. But a ratchet that never runs in
+        # CI is a ratchet that is not there, which is this workflow's own
+        # subject one layer down.
+        run: |
+          git init -q .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')" \
+              fetch --quiet origin "+refs/heads/*:refs/remotes/origin/*" "$GITHUB_SHA"
+          git checkout -q "$GITHUB_SHA"
+          git branch -f main origin/main 2>/dev/null || true
+          echo "checked out $(git rev-parse --short HEAD), $(git rev-list --count HEAD) commits of history"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Report the Python in use
+        # `actions/setup-python` pinned 3.11. Without it, whatever the image
+        # ships is what runs — so the version is PRINTED and asserted rather
+        # than assumed. A suite that quietly ran on a different interpreter
+        # than the one the repo targets is the same class of silent drift this
+        # file exists to stop.
+        run: |
+          python3 --version
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 11), \
+            f"CI is on {sys.version.split()[0]}; this repo targets 3.11"'
 
       - name: Install test dependencies
         # `pip install -e .` is NOT used, and that is still deliberate — but
@@ -90,7 +126,7 @@ jobs:
         # CI could resolve a setuptools older than the one the metadata
         # test needs and fail for a reason that has nothing to do with
         # the change under review.
-        run: python -m pip install --quiet pytest "setuptools>=61.0"
+        run: python3 -m pip install --quiet pytest "setuptools>=61.0"
 
       - name: Start a fresh engine
         # A FRESH instance, never a loaded one: the schema tests validate
@@ -123,7 +159,7 @@ jobs:
           SAMYAMA_REQUIRE_ENGINE: "1"
           # Turns an UNEXPECTED skip into a failure. See conftest.py.
           SAMYAMA_CI: "1"
-        run: python -m pytest -q -rs
+        run: python3 -m pytest -q -rs
 
       - name: Engine logs
         # On failure the engine's own log is usually the shortest route to why.
