@@ -15,8 +15,8 @@
   "groups_losing_a_count": 3524,
   "awards_lost": 23126,
   "code": {
-    "commit": "d156ebee07dfe55ced09585c9e5e13f84cf306bc",
-    "dirty": true,
+    "commit": "6866b567ce19e0ecc8146540b849be86e251209e",
+    "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
   }

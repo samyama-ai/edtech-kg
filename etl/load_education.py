@@ -139,9 +139,12 @@ def refuse_unwritable(institutions: list[dict],
     argument was not written down and nothing asserted it, which is what made
     it a gap rather than a decision.
 
-    There is no transaction here, and the loader's own `DETACH DELETE`
-    teardown is measured to remove more than it names, so discovering an
-    unwritable value part-way is not recoverable.
+    There is no transaction here and no teardown, so discovering an
+    unwritable value part-way leaves the graph part-loaded with no way back.
+    (An earlier version of this said 1.1.0's scoped `DETACH DELETE` removes
+    more than it names. That was measured and is FALSE — a scoped delete
+    scopes; see the comment in `tests/test_load_education_engine.py`. The
+    argument for checking first does not need it.)
     """
     for table, rows in (("institutions", institutions),
                         ("completions", completions or [])):

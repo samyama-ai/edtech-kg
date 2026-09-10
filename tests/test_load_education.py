@@ -374,3 +374,54 @@ def test_the_report_compares_against_what_the_graph_already_held(tmp_path):
     lost = "\n".join(loader.report(loaded, {**after, "Completion": 900},
                                    before))
     assert "-1" in lost, "a node that did not arrive was not reported"
+
+
+def test_the_checked_completion_fields_are_the_ones_written():
+    """**The list, pinned by name.** The parametrized test below draws its
+    cases FROM `WRITTEN_FIELDS`, so emptying that tuple produces zero cases
+    and pytest reports `1 skipped`, exit 0 — a guard that passes because
+    nothing ran. Verified: `WRITTEN_FIELDS["completions"] = ()` survived it
+    clean, and so did dropping a single name.
+
+    Every field here reaches a Cypher literal in `write_completion`. A name
+    added to the writer and not to this tuple is a value going to the graph
+    unchecked, and the pre-flight is the only thing standing between that and
+    a part-loaded graph with no transaction to roll back.
+    """
+    assert loader.WRITTEN_FIELDS["completions"] == (
+        "unitid", "cipcode_6digit", "award_level", "majornum",
+        "race", "sex", "awards_6digit")
+    assert loader.WRITTEN_FIELDS["institutions"] == (
+        "unitid", "inst_name", "state_abbr")
+
+
+@pytest.mark.parametrize("field", loader.WRITTEN_FIELDS["completions"])
+def test_every_written_completion_field_is_checked_before_anything_is(
+        tmp_path, field):
+    """**The completions half of `refuse_unwritable` had no test.** Both
+    `refuse_unwritable(institutions, completions)` -> `(institutions)` and
+    `WRITTEN_FIELDS["completions"]` -> `()` passed the whole suite clean —
+    so the claim the function's own docstring says it was written to make was
+    the one thing unguarded, on the larger of the two tables.
+
+    Parametrized over the field list rather than sampling one, because the
+    module comment calls that list load-bearing: a field dropped from it is a
+    value reaching the graph unchecked, and nothing else would say so.
+
+    **The bad row is LAST, not first.** With it first the load raises on row
+    one either way, so `engine.sent == []` holds whether the pre-flight ran
+    or not — the first version of this test passed with `WRITTEN_FIELDS
+    ["completions"]` emptied to `()`. Putting it last is what makes the
+    assertion mean "nothing was written", because without the pre-flight the
+    five rows ahead of it are already in the graph.
+    """
+    engine = Recorder()
+    bad = """both " and ' quotes"""
+    rows = completions(6)
+    rows[-1][field] = bad
+    cache = slice_on_disk(tmp_path, rows)
+    with pytest.raises(Refused):
+        loader.load(engine, cache=cache)
+    assert engine.sent == [], (
+        f"an unwritable {field} was discovered after the load had already "
+        f"written — there is no transaction to roll back to")

@@ -118,6 +118,27 @@ def test_the_committed_record_and_the_schema_agree(monkeypatch):
             f"({found[figure]:,})")
 
 
+def test_the_committed_record_was_written_by_a_clean_tree():
+    """**The figures the schema comment and the page lead with were taken on
+    an uncommitted tree.** The record was stamped `dirty: true` at the
+    previous head while `measure()` itself changed in the commit after it, so
+    nothing committed anywhere could reproduce them.
+
+    `test_national_spine_doc.py` enforces this for the spine record and
+    nothing enforced it here, which is the whole reason it passed. This probe
+    reads a local file and runs in seconds — there is no cost to re-running
+    it from a clean tree.
+    """
+    if not probe.RECORD.exists():
+        pytest.skip("no committed record yet")
+    code = json.loads(probe.RECORD.read_text(encoding="utf-8"))["code"]
+    assert code["dirty"] is False, (
+        "the record was written from a dirty tree, so its figures cannot be "
+        "reproduced from any commit — re-run `python -m "
+        "etl.probe_completion_key --record` on a clean tree")
+    assert code["commit"] != "unknown"
+
+
 def test_completions_lost_and_awards_lost_are_different_quantities(monkeypatch):
     """**They were conflated, and the wrong one was the headline.**
 
