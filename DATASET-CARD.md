@@ -38,7 +38,39 @@ Measured in [`docs/sources/federal-direct.md`](docs/sources/federal-direct.md).
 ## What is loaded
 
 **One district.** Prince William County Public Schools, from pages this repo
-cached — 1,098 nodes and 1,287 edges.
+cached — 1,098 nodes and 1,417 edges.
+
+That edge count said **1,287** until #25 counted the graph per type rather
+than quoting a figure. It is 1,417: REQUIRES 240, IN_SUBJECT
+723, INCLUDES 316, HAS_REQUIREMENT
+138. `README.md` had the right number and this card had a
+different one, which is what a hand-maintained count does.
+
+**Do not read the edge count from `/api/status`.** On a Cypher-loaded graph it
+reports **2,834** for the 1,417 edges above; the same graph imported from a
+snapshot reports 1,417.
+
+The two graphs are the same graph. The distinction matters: if `storage.edges`
+counted stored adjacency entries and the import kept only one per edge, then
+the endpoint would be right and this snapshot would be lossy.
+
+That is excluded by the **reverse expansion**, which both engines answer
+identically — 240, 723, 316, 138, **1,417** in total:
+
+    MATCH (c:Course)<-[r:INCLUDES]-(:Pathway) RETURN count(r)     316 on both
+
+Starting from a `Course` and walking the edge backwards, an engine holding
+one adjacency entry at the tail could not answer that. It answers. This is
+also the query the walkthrough already rests on — `demo/demo.py` runs the
+pattern and `docs/questions.md` makes the reverse edge a supported question.
+
+The undirected count is recorded too but does **not** settle it on its own: it
+comes back at exactly twice directed for all four types on both engines, which
+is as much the signature of a doubling rule as of a traversal. Nor does
+`storage.nodes` matching at 1,098 — a lossy-edge import would match on nodes
+too. All three readings are in
+[`sources/snapshot-measured.json`](docs/sources/snapshot-measured.json) under
+`edge_count_readings`, from both engines.
 
 **One state's higher education.** Virginia (`fips=51`), data year 2022 —
 147 institutions, 664 programmes and
@@ -54,6 +86,14 @@ inferred from the input rows** — the loader reports both and the two agree.
 | Rate curve, the slice, and the schema defect the load found | [`docs/national-spine.md`](docs/national-spine.md) |
 | Rows deliberately dropped | 132,284 recording zero awards, 169 collapsing onto one key |
 | Not loaded, though #7's scope names them | `Occupation`, the CIP–SOC crosswalk, earnings |
+
+| graph artefact | |
+|---|---|
+| `edtech-kg.sgsnap` | **about 157 KB**, imports in **0.02s** into a clean engine |
+| Against | a load of about 8 seconds — and no network, no source pages |
+| Published as | a release asset. Not committed: `data/` is gitignored and a graph artefact is not source |
+| Size varies | exporting the same graph twice gives different bytes — so a download is checked against the published file's hash, not by re-exporting |
+| Verified by | `python -m etl.snapshot verify`, per label and per edge type, before a demo opens |
 
 Everything else above is measured at the source and **not loaded**.
 
@@ -109,7 +149,7 @@ district at one point in time.
 | Code | Records carry a `code` stamp — the commit the tree was at when the probe ran, whether it was clean, and the package version — written by `etl/provenance.py`. **Records written before that mechanism existed carry no stamp; they gain one when their probe is next run (#6).** `tests/test_provenance.py` lists which are still unstamped. The commit that *contains* a record cannot be inside it. |
 | Data year | **2022** for IPEDS and CCD |
 | Engine | `1.1.0` pinned in CI; `1.7.0` also verified against the parse table |
-| Graph artefact | **none published** — no snapshot export exists yet (#25) |
+| Graph artefact | `edtech-kg.sgsnap`, a release asset — see the table above. Not committed: `data/` is gitignored |
 
 ## Known issues
 

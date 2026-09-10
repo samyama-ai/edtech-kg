@@ -1,0 +1,142 @@
+{
+  "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built. `edge_count_readings` carries the evidence for that, from both engines, written by `both_directions`: the REVERSE expansion is the reading that excludes a lossy import, because an engine holding one adjacency entry per edge could not answer it from the head. The undirected count is recorded but settles nothing on its own — it is exactly twice directed everywhere, which is as much a doubling rule as a traversal. `snapshot.bytes` is the export this run published; `snapshot.reproducible` compares three FURTHER exports of the same graph. They are different exports, and exports of one unchanged graph differ in size, so `bytes` is not expected to fall between `bytes_min` and `bytes_max` — it did not on an earlier run, and the two looked inconsistent.",
+  "snapshot": {
+    "file": "data/edtech-kg.sgsnap",
+    "bytes": 160339,
+    "sha256": "ea995e97b534577d65d313f7dc156fdee81b449be08c5737706dc13219b2206f",
+    "taken_from": {
+      "Course": 791,
+      "Subject": 127,
+      "Pathway": 42,
+      "Requirement": 138,
+      "REQUIRES": 240,
+      "IN_SUBJECT": 723,
+      "INCLUDES": 316,
+      "HAS_REQUIREMENT": 138
+    },
+    "reproducible": {
+      "exports_compared": 3,
+      "bytes_min": 160156,
+      "bytes_max": 160413,
+      "bytes_spread": 257,
+      "byte_identical": false,
+      "sha256": [
+        "6e77e76515173bf94113d192b7415142f7dd36921dd8d53843f51891a0aa2a44",
+        "a7f9ea9df3ee4426b1ebd7cc8a565e66714f06b24332abf1850b9d969350be16",
+        "4926c43f540ec71823df7e2af8805361b447f695e56826deaf7d7299198cf2ef"
+      ]
+    }
+  },
+  "import": {
+    "seconds": 0.02,
+    "bytes": 160339,
+    "engine_said": {
+      "edge_types": [
+        "HAS_REQUIREMENT",
+        "INCLUDES",
+        "IN_SUBJECT",
+        "REQUIRES"
+      ],
+      "edges_imported": 1417,
+      "labels": [
+        "Course",
+        "Pathway",
+        "Requirement",
+        "Subject"
+      ],
+      "nodes_imported": 1098,
+      "nodes_merged": 0,
+      "status": "ok",
+      "vector_indices_rebuilt": 0
+    },
+    "in_graph": {
+      "Course": 791,
+      "Subject": 127,
+      "Pathway": 42,
+      "Requirement": 138,
+      "REQUIRES": 240,
+      "IN_SUBJECT": 723,
+      "INCLUDES": 316,
+      "HAS_REQUIREMENT": 138
+    }
+  },
+  "counts": {
+    "Course": 791,
+    "Subject": 127,
+    "Pathway": 42,
+    "Requirement": 138,
+    "REQUIRES": 240,
+    "IN_SUBJECT": 723,
+    "INCLUDES": 316,
+    "HAS_REQUIREMENT": 138
+  },
+  "graph": "edtech",
+  "exported_from": "http://localhost:8200",
+  "imported_into": "http://localhost:8285",
+  "edge_count_readings": {
+    "cypher_loaded": {
+      "api_status_storage": {
+        "edges": 2834,
+        "nodes": 1098
+      },
+      "per_type": {
+        "directed": {
+          "REQUIRES": 240,
+          "IN_SUBJECT": 723,
+          "INCLUDES": 316,
+          "HAS_REQUIREMENT": 138
+        },
+        "undirected": {
+          "REQUIRES": 480,
+          "IN_SUBJECT": 1446,
+          "INCLUDES": 632,
+          "HAS_REQUIREMENT": 276
+        },
+        "inbound": {
+          "REQUIRES": 240,
+          "IN_SUBJECT": 723,
+          "INCLUDES": 316,
+          "HAS_REQUIREMENT": 138
+        },
+        "directed_total": 1417,
+        "undirected_total": 2834,
+        "inbound_total": 1417
+      }
+    },
+    "imported": {
+      "api_status_storage": {
+        "edges": 1417,
+        "nodes": 1098
+      },
+      "per_type": {
+        "directed": {
+          "REQUIRES": 240,
+          "IN_SUBJECT": 723,
+          "INCLUDES": 316,
+          "HAS_REQUIREMENT": 138
+        },
+        "undirected": {
+          "REQUIRES": 480,
+          "IN_SUBJECT": 1446,
+          "INCLUDES": 632,
+          "HAS_REQUIREMENT": 276
+        },
+        "inbound": {
+          "REQUIRES": 240,
+          "IN_SUBJECT": 723,
+          "INCLUDES": 316,
+          "HAS_REQUIREMENT": 138
+        },
+        "directed_total": 1417,
+        "undirected_total": 2834,
+        "inbound_total": 1417
+      }
+    }
+  },
+  "code": {
+    "commit": "5b2553d23d00e7ec8a5ce40133047353e4d8023a",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
