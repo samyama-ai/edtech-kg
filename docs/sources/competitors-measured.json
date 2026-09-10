@@ -1,0 +1,164 @@
+{
+  "_": "Measured by `python -m etl.probe_competitors --record`. Term counts over one public page per vendor, robots-checked before the first request. A vendor recorded as `excluded` was NEVER fetched. These are counts of what a page says, not an assessment of what a product does — a page that does not mention degree audit is a page, not a product without one.",
+  "terms_counted": [
+    "degree audit",
+    "course plan",
+    "pathway",
+    "prerequisite",
+    "graduation requirement",
+    "knowledge graph",
+    "transfer credit",
+    "advisor",
+    "api"
+  ],
+  "vendors": {
+    "GT.school": {
+      "robots_url": "https://gt.school/robots.txt",
+      "robots_status": 200,
+      "allowed": true,
+      "blanket_disallow": false,
+      "crawl_delay": null,
+      "why": "named in the review — gifted-and-talented, outside conventional schooling, Dev Factory / Crossover umbrella",
+      "url": "https://gt.school/",
+      "status": 200,
+      "bytes": 122100,
+      "fetched": true,
+      "reachable": true,
+      "text_chars": 9276,
+      "terms": {
+        "degree audit": 0,
+        "course plan": 0,
+        "pathway": 0,
+        "prerequisite": 0,
+        "graduation requirement": 0,
+        "knowledge graph": 0,
+        "transfer credit": 0,
+        "advisor": 0,
+        "api": 0
+      },
+      "says_nothing_about_planning": true
+    },
+    "Ellucian": {
+      "robots_url": "https://www.ellucian.com/robots.txt",
+      "robots_status": 200,
+      "allowed": true,
+      "blanket_disallow": false,
+      "crawl_delay": null,
+      "why": "named in the review — large US higher-education vendor; student pathway and degree audit products",
+      "url": "https://www.ellucian.com/solutions",
+      "status": 200,
+      "bytes": 130228,
+      "fetched": true,
+      "reachable": true,
+      "text_chars": 8207,
+      "terms": {
+        "degree audit": 0,
+        "course plan": 0,
+        "pathway": 0,
+        "prerequisite": 0,
+        "graduation requirement": 0,
+        "knowledge graph": 1,
+        "transfer credit": 0,
+        "advisor": 0,
+        "api": 1
+      },
+      "says_nothing_about_planning": true
+    },
+    "LTS Education": {
+      "url": "https://ltseducationsystems.com/",
+      "why": "named in the review, and recorded as probably defunct — a dead company's pages are sometimes the clearest statement of what a market wanted",
+      "reachable": false,
+      "note": "https://ltseducationsystems.com/robots.txt: <urlopen error [Errno 8] nodename nor servname provided, or not known>"
+    },
+    "PowerSchool (Naviance)": {
+      "robots_url": "https://www.powerschool.com/robots.txt",
+      "robots_status": 200,
+      "allowed": true,
+      "blanket_disallow": false,
+      "crawl_delay": null,
+      "why": "the incumbent in US high-school course planning; Naviance's own product pages 404 and naviance.com is a 212-byte stub",
+      "url": "https://www.powerschool.com/",
+      "status": 200,
+      "bytes": 119808,
+      "fetched": true,
+      "reachable": true,
+      "text_chars": 5525,
+      "terms": {
+        "degree audit": 0,
+        "course plan": 0,
+        "pathway": 0,
+        "prerequisite": 0,
+        "graduation requirement": 0,
+        "knowledge graph": 0,
+        "transfer credit": 0,
+        "advisor": 0,
+        "api": 1
+      },
+      "says_nothing_about_planning": true
+    },
+    "Stellic": {
+      "robots_url": "https://stellic.com/robots.txt",
+      "robots_status": 200,
+      "allowed": true,
+      "blanket_disallow": false,
+      "crawl_delay": null,
+      "why": "degree audit and pathway planning, higher education",
+      "url": "https://stellic.com/",
+      "status": 200,
+      "bytes": 305861,
+      "fetched": true,
+      "reachable": true,
+      "text_chars": 7085,
+      "terms": {
+        "degree audit": 1,
+        "course plan": 0,
+        "pathway": 2,
+        "prerequisite": 0,
+        "graduation requirement": 0,
+        "knowledge graph": 0,
+        "transfer credit": 0,
+        "advisor": 8,
+        "api": 0
+      },
+      "says_nothing_about_planning": false
+    },
+    "Civitas Learning": {
+      "robots_url": "https://www.civitaslearning.com/robots.txt",
+      "robots_status": 200,
+      "allowed": true,
+      "blanket_disallow": false,
+      "crawl_delay": null,
+      "why": "student outcome analytics, higher education",
+      "url": "https://www.civitaslearning.com/",
+      "status": 200,
+      "bytes": 462822,
+      "fetched": true,
+      "reachable": true,
+      "text_chars": 8105,
+      "terms": {
+        "degree audit": 0,
+        "course plan": 0,
+        "pathway": 0,
+        "prerequisite": 0,
+        "graduation requirement": 0,
+        "knowledge graph": 0,
+        "transfer credit": 0,
+        "advisor": 0,
+        "api": 0
+      },
+      "says_nothing_about_planning": true
+    }
+  },
+  "excluded": {
+    "Coursicle": {
+      "url": "https://www.coursicle.com/",
+      "why": "robots.txt carries `Disallow: /` for a list of user-agents including ClaudeBot, anthropic-ai and Claude-Web. This repo's agent is none of those, so a parser permits the fetch. The publisher's intent is plainly to exclude automated agents of this kind, and a finding resting on our user-agent not being on their list would be technically permitted and worth nothing. NOT FETCHED."
+    }
+  },
+  "code": {
+    "commit": "92d9b6c178e6588d538f7658cf50f1d12587904a",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
