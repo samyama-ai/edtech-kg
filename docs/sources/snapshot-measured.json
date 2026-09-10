@@ -2,8 +2,8 @@
   "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built. `edge_count_readings` carries the evidence for that, from both engines, written by `both_directions`: the REVERSE expansion is the reading that excludes a lossy import, because an engine holding one adjacency entry per edge could not answer it from the head. The undirected count is recorded but settles nothing on its own — it is exactly twice directed everywhere, which is as much a doubling rule as a traversal. `snapshot.bytes` is the export this run published; `snapshot.reproducible` compares three FURTHER exports of the same graph. They are different exports, and exports of one unchanged graph differ in size, so `bytes` is not expected to fall between `bytes_min` and `bytes_max` — it did not on an earlier run, and the two looked inconsistent.",
   "snapshot": {
     "file": "data/edtech-kg.sgsnap",
-    "bytes": 160339,
-    "sha256": "ea995e97b534577d65d313f7dc156fdee81b449be08c5737706dc13219b2206f",
+    "bytes": 160348,
+    "sha256": "a091fdec975988f740335a4749521d701d9727c588071bc9cf9ab604f57e363e",
     "taken_from": {
       "Course": 791,
       "Subject": 127,
@@ -16,20 +16,20 @@
     },
     "reproducible": {
       "exports_compared": 3,
-      "bytes_min": 160156,
-      "bytes_max": 160413,
-      "bytes_spread": 257,
+      "bytes_min": 160293,
+      "bytes_max": 160490,
+      "bytes_spread": 197,
       "byte_identical": false,
       "sha256": [
-        "6e77e76515173bf94113d192b7415142f7dd36921dd8d53843f51891a0aa2a44",
-        "a7f9ea9df3ee4426b1ebd7cc8a565e66714f06b24332abf1850b9d969350be16",
-        "4926c43f540ec71823df7e2af8805361b447f695e56826deaf7d7299198cf2ef"
+        "9ab9b4ec7833b7a94d3ae23f523d16c3940a2a0b005b9e6215494440e8249da3",
+        "46e0440030c3696960fbfa3dea2c73c9454127ab7e70de4cfcc2fedeb334f276",
+        "e8049d03589ae631bb92bfdc7bb48b7e404e5507c61ae8a7cdd8294dce7088d0"
       ]
     }
   },
   "import": {
     "seconds": 0.02,
-    "bytes": 160339,
+    "bytes": 160348,
     "engine_said": {
       "edge_types": [
         "HAS_REQUIREMENT",
@@ -71,8 +71,14 @@
     "HAS_REQUIREMENT": 138
   },
   "graph": "edtech",
+  "property_counts": {
+    "Course.name": 791,
+    "Subject.name": 127,
+    "Pathway.name": 42,
+    "Requirement.text": 138
+  },
   "exported_from": "http://localhost:8200",
-  "imported_into": "http://localhost:8285",
+  "imported_into": "http://localhost:8277",
   "edge_count_readings": {
     "cypher_loaded": {
       "api_status_storage": {
@@ -134,7 +140,7 @@
     }
   },
   "code": {
-    "commit": "5b2553d23d00e7ec8a5ce40133047353e4d8023a",
+    "commit": "94fea54d856c8511e4ba9d640169f5e1deacb90c",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
