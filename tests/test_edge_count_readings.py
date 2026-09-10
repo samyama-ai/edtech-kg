@@ -24,31 +24,7 @@ everywhere, which is as much a doubling rule as a traversal.
 from __future__ import annotations
 
 from etl import snapshot
-
-
-class Graph:
-    """An engine answering fixed counts, so `counts` can be driven.
-
-    `scalar` as well as `run`: `counts` reads through `Engine.scalar` now, so
-    that "I could not measure this" and "the graph holds none of these" stay
-    apart — the pre-import guard is built on it.
-    """
-
-    def __init__(self, held=None, url="http://engine.test"):
-        self.held = held or {}
-        self.asked = []
-        self.url = url
-
-    def run(self, statement):
-        self.asked.append(statement)
-        for name, n in self.held.items():
-            if f":{name})" in statement or f":{name}]" in statement:
-                return {"records": [[n]]}
-        return {"records": [[0]]}
-
-    def scalar(self, statement):
-        rows = self.run(statement).get("records") or []
-        return rows[0][0] if rows and rows[0] else None
+from tests.graph_stub import Graph
 
 
 def test_counts_never_ask_api_status():
