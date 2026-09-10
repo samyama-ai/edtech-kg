@@ -2,7 +2,7 @@
   "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built.",
   "snapshot": {
     "file": "/Users/tarunallam/samyama/edtech-kg/data/edtech-kg.sgsnap",
-    "bytes": 160311,
+    "bytes": 160362,
     "taken_from": {
       "Course": 791,
       "Subject": 127,
@@ -12,11 +12,18 @@
       "IN_SUBJECT": 723,
       "INCLUDES": 316,
       "HAS_REQUIREMENT": 138
+    },
+    "reproducible": {
+      "exports_compared": 3,
+      "bytes_min": 160242,
+      "bytes_max": 160329,
+      "bytes_spread": 87,
+      "byte_identical": false
     }
   },
   "import": {
     "seconds": 0.02,
-    "bytes": 160311,
+    "bytes": 160362,
     "engine_said": {
       "edge_types": [
         "HAS_REQUIREMENT",
@@ -58,7 +65,7 @@
     "HAS_REQUIREMENT": 138
   },
   "code": {
-    "commit": "aadb9718f0ecce4abea2f87a6a285089b5c65b33",
+    "commit": "6259a753c841c50b2e4a79bb55afbce918e19127",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
