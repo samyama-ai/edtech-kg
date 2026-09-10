@@ -199,22 +199,64 @@ def test_the_dataset_card_counts_the_labels_that_hold_nothing():
                 for label in labels(path.read_text(encoding="utf-8"))}
     loaders = sorted((ROOT / "etl").glob("load_*.py"))
     assert loaders, "no loaders found; the subtraction below would be vacuous"
-    written = {label for loader in loaders
-               for label in re.findall(r"\(\s*\w+:(\w+)",
-                                       loader.read_text(encoding="utf-8"))
-               if label in declared}
+    # **Two ways of naming a label, because there are two kinds of loader.**
+    # The pattern finds literal labels — `CREATE (n:Course …` — and is blind
+    # to a loader that parameterises them, which `etl/load_education.py`
+    # does. It reported four written where the answer is seven, and the card
+    # would have understated the graph with this check agreeing.
+    #
+    # So a loader may also DECLARE its labels in a `WRITES` tuple. Declared
+    # beats inferred: the inference is a regex over source, and a loader that
+    # says what it writes is not guessing.
+    written = set()
+    for loader in loaders:
+        # Read ONCE. Each file was read twice, which is free here and is the
+        # kind of thing that stops being free in a suite that grows.
+        source = loader.read_text(encoding="utf-8")
+        written |= {label for label in re.findall(r"\(\s*\w+:(\w+)", source)
+                    if label in declared}
+
+        # `re.S` on the tuple body, because a `WRITES` wrapped across lines
+        # is the normal way to write a long one and `[^)]*` under `re.M`
+        # matched only a single line — a wrapped declaration silently
+        # contributed nothing, which is the drift this exists to catch.
+        says = re.search(r"^WRITES\s*=\s*\((.*?)\)", source, re.M | re.S)
+        if not says:
+            continue
+        names = {name.strip().strip("\"'") for name in says.group(1).split(",")}
+        names.discard("")
+        # **UNRECOGNISED NAMES ARE AN ERROR, not silently dropped.** Filtering
+        # them out with `in declared` hides exactly the disagreement between
+        # a loader and the schema that this test is for: a loader claiming to
+        # write `Completions` would have counted as writing nothing.
+        stray = names - declared
+        assert not stray, (
+            f"{loader.name} declares WRITES entries no schema file declares: "
+            f"{sorted(stray)}")
+        written |= names
     empty = declared - written
 
     card = (ROOT / "DATASET-CARD.md").read_text(encoding="utf-8")
     said = re.search(r"\*\*(\w+) labels are declared and (\w+) are written\*\*",
                      card)
     assert said, "the card no longer states the declared/written counts"
-    words = {"four": 4, "six": 6, "eight": 8, "ten": 10, "twelve": 12,
-             "sixteen": 16}
-    assert words.get(said.group(1).lower()) == len(declared), (
+    words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+             "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+             "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+             "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+             "twenty": 20}
+    # **An unmapped numeral is its own failure.** `words.get` returned None
+    # and the comparison then failed with "the card says eleven; the schema
+    # declares 11" — a message that reads like a bug in the schema when the
+    # only thing missing was a dictionary entry.
+    for spelled in (said.group(1), said.group(2)):
+        assert spelled.lower() in words, (
+            f"the card says {spelled!r}, which this test cannot read as a "
+            f"number; add it to `words` rather than changing the card")
+    assert words[said.group(1).lower()] == len(declared), (
         f"the card says {said.group(1)} labels are declared; the schema "
         f"declares {len(declared)}")
-    assert words.get(said.group(2).lower()) == len(written), (
+    assert words[said.group(2).lower()] == len(written), (
         f"the card says {said.group(2)} are written; the loaders write "
         f"{len(written)}: {sorted(written)}")
 

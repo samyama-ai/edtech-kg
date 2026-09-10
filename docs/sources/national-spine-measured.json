@@ -1,0 +1,172 @@
+{
+  "_": "Measured by `python -m etl.load_education --record`, which loads the slice TWICE: `issued`/`in_graph` are the first pass and `second_run` is the same load repeated against the graph it just made. `second_run.nodes_and_edges_created` is the idempotence claim, and it is the loader's whole design — the first version created 2,000 duplicate edges on a second pass and only the gap column showed it.  `issued` is what this loader sent; `in_graph` is what the graph answered when asked afterwards. They are stored separately on purpose — a loader reporting only what it issued is reporting its own intentions, and on 1.1.0 a unique constraint does not reject a duplicate, so the two can differ with nothing raised. Every figure the dataset card and docs/national-spine.md quote about the load comes from here.",
+  "second_run": {
+    "seconds": 856.1,
+    "statements_issued": 175762,
+    "nodes_and_edges_created": 0,
+    "already_present": 175762,
+    "in_graph_after": {
+      "Institution": 147,
+      "Programme": 664,
+      "Completion": 58317,
+      "AT": 58317,
+      "IN": 58317
+    }
+  },
+  "engine_version_reported": "1.7.0",
+  "fips": 51,
+  "year": 2022,
+  "issued": {
+    "seconds": 1442.8,
+    "statements_issued": 351524,
+    "nodes_and_edges_created": 175762,
+    "already_present": 0,
+    "created_by": {
+      "Institution": 147,
+      "Programme": 664,
+      "Completion": 58317,
+      "AT": 58317,
+      "IN": 58317
+    },
+    "institutions_in": 147,
+    "programmes_in": 664,
+    "completions_in": 58317,
+    "rows_skipped_zero_awards": 132284,
+    "duplicate_rows_skipped": 169,
+    "rate_curve": [
+      {
+        "seconds": 63.4,
+        "completions_held": 3374,
+        "completions_per_second": 53.2
+      },
+      {
+        "seconds": 123.4,
+        "completions_held": 6215,
+        "completions_per_second": 47.3
+      },
+      {
+        "seconds": 183.4,
+        "completions_held": 8860,
+        "completions_per_second": 44.1
+      },
+      {
+        "seconds": 243.4,
+        "completions_held": 11069,
+        "completions_per_second": 36.8
+      },
+      {
+        "seconds": 303.4,
+        "completions_held": 13248,
+        "completions_per_second": 36.3
+      },
+      {
+        "seconds": 363.5,
+        "completions_held": 15729,
+        "completions_per_second": 41.3
+      },
+      {
+        "seconds": 423.5,
+        "completions_held": 18115,
+        "completions_per_second": 39.8
+      },
+      {
+        "seconds": 483.5,
+        "completions_held": 20467,
+        "completions_per_second": 39.2
+      },
+      {
+        "seconds": 543.5,
+        "completions_held": 22797,
+        "completions_per_second": 38.8
+      },
+      {
+        "seconds": 603.5,
+        "completions_held": 25491,
+        "completions_per_second": 44.9
+      },
+      {
+        "seconds": 663.5,
+        "completions_held": 28265,
+        "completions_per_second": 46.2
+      },
+      {
+        "seconds": 723.5,
+        "completions_held": 30686,
+        "completions_per_second": 40.3
+      },
+      {
+        "seconds": 783.5,
+        "completions_held": 33121,
+        "completions_per_second": 40.6
+      },
+      {
+        "seconds": 843.5,
+        "completions_held": 35503,
+        "completions_per_second": 39.7
+      },
+      {
+        "seconds": 903.5,
+        "completions_held": 37751,
+        "completions_per_second": 37.5
+      },
+      {
+        "seconds": 963.5,
+        "completions_held": 40234,
+        "completions_per_second": 41.4
+      },
+      {
+        "seconds": 1023.6,
+        "completions_held": 42771,
+        "completions_per_second": 42.3
+      },
+      {
+        "seconds": 1083.6,
+        "completions_held": 45107,
+        "completions_per_second": 38.9
+      },
+      {
+        "seconds": 1143.6,
+        "completions_held": 47307,
+        "completions_per_second": 36.6
+      },
+      {
+        "seconds": 1203.6,
+        "completions_held": 49515,
+        "completions_per_second": 36.8
+      },
+      {
+        "seconds": 1263.6,
+        "completions_held": 51608,
+        "completions_per_second": 34.9
+      },
+      {
+        "seconds": 1323.6,
+        "completions_held": 53746,
+        "completions_per_second": 35.6
+      },
+      {
+        "seconds": 1383.7,
+        "completions_held": 56035,
+        "completions_per_second": 38.1
+      },
+      {
+        "seconds": 1442.8,
+        "completions_held": 58317,
+        "completions_per_second": 38.6
+      }
+    ]
+  },
+  "in_graph": {
+    "Institution": 147,
+    "Programme": 664,
+    "Completion": 58317,
+    "AT": 58317,
+    "IN": 58317
+  },
+  "code": {
+    "commit": "1884a4619bf4f7b04d88352f2b8e1b7b71074518",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}

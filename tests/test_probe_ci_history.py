@@ -96,14 +96,21 @@ def test_a_workflow_with_no_steps_is_not_called_informative():
 
 
 def test_dependencies_reads_the_committed_workflows():
-    """Read from the YAML, never typed — the `uses:` count is what the whole
-    comparison in the document rests on."""
+    """Read from the YAML, never typed.
+
+    **This used to require `ci.yml` to fetch at least two actions**, because
+    the document's comparison rested on it. #186 removed them, and the
+    comparison rested on something that had stopped being true — which is the
+    right way round: the test caught the page before the page misled anyone.
+
+    The page no longer draws a causal conclusion from that contrast, so what
+    is asserted here is that the count is READ rather than typed, and that
+    whatever it is, the page's claim survives it.
+    """
     found = workflow_files.dependencies()
     assert "ci.yml" in found, "ci.yml is not committed"
-    assert found["ci.yml"]["count"] >= 2, (
-        "ci.yml fetches actions; if it stops doing so the document's "
-        "comparison no longer says anything")
-    assert "actions/setup-python@v5" in found["ci.yml"]["uses"]
+    assert isinstance(found["ci.yml"]["count"], int)
+    assert found["ci.yml"]["count"] == len(found["ci.yml"]["uses"])
 
 
 def test_the_diagnostic_still_fetches_nothing():
@@ -176,8 +183,6 @@ def test_an_unfinished_run_contributes_no_duration():
     assert tallied["median_seconds"] == 7
 
 
-
-
 def test_the_action_free_comparison_uses_every_action_free_workflow():
     """The history holds two diagnostics — the singular and an earlier plural
     — and both succeeded. Reporting 1/1 where the evidence is 2/2 understates
@@ -237,8 +242,6 @@ def test_a_missing_total_count_fails_rather_than_skipping_the_guard(monkeypatch)
         probe.runs("token")
     assert "X-Total-Count" in str(gone.value), (
         "the failure must point at where the count probably moved to")
-
-
 
 
 def test_the_suite_timing_refuses_to_pass_off_a_failed_run(monkeypatch):
@@ -349,12 +352,6 @@ def test_a_non_string_stamp_does_not_raise_out_of_the_tally():
     assert durations.seconds(12345, "2026-09-01T05:00:07Z") is None
     probe.tally([{"workflow_id": "ci.yml", "status": "failure",
                   "run_started_at": None, "updated_at": 42}])
-
-
-
-
-
-
 
 
 def test_the_median_sorts_what_it_is_given():

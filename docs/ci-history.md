@@ -81,20 +81,35 @@ Two workflows, same runner, same repository, same week:
   nothing at all.
 
 `runner-diagnostic.yml` (#167) was written with no `uses:` — deliberately, not
-even `actions/checkout` — so that its outcome isolates one variable. The
-variable is **fetching an action**. The runner accepts a job, runs it, and
-reports on it; what it cannot do is retrieve an action to run.
+even `actions/checkout`.
 
-**On the strength of that.** An earlier version of this page stated it at
-n=1 — one diagnostic run against 222 CI runs — and a review was right that
-one success is thin for a causal claim. The diagnostic is
-`workflow_dispatch`, so more runs are cheap: it has now run 7 times and
-**failed none**, against 220 failures for the workflow that fetches actions.
+**THAT COMPARISON DOES NOT SUPPORT A CAUSE, AND THIS PAGE SAID IT DID.**
+Every one of the diagnostic's eight steps carries `continue-on-error: true`,
+with `|| true` inside them — by design, so that one run maps the whole surface
+instead of stopping at the first broken thing. **A workflow built so that
+nothing can fail it did not fail.** Its 7 of 7 is not evidence that its steps
+worked; it is evidence that they were not allowed to matter.
 
-It is still not a controlled experiment. The two workflows also differ in
-trigger, in step count (7 versus 8) and in step tolerance (0 tolerant versus
-8), and any of those could in principle matter. What no longer applies is
-the objection that the comparison rested on a single observation.
+The caveat below used to list "step tolerance (0 tolerant versus 8)" beside
+trigger and step count, as one confound among several. It is not one among
+several. It is the whole of the difference in outcome.
+
+**And the claim was then tested directly.** `ci.yml` had its two actions
+removed (#186), and its first run without them failed as well. Removing the
+actions did not turn the tick green, so fetching an action is at most part of
+the cause and is not established as any of it.
+
+It is still **not a controlled experiment**, and the differences that remain
+are the ones this page always listed — trigger, step count, and the step
+tolerance above. What has changed is which of them the outcome rests on.
+
+What remains true is the fact, not the explanation: **0 of 222 runs of this
+repo's test workflow have ever succeeded**, so the red tick has never been a
+statement about the tests.
+
+What would settle it is the step log of a failing run, which needs a browser
+session — the API exposes run status and not step output, and the token
+carries no admin scope to list the runner or its labels.
 
 ## What this does NOT establish
 

@@ -38,7 +38,7 @@ def grouped(text: str) -> set[int]:
 def test_the_records_the_card_rests_on_all_exist():
     """A card built from records that have gone is a card of typed figures."""
     for name in ("education", "licences", "registry-licence", "federal-direct",
-                 "state-access", "ceds"):
+                 "state-access", "ceds", "national-spine"):
         assert (SOURCES / f"{name}-measured.json").exists(), name
 
 
@@ -71,6 +71,17 @@ def test_no_grouped_figure_on_the_card_is_unaccounted_for():
     # names it as the number it used to carry, and #25 measured the graph per
     # type and found 1,417. Kept so the correction can stay on the page.
     known |= {1_098, 1_287, 791}
+    # The national spine (#7). Read from the record rather than listed here: a
+    # literal would be a second copy of the figure, which is the thing this
+    # test exists to prevent, written into the test that prevents it.
+    spine = record("national-spine")
+    known |= set(spine["in_graph"].values())
+    known |= {spine["issued"][k] for k in
+              ("statements_issued", "nodes_and_edges_created",
+               "already_present", "completions_in",
+               "rows_skipped_zero_awards", "duplicate_rows_skipped")}
+    known |= {round(spine["issued"]["seconds"])}
+
     # The snapshot (#25): its size, its import counts, and the /api/status
     # edge figure the card warns against reading. From the record, not typed.
     snap = record("snapshot")
@@ -142,3 +153,26 @@ def test_the_state_access_figure_agrees_with_the_record_everywhere():
     assert claim.group(1) == words[unanswered], (
         f"scope.md says {claim.group(1)} of {claim.group(2)} departments do not "
         f"answer; the record has {unanswered} of {len(departments)}")
+
+
+def test_the_spine_the_record_holds_is_actually_on_the_card():
+    """**The reverse direction, which was missing.** Every check here ran
+    page → record: a figure on the page had to be in a run. Nothing ran
+    record → page, so the whole "One state's higher education" section could
+    be DELETED and the suite stayed green — mutation-verified.
+
+    CONTRIBUTING names this direction: *a figure in the record that is not on
+    the page is a measurement nobody published.*
+    """
+    spine = record("national-spine")
+    text = card()
+    assert "higher education" in text, (
+        "the card no longer describes the loaded spine at all, and every "
+        "other check here would still pass")
+    for label, count in spine["in_graph"].items():
+        assert f"{count:,}" in text, (
+            f"the record holds {label} = {count:,} and the card does not "
+            f"carry it")
+    assert f"{spine['second_run']['nodes_and_edges_created']:,} created" in text \
+        or f"**{spine['second_run']['nodes_and_edges_created']:,}** created" in text, (
+        "the idempotence figure is recorded and not published")

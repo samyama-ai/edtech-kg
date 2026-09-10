@@ -52,18 +52,95 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          # The size ratchets compare this branch against `main`, and a shallow
-          # checkout has no `main` to compare with. They would skip — and with
-          # SAMYAMA_CI=1 a skip fails the build, so this is not a silent loss.
-          # But a ratchet that never runs in CI is a ratchet that is not there,
-          # which is this workflow's own subject one layer down.
-          fetch-depth: 0
+      # **NO `uses:` ANYWHERE IN THIS FILE.** One fewer external dependency
+      # on a runner nobody here can inspect — that is the whole claim, and it
+      # is NOT known to fix anything. This workflow has never produced a
+      # successful run, and removing the actions did not change that.
+      #
+      # The reasoning, the measurements and the retraction of an earlier
+      # causal claim are in edtech-kg#109, where they belong: this file will
+      # outlive the incident.
+      - name: Check out, with full history
+        # **`GITHUB_TOKEN` IS NOT AN AMBIENT VARIABLE IN A `run:` STEP.** It
+        # is exposed as `${{ github.token }}` and has to be put into the step
+        # env, which the first version of this did not do — so it expanded to
+        # empty, the header became `basic eC1hY2Nlc3MtdG9rZW46`, and the
+        # fetch went out unauthenticated. That is a plausible cause of the
+        # first no-actions run failing, and it is testable without a step log.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        # **A FULL clone, not a shallow one.** The size ratchets compare this
+        # branch against `main`, and a shallow clone has no `main` to compare
+        # with — they would skip, and with SAMYAMA_CI=1 a skip fails the
+        # build, so it is not a silent loss. But a ratchet that never runs in
+        # CI is a ratchet that is not there, which is this workflow's own
+        # subject one layer down.
+        run: |
+          set -euo pipefail
+          # **A reused workspace can hold anything.** `checkout -f` overwrites
+          # tracked files and leaves untracked ones — a stale `.ci-venv`, a
+          # half-written record, a `data/` from a previous job. `actions/
+          # checkout` cleans; this does too, before `git init` so there is no
+          # repository to protect yet.
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} + || true
+          git init -q .
+          # Re-run-safe: a reused workspace already has the remote, and
+          # `git remote add` exits 3 on it rather than doing nothing.
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            2>/dev/null || git remote set-url origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          # **The token goes in `.git/config`, not in `argv`.** `git -c
+          # http.extraheader=…` puts it in the process table, where any other
+          # process on the runner can read it. `actions/checkout` does the
+          # same, so this was not a regression — but a self-hosted runner with
+          # reused workspaces is exactly where it costs something.
+          git config --local http.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          # **NO BARE SHA.** Fetching one needs the server to allow
+          # arbitrary-SHA want (`uploadpack.allowAnySHA1InWant`), which is off
+          # by default on many Gitea and Forgejo deployments — so passing it
+          # unguarded under `set -euo pipefail` kills the step on a server
+          # capability nobody here can check. The two refspecs below already
+          # reach the commit in every case: all branches, plus `$GITHUB_REF`,
+          # which on a pull_request event is the merge ref no branch reaches.
+          git fetch --quiet origin "+refs/heads/*:refs/remotes/origin/*" \
+                                   "+${GITHUB_REF}:refs/ci/head"
+          # `-f`: `git init` over a workspace that still holds files from a
+          # prior run leaves them untracked, and checkout then aborts with
+          # "would be overwritten by checkout". That is the half of re-run
+          # safety that is actually fatal — the `git remote add` case just
+          # exits 3 harmlessly.
+          git checkout -q -f "$GITHUB_SHA"
+          # **THE CREDENTIAL COMES BACK OUT.** `actions/checkout` writes the
+          # same header into `.git/config` and removes it in a post-job step;
+          # this had no post step, so on a runner that REUSES WORKSPACES —
+          # which the `git remote add` handling above exists because it does —
+          # the token survived the job and was readable by any later one.
+          # Unset as soon as the fetch is done, and again unconditionally at
+          # the end of the job in case a later step fails.
+          git config --local --unset-all http.extraheader || true
+          # **NOT `|| true`.** The size ratchets compare against `main`, and
+          # swallowing this makes the one thing this step exists to guarantee
+          # silently optional — the ratchets would then skip, and SAMYAMA_CI=1
+          # would fail the build somewhere else, for a reason that does not
+          # name the cause.
+          git branch -f main origin/main
+          echo "checked out $(git rev-parse --short HEAD), $(git rev-list --count HEAD) commits of history"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Report the Python in use
+        # `actions/setup-python` pinned 3.11. Without it, whatever the image
+        # ships is what runs — so the version is PRINTED and asserted rather
+        # than assumed. A suite that quietly ran on a different interpreter
+        # than the one the repo targets is the same class of silent drift this
+        # file exists to stop.
+        #
+        # **The FLOOR the project declares, not an equality.** `pyproject.toml`
+        # says `requires-python = ">=3.11"`, so pinning `== (3, 11)` would
+        # hard-fail CI on a 3.12 or 3.13 runner image this package fully
+        # supports — a new permanent red with no in-repo remedy, on a change
+        # whose whole purpose is to get the tick green.
+        run: |
+          python3 --version
+          python3 -c "import sys; assert sys.version_info[:2] >= (3, 11), f'CI is on {sys.version.split()[0]}; this repo requires >= 3.11'"
 
       - name: Install test dependencies
         # `pip install -e .` is NOT used, and that is still deliberate — but
@@ -90,7 +167,22 @@ jobs:
         # CI could resolve a setuptools older than the one the metadata
         # test needs and fail for a reason that has nothing to do with
         # the change under review.
-        run: python -m pip install --quiet pytest "setuptools>=61.0"
+        run: |
+          set -euo pipefail
+          # **A VENV, because the system interpreter may be externally
+          # managed (PEP 668).** `actions/setup-python` supplied a private
+          # interpreter; without it, `pip install` on a Debian/Ubuntu image
+          # fails with `error: externally-managed-environment`. Discovering
+          # that on run 244 would be another new permanent red on a change
+          # whose whole purpose is a green tick.
+          #
+          # `pip` is also not guaranteed present without `setup-python`, so
+          # it is asserted rather than assumed.
+          python3 -m pip --version
+          python3 -m venv .ci-venv
+          .ci-venv/bin/python -m pip install --quiet --upgrade pip
+          .ci-venv/bin/python -m pip install --quiet pytest "setuptools>=61.0"
+          echo "$PWD/.ci-venv/bin" >> "$GITHUB_PATH"
 
       - name: Start a fresh engine
         # A FRESH instance, never a loaded one: the schema tests validate
@@ -124,6 +216,13 @@ jobs:
           # Turns an UNEXPECTED skip into a failure. See conftest.py.
           SAMYAMA_CI: "1"
         run: python -m pytest -q -rs
+
+      - name: Remove the credential
+        # `always()`, because the point is the case where something above
+        # failed. Belt and braces with the unset in the checkout step: that
+        # one runs on the happy path, this one runs regardless.
+        if: always()
+        run: git config --local --unset-all http.extraheader || true
 
       - name: Engine logs
         # On failure the engine's own log is usually the shortest route to why.

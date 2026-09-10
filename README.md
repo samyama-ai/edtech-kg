@@ -1,34 +1,8 @@
 # Education-to-Career Pathways Knowledge Graph
 
-![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
-
-**1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
-you can walk — plus nine measured public sources for the college and career side.**
-
-> Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
-> This repo holds the loader and source-data specifics for the KG.
-
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
-
-> **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
-> The national spine (CIP-SOC, IPEDS, BLS, College Scorecard) is measured but not yet
-> loaded. Counts, licences and known limitations are in [`docs/`](docs/).
-
----
-
-A student picks courses four times in high school. The decisions are close to irreversible,
-and they are made with almost no information about what each one leads to.
-
-> *"If a student doesn't pass Algebra 1, what closes off?"*
-
-Nobody publishes that answer. The district publishes the courses. It publishes the
-prerequisites, as real links between its own pages. It does not publish where any of them
-lead — because that is not a page, it is the relationships between pages.
-
-As a graph it is one traversal.
+> ### If a student doesn't pass Algebra 1, what closes off?
 
 ```cypher
-// Everything a student can no longer reach, at any depth
 MATCH (blocked:Course)-[:REQUIRES*1..8]->(:Course {name: 'Algebra 1'})
 MATCH (blocked)-[:IN_SUBJECT]->(s:Subject)
 RETURN s.name AS subject, count(DISTINCT blocked) AS closed_off
@@ -44,8 +18,42 @@ ORDER BY closed_off DESC LIMIT 5
 | Science - Dual Enrollment | 3 |
 
 **28 courses across 14 subjects** — and not just more maths: chemistry, biology, IB and
-dual-enrolment science. The depth is not known before the question is asked, which is why a
-relational database does this badly and the graph does it in 10 ms.
+dual-enrolment science.
+
+The question, the query and this table come from one run, recorded in
+[`docs/sources/readme-question-measured.json`](docs/sources/readme-question-measured.json)
+by `python -m etl.probe_readme_question --record` against a loaded graph.
+`tests/test_readme.py` fails if this page and that record disagree.
+
+**Nine of those 28 are one hop away. The rest are two and three.** That is the whole
+argument for a graph, and it is measured rather than asserted: asked one hop at a time
+the answer is 9, 26, 28, and then it stops growing. A query that looked only at direct
+prerequisites would report 9 and be confidently wrong by two thirds.
+
+Nobody publishes that answer. The district publishes the courses. It publishes the
+prerequisites, as real links between its own pages. It does not publish where any of them
+lead — because that is not a page, it is the relationships between pages.
+
+![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
+
+**1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
+you can walk — plus nine measured public sources for the college and career side.**
+
+> Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
+> This repo holds the loader and source-data specifics for the KG.
+
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
+
+> **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
+> **One state's higher education is loaded too** — Virginia (`fips=51`),
+> data year 2022: 147 institutions, 664 programmes and
+> 58,317 completions ([`docs/national-spine.md`](docs/national-spine.md)).
+> Occupations and the CIP–SOC crosswalk are measured and **not** loaded.
+> Counts, licences and known limitations are in [`docs/`](docs/).
+
+A student picks courses four times in high school. The decisions are close to irreversible,
+and they are made with almost no information about what each one leads to.
+
 
 ---
 
@@ -83,8 +91,17 @@ that exist nowhere else:
 
 ## What is loaded
 
+**Two tiers, and they do not yet join.**
+
 Prince William County Schools, `catalog.pwcs.edu`. Public pages only — no login, no student
 data, nothing that is not already on the internet.
+
+Plus Virginia's higher education for 2022 — 147 institutions,
+664 programmes, 58,317 completions and 58,317 edges of each
+kind, loaded by `etl/load_education.py` and recorded in
+[`docs/national-spine.md`](docs/national-spine.md). No edge crosses from a district course
+to a college programme, and [`docs/questions.md`](docs/questions.md) Q39 is marked blocked
+for exactly that reason — nothing public states the join.
 
 | Label | Count | |
 |---|---:|---|
@@ -164,8 +181,11 @@ preference, and the working is on the page.
   Held as `Requirement` nodes, never turned into edges the district did not publish.
 - **16 of 390 pathway rows** point at an internal Drupal node id with no published alias
   and cannot be resolved by URL. Reported, never dropped.
-- **The national spine is measured, not loaded.** No programme, occupation, institution or
-  earnings data is in the graph yet.
+- **Occupations are measured, not loaded.** The CIP–SOC crosswalk is measured
+  (867 occupations) and has a probe but no loader, so **nothing in the graph says where a
+  programme leads**. Institutions, programmes and completions ARE loaded — one state of
+  them — which is the half that says who awards what, not the half that says what it is
+  worth. Earnings are not loaded either.
 - **Earnings cover a quarter of programmes.** College Scorecard publishes a median
   figure for 25.5% of programme rows; the rest are suppressed or not applicable, and
   the figure is for graduates who took federal aid, not all graduates. That caveat has
@@ -181,7 +201,7 @@ preference, and the working is on the page.
 
 ```
 .github/      ci.yml — the suite on every push and PR, with a real engine
-etl/          probes (one per source) + load_pwcs.py
+etl/          probes (one per source) + load_pwcs.py, load_education.py
 schema/       edtech_kg.cypher + edtech_kg_tier2.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
 docs/         scope, questions, schema, ontology-reuse, sources/
@@ -202,10 +222,14 @@ reads as "nothing to do here", which is the opposite of what it means.
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
-python -m etl.load_pwcs          # build + load the graph
-python -m demo.demo              # walk it
-pytest                           # the whole suite, no engine needed
+python -m etl.probe_pwcs                  # measure a source — every figure in the docs comes from these
+python -m etl.load_pwcs --graph edtech    # build + load one district
+
+python -m etl.download_education          # the national spine: cached, ~20 requests
+python -m etl.load_education --graph edtech   # ~24 minutes, 58,317 completions
+
+python -m demo.demo                       # walk it
+pytest                                    # the whole suite, no engine needed
 ```
 
 CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an

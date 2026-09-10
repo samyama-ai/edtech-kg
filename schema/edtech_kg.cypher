@@ -167,8 +167,41 @@ CREATE CONSTRAINT ON (r:Requirement) ASSERT r.id IS UNIQUE;
 // of one key disagreed — and a loader author reading the sentence rather than
 // the formula would have merged two years into one node.
 //
-// id = sha1("<unitid>|<cip_code>|<award_level>|<demographic>|<year>").
-// The bounded load (#23) takes a slice; the key is the same either way.
+// **THE FIVE-PART KEY WAS ALSO WRONG, AND THE FIRST LOAD FOUND IT (#7).**
+// IPEDS publishes a `majornum` — first major or second — and two rows at one
+// institution, CIP, award level and demographic differ only by it.
+//
+// Measured over the Virginia 2022 slice by `etl/probe_completion_key.py`, and
+// recorded in docs/sources/completion-key-measured.json rather than counted
+// once by hand: 190,770 rows hold
+// 16,800 groups carrying more than one
+// `majornum`, and in 3,524 of those MORE THAN ONE HAS
+// A NON-ZERO AWARD COUNT.
+//
+// Keyed without it, those 16,800 groups
+// merge two real completions into one node — **16,800
+// Completion nodes disappear**, which is six-part keys minus five-part
+// (189,450 - 172,650).
+//
+// THREE FIGURES, AND TWO OF THEM WERE CONFLATED HERE. This comment used to
+// say "23,126 completions disappear". That figure is a SUM OF
+// AWARD COUNTS across the 3,524 groups where more
+// than one row carries a non-zero award — not a count of nodes, and not
+// comparable to one.
+//
+// `majornum` takes exactly two values in this slice, so a merging group holds
+// two six-part keys and loses one node. That is why the node loss and the
+// count of groups carrying two majornums are the same 16,800.
+//
+// Nothing would fail: the load would report fewer nodes than rows, which is
+// what a MERGE is supposed to do.
+//
+// So the key is six parts, and it is spelled once:
+//
+// id = sha1("<unitid>|<cip_code>|<award_level>|<majornum>|<demographic>|<year>")
+//
+// `<demographic>` is race and sex, in that order, joined the same way. The
+// bounded load (#23) takes a slice; the key is the same either way.
 CREATE CONSTRAINT ON (cm:Completion) ASSERT cm.id IS UNIQUE;
 CREATE INDEX ON :Completion(year);
 
