@@ -84,14 +84,18 @@ def measure(url: str) -> dict:
     # And the total behind it, which the page states as a sentence. The table
     # is a top-5 by subject; the sentence is the count of courses, and the two
     # are different questions about one answer.
-    reached = rows(engine, 'MATCH (blocked:Course)-[:REQUIRES*1..8]->'
-                           '(gate:Course) WHERE gate.name = "Algebra 1" '
-                           'WITH blocked RETURN blocked.name')
+    # **`BOUND` and `GATE`, not repeated literals.** These two carried
+    # `*1..8` and `"Algebra 1"` written out again, so changing the bound in
+    # `QUERY` left them measuring 8 — the same drift this probe exists to
+    # guard against, one file inward.
+    reached = rows(engine, f'MATCH (blocked:Course)-[:REQUIRES*1..{BOUND}]->'
+                           f'(gate:Course) WHERE gate.name = "{GATE}" '
+                           f'WITH blocked RETURN blocked.name')
     closed = sorted({r[0] for r in reached if r[0]})
-    subjects = rows(engine, 'MATCH (blocked:Course)-[:REQUIRES*1..8]->'
-                            '(gate:Course) WHERE gate.name = "Algebra 1" '
-                            'WITH blocked MATCH (blocked)-[:IN_SUBJECT]->(s:Subject) '
-                            'WITH s RETURN s.name')
+    subjects = rows(engine, f'MATCH (blocked:Course)-[:REQUIRES*1..{BOUND}]->'
+                            f'(gate:Course) WHERE gate.name = "{GATE}" '
+                            f'WITH blocked MATCH (blocked)-[:IN_SUBJECT]->(s:Subject) '
+                            f'WITH s RETURN s.name')
 
     # The denominators the README quotes beside the answer, from the same run.
     courses = rows(engine, "MATCH (c:Course) WITH c RETURN count(c)")
@@ -150,6 +154,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     found = measure(args.url)
+    if not found["table"]:
+        # **A separate refusal from the one below.** `closes_off` counts
+        # courses reached; `table` needs the IN_SUBJECT edges too. A graph
+        # with Courses loaded and no subjects answered `closes_off: 28`
+        # beside an empty table and recorded successfully — and the page-side
+        # test iterates the table, so an empty one passed vacuously while the
+        # README's table was deleted.
+        print(f"{args.url} reached courses but grouped none of them into "
+              f"subjects, so the page's table would be empty. Load the "
+              f"district fully — `python -m etl.load_pwcs`.", file=sys.stderr)
+        return 3
     if not found["closes_off"]:
         # **REFUSED.** An empty answer here is almost always an empty graph,
         # and writing it would put "closes off 0 courses" on the front page of

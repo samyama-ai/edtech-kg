@@ -20,6 +20,11 @@ ORDER BY closed_off DESC LIMIT 5
 **28 courses across 14 subjects** — and not just more maths: chemistry, biology, IB and
 dual-enrolment science.
 
+The question, the query and this table come from one run, recorded in
+[`docs/sources/readme-question-measured.json`](docs/sources/readme-question-measured.json)
+by `python -m etl.probe_readme_question --record` against a loaded graph.
+`tests/test_readme.py` fails if this page and that record disagree.
+
 **Nine of those 28 are one hop away. The rest are two and three.** That is the whole
 argument for a graph, and it is measured rather than asserted: asked one hop at a time
 the answer is 9, 26, 28, and then it stops growing. A query that looked only at direct
@@ -46,10 +51,6 @@ you can walk — plus nine measured public sources for the college and career si
 A student picks courses four times in high school. The decisions are close to irreversible,
 and they are made with almost no information about what each one leads to.
 
-Every figure above is read from
-[`docs/sources/readme-question-measured.json`](docs/sources/readme-question-measured.json),
-written by `python -m etl.probe_readme_question --record` against a loaded graph.
-`tests/test_readme.py` fails if this page and that record disagree.
 
 ---
 

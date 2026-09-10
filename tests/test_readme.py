@@ -23,7 +23,10 @@ import json
 import pathlib
 import re
 
+from etl import probe_readme_question as probe
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+CAPABILITY = ROOT / "docs" / "sources" / "engine-capability-measured.json"
 README = ROOT / "README.md"
 RECORD_PATH = ROOT / "docs" / "sources" / "readme-question-measured.json"
 
@@ -66,6 +69,34 @@ def test_the_page_opens_with_the_question():
             f"something other than what it can answer")
 
 
+def test_the_probe_and_the_record_agree_on_what_was_asked():
+    """**The missing link in "character for character".**
+
+    Every other test here compares the PAGE against the RECORD — two
+    artifacts. The constant that actually produced the record,
+    `probe.QUERY`, was read by no test: nothing under `tests/` imported the
+    module, only named it in prose. Verified — changing the probe's gate to
+    `Chemistry` and its bound to `*1..3` left the whole suite green at
+    1,841 passed.
+
+    So "the probe runs the page's query" was true by authorship, not by
+    construction: a probe edit not followed by `--record` left page, record
+    and tests all agreeing while the probe measured something else. That is
+    the case CONTRIBUTING names by hand — "drive the code, not the artifact.
+    A test that reads a committed record says nothing about the code that
+    wrote it."
+
+    With this, the page-against-record tests cover the code transitively.
+    """
+    assert probe.QUERY == RECORD["query"], (
+        "the probe's query is not the one in the record — re-run "
+        "`python -m etl.probe_readme_question --record`")
+    assert probe.HEADING == RECORD["heading"]
+    assert probe.QUESTION == RECORD["question"]
+    assert probe.BOUND == RECORD["bound"]
+    assert probe.GATE == RECORD["gate"]
+
+
 def test_the_query_on_the_page_is_the_query_that_was_run():
     """**A probe measuring a DIFFERENT query from the one printed** proves the
     page's table is reproducible by something nobody can see. Compared
@@ -82,6 +113,11 @@ def test_the_query_on_the_page_is_the_query_that_was_run():
 def test_every_row_of_the_table_is_the_measured_one():
     """Anchored to the subject, not just to the number — a table that carried
     the right counts against the wrong subjects would otherwise pass."""
+    # **Not vacuous.** `for row in RECORD["table"]` iterates nothing when the
+    # table is empty, so `table: []` plus a deleted README table passed all
+    # eight tests. The probe now refuses to record an empty table; this is
+    # the other half.
+    assert RECORD["table"], "the record carries no table"
     for row in RECORD["table"]:
         assert re.search(rf"^\| {re.escape(row['subject'])} \| "
                          rf"{row['closed_off']} \|$", PAGE, re.M), (
@@ -133,6 +169,19 @@ def test_the_bound_in_the_query_is_past_where_the_answer_stops_growing():
     assert int(bound.group(1)) >= settles, (
         f"the query stops at {bound.group(1)} hops and the answer is still "
         f"growing at {settles}")
+    # **This much could not fail.** `BOUND` is derived from `QUERY` and the
+    # climb runs `range(1, BOUND + 1)`, so `depths[BOUND] == closes_off` and
+    # `bound >= settles` hold by construction — a catalogue that later grew a
+    # nine-hop chain would report a short number with every test still green.
+    #
+    # `deepest_chain` is the independent measurement: `probe_engine_capability`
+    # asks `REQUIRES*` UNBOUNDED, so it is not derived from this bound at all.
+    deepest = json.loads(CAPABILITY.read_text(encoding="utf-8"))[
+        "constructs"]["deepest_chain"]["value"]
+    assert settles <= deepest < int(bound.group(1)), (
+        f"the unbounded deepest chain is {deepest} hops; the page's answer "
+        f"settles at {settles} and its query stops at {bound.group(1)}. The "
+        f"bound is only honest while it sits above the real depth.")
 
 
 def test_the_record_was_written_by_a_clean_tree():
