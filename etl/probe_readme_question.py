@@ -74,6 +74,36 @@ def rows(engine: Engine, statement: str) -> list:
     return engine.run(statement).get("records") or []
 
 
+class Unmeasured(RuntimeError):
+    """The engine did not answer a count this page quotes."""
+
+
+def count(engine: Engine, statement: str) -> int:
+    """One count, or a refusal — never a silent zero.
+
+    `int(rows[0][0]) if rows else 0` wrote a **0** into the record for a
+    graph that answered nothing, and the README states these two as
+    denominators: "out of 791 in the graph (240 REQUIRES edges)". A zero
+    denominator published as a measurement is the failure this probe exists
+    to prevent, arriving through the fallback rather than through the answer.
+
+    Same shape as `etl/snapshot.py:_count` and `etl/scratch_engine.py`, both
+    of which record this guard failing open before.
+    """
+    answered = rows(engine, statement)
+    if not answered or not answered[0] or answered[0][0] is None:
+        raise Unmeasured(
+            f"the engine did not answer `{statement}`, so a figure the page "
+            f"quotes as a denominator cannot be measured. Refusing rather "
+            f"than recording a zero.")
+    try:
+        return int(answered[0][0])
+    except (TypeError, ValueError) as unreadable:
+        raise Unmeasured(
+            f"the engine answered {answered[0][0]!r} to `{statement}`, which "
+            f"is not a number.") from unreadable
+
+
 def measure(url: str) -> dict:
     engine = Engine(url)
 
@@ -98,8 +128,8 @@ def measure(url: str) -> dict:
                             f'WITH s RETURN s.name')
 
     # The denominators the README quotes beside the answer, from the same run.
-    courses = rows(engine, "MATCH (c:Course) WITH c RETURN count(c)")
-    edges = rows(engine, "MATCH ()-[r:REQUIRES]->() RETURN count(r)")
+    courses = count(engine, "MATCH (c:Course) WITH c RETURN count(c)")
+    edges = count(engine, "MATCH ()-[r:REQUIRES]->() RETURN count(r)")
 
     # How deep the chains actually run, so the bound in QUERY is justified
     # rather than assumed. Asked of the engine at increasing depths: the
@@ -118,8 +148,8 @@ def measure(url: str) -> dict:
         "query": QUERY,
         "bound": BOUND,
         "gate": GATE,
-        "courses_in_graph": int(courses[0][0]) if courses else 0,
-        "requires_edges": int(edges[0][0]) if edges else 0,
+        "courses_in_graph": courses,
+        "requires_edges": edges,
         "closes_off": len(closed),
         "subjects": len({s[0] for s in subjects if s[0]}),
         "table": table,
@@ -153,7 +183,11 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
 
-    found = measure(args.url)
+    try:
+        found = measure(args.url)
+    except Unmeasured as unmeasured:
+        print(f"{args.url}: {unmeasured}", file=sys.stderr)
+        return 3
     if not found["table"]:
         # **A separate refusal from the one below.** `closes_off` counts
         # courses reached; `table` needs the IN_SUBJECT edges too. A graph
