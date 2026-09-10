@@ -1,7 +1,7 @@
 {
   "_": "Measured by `python -m etl.load_education --record`, which loads the slice TWICE: `issued`/`in_graph` are the first pass and `second_run` is the same load repeated against the graph it just made. `second_run.nodes_and_edges_created` is the idempotence claim, and it is the loader's whole design — the first version created 2,000 duplicate edges on a second pass and only the gap column showed it.  `issued` is what this loader sent; `in_graph` is what the graph answered when asked afterwards. They are stored separately on purpose — a loader reporting only what it issued is reporting its own intentions, and on 1.1.0 a unique constraint does not reject a duplicate, so the two can differ with nothing raised. Every figure the dataset card and docs/national-spine.md quote about the load comes from here.",
   "second_run": {
-    "seconds": 1977.9,
+    "seconds": 856.1,
     "statements_issued": 175762,
     "nodes_and_edges_created": 0,
     "already_present": 175762,
@@ -17,7 +17,7 @@
   "fips": 51,
   "year": 2022,
   "issued": {
-    "seconds": 2418.5,
+    "seconds": 1442.8,
     "statements_issued": 351524,
     "nodes_and_edges_created": 175762,
     "already_present": 0,
@@ -35,209 +35,124 @@
     "duplicate_rows_skipped": 169,
     "rate_curve": [
       {
-        "seconds": 64.0,
-        "completions_held": 2578,
+        "seconds": 63.4,
+        "completions_held": 3374,
+        "completions_per_second": 53.2
+      },
+      {
+        "seconds": 123.4,
+        "completions_held": 6215,
+        "completions_per_second": 47.3
+      },
+      {
+        "seconds": 183.4,
+        "completions_held": 8860,
+        "completions_per_second": 44.1
+      },
+      {
+        "seconds": 243.4,
+        "completions_held": 11069,
+        "completions_per_second": 36.8
+      },
+      {
+        "seconds": 303.4,
+        "completions_held": 13248,
+        "completions_per_second": 36.3
+      },
+      {
+        "seconds": 363.5,
+        "completions_held": 15729,
+        "completions_per_second": 41.3
+      },
+      {
+        "seconds": 423.5,
+        "completions_held": 18115,
+        "completions_per_second": 39.8
+      },
+      {
+        "seconds": 483.5,
+        "completions_held": 20467,
+        "completions_per_second": 39.2
+      },
+      {
+        "seconds": 543.5,
+        "completions_held": 22797,
+        "completions_per_second": 38.8
+      },
+      {
+        "seconds": 603.5,
+        "completions_held": 25491,
+        "completions_per_second": 44.9
+      },
+      {
+        "seconds": 663.5,
+        "completions_held": 28265,
+        "completions_per_second": 46.2
+      },
+      {
+        "seconds": 723.5,
+        "completions_held": 30686,
         "completions_per_second": 40.3
       },
       {
-        "seconds": 124.0,
-        "completions_held": 4531,
-        "completions_per_second": 32.5
+        "seconds": 783.5,
+        "completions_held": 33121,
+        "completions_per_second": 40.6
       },
       {
-        "seconds": 184.0,
-        "completions_held": 6571,
-        "completions_per_second": 34.0
+        "seconds": 843.5,
+        "completions_held": 35503,
+        "completions_per_second": 39.7
       },
       {
-        "seconds": 244.0,
-        "completions_held": 8386,
-        "completions_per_second": 30.2
+        "seconds": 903.5,
+        "completions_held": 37751,
+        "completions_per_second": 37.5
       },
       {
-        "seconds": 304.0,
-        "completions_held": 10133,
-        "completions_per_second": 29.1
+        "seconds": 963.5,
+        "completions_held": 40234,
+        "completions_per_second": 41.4
       },
       {
-        "seconds": 364.1,
-        "completions_held": 11666,
-        "completions_per_second": 25.5
+        "seconds": 1023.6,
+        "completions_held": 42771,
+        "completions_per_second": 42.3
       },
       {
-        "seconds": 424.1,
-        "completions_held": 13135,
-        "completions_per_second": 24.5
+        "seconds": 1083.6,
+        "completions_held": 45107,
+        "completions_per_second": 38.9
       },
       {
-        "seconds": 484.1,
-        "completions_held": 14827,
-        "completions_per_second": 28.2
+        "seconds": 1143.6,
+        "completions_held": 47307,
+        "completions_per_second": 36.6
       },
       {
-        "seconds": 544.1,
-        "completions_held": 16319,
-        "completions_per_second": 24.9
+        "seconds": 1203.6,
+        "completions_held": 49515,
+        "completions_per_second": 36.8
       },
       {
-        "seconds": 604.2,
-        "completions_held": 17891,
-        "completions_per_second": 26.2
+        "seconds": 1263.6,
+        "completions_held": 51608,
+        "completions_per_second": 34.9
       },
       {
-        "seconds": 664.2,
-        "completions_held": 19380,
-        "completions_per_second": 24.8
+        "seconds": 1323.6,
+        "completions_held": 53746,
+        "completions_per_second": 35.6
       },
       {
-        "seconds": 724.2,
-        "completions_held": 20722,
-        "completions_per_second": 22.4
+        "seconds": 1383.7,
+        "completions_held": 56035,
+        "completions_per_second": 38.1
       },
       {
-        "seconds": 784.2,
-        "completions_held": 21885,
-        "completions_per_second": 19.4
-      },
-      {
-        "seconds": 844.3,
-        "completions_held": 23314,
-        "completions_per_second": 23.8
-      },
-      {
-        "seconds": 904.3,
-        "completions_held": 24691,
-        "completions_per_second": 22.9
-      },
-      {
-        "seconds": 964.3,
-        "completions_held": 26172,
-        "completions_per_second": 24.7
-      },
-      {
-        "seconds": 1024.3,
-        "completions_held": 27748,
-        "completions_per_second": 26.3
-      },
-      {
-        "seconds": 1084.3,
-        "completions_held": 29185,
-        "completions_per_second": 23.9
-      },
-      {
-        "seconds": 1144.3,
-        "completions_held": 30595,
-        "completions_per_second": 23.5
-      },
-      {
-        "seconds": 1204.4,
-        "completions_held": 31920,
-        "completions_per_second": 22.0
-      },
-      {
-        "seconds": 1264.5,
-        "completions_held": 33028,
-        "completions_per_second": 18.5
-      },
-      {
-        "seconds": 1324.5,
-        "completions_held": 34263,
-        "completions_per_second": 20.6
-      },
-      {
-        "seconds": 1384.5,
-        "completions_held": 35463,
-        "completions_per_second": 20.0
-      },
-      {
-        "seconds": 1444.5,
-        "completions_held": 36560,
-        "completions_per_second": 18.3
-      },
-      {
-        "seconds": 1504.5,
-        "completions_held": 37624,
-        "completions_per_second": 17.7
-      },
-      {
-        "seconds": 1564.5,
-        "completions_held": 39221,
-        "completions_per_second": 26.6
-      },
-      {
-        "seconds": 1624.6,
-        "completions_held": 40891,
-        "completions_per_second": 27.8
-      },
-      {
-        "seconds": 1684.6,
-        "completions_held": 42046,
-        "completions_per_second": 19.2
-      },
-      {
-        "seconds": 1744.6,
-        "completions_held": 43331,
-        "completions_per_second": 21.4
-      },
-      {
-        "seconds": 1804.6,
-        "completions_held": 44676,
-        "completions_per_second": 22.4
-      },
-      {
-        "seconds": 1864.6,
-        "completions_held": 45973,
-        "completions_per_second": 21.6
-      },
-      {
-        "seconds": 1924.6,
-        "completions_held": 47077,
-        "completions_per_second": 18.4
-      },
-      {
-        "seconds": 1984.9,
-        "completions_held": 47408,
-        "completions_per_second": 5.5
-      },
-      {
-        "seconds": 2044.9,
-        "completions_held": 48589,
-        "completions_per_second": 19.7
-      },
-      {
-        "seconds": 2104.9,
-        "completions_held": 50169,
-        "completions_per_second": 26.3
-      },
-      {
-        "seconds": 2164.9,
-        "completions_held": 51544,
-        "completions_per_second": 22.9
-      },
-      {
-        "seconds": 2225.0,
-        "completions_held": 53190,
-        "completions_per_second": 27.4
-      },
-      {
-        "seconds": 2285.0,
-        "completions_held": 54730,
-        "completions_per_second": 25.7
-      },
-      {
-        "seconds": 2345.0,
-        "completions_held": 56386,
-        "completions_per_second": 27.6
-      },
-      {
-        "seconds": 2405.0,
-        "completions_held": 57974,
-        "completions_per_second": 26.5
-      },
-      {
-        "seconds": 2418.5,
+        "seconds": 1442.8,
         "completions_held": 58317,
-        "completions_per_second": 25.5
+        "completions_per_second": 38.6
       }
     ]
   },
@@ -249,7 +164,7 @@
     "IN": 58317
   },
   "code": {
-    "commit": "d5709bb47272b76afa116978d5fa3c87c2c78434",
+    "commit": "1884a4619bf4f7b04d88352f2b8e1b7b71074518",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

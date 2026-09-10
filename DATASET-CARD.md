@@ -48,7 +48,7 @@ inferred from the input rows** — the loader reports both and the two agree.
 
 | | |
 |---|---|
-| Load time | **2418.5s**, 351,524 statements |
+| Load time | **1442.8s**, 351,524 statements |
 | Re-run over the loaded graph | 175,762 statements, **0 created** — the load is idempotent, measured rather than asserted |
 | Written by | `etl/load_education.py`, from `etl/download_education.py`'s cached slice |
 | Rate curve, the slice, and the schema defect the load found | [`docs/national-spine.md`](docs/national-spine.md) |

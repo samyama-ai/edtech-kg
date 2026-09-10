@@ -30,7 +30,7 @@ None was transcribed by hand.**
 | `(:Completion)-[:AT]->(:Institution)` | 58,317 |
 | `(:Completion)-[:IN]->(:Programme)` | 58,317 |
 
-351,524 statements in 2418.5s against
+351,524 statements in 1442.8s against
 `public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0`. **Read back out of the graph,
 never inferred from the input rows** — and the two agree on all five, which is
 the point of the report rather than a formality.
@@ -55,16 +55,26 @@ Measured over this slice by `etl/probe_completion_key.py`:
 | rows | 190,770 |
 | distinct six-part keys | 189,450 |
 | distinct five-part keys | 172,650 |
-| groups the five-part key merges | 18,120 |
-| of those, carrying more than one `majornum` | 16,800 |
-| of those, with more than one NON-ZERO award | **3,524** |
-| **completions that disappear** | **23,126** |
+| **completions that disappear** | **16,800** |
+| of those, merges that also lose an award count | 3,524 |
+| award counts those carry | 23,126 |
 
-**The last row is the one to quote.** 3,524 counts
-collisions; 23,126 is how many completions actually vanish. And
-the 16,800 above it is NOT that number —
-in most of those groups every other row is a zero and nothing is lost, so
-quoting it as "completions lost" overstates the defect nearly fivefold.
+**Three quantities, and two of them were conflated here.** An earlier version
+of this page led with 23,126 and called it "completions that
+disappear". It is a SUM OF AWARD COUNTS across the
+3,524 merges where more than one row carries a
+non-zero award — not a count of nodes, and not comparable to one.
+
+The completions lost is **16,800**: six-part keys minus
+five-part. `majornum` takes exactly two values in this slice
+(1, 2), so a merging group holds
+two six-part keys and loses one node — **every second-major row is a
+completion that disappears.** That is why this figure and the count of groups
+carrying two majornums are the same number.
+
+Most merged groups lose a node and no award count: only
+3,524 of the 16,800 had more than
+one non-zero award.
 
 `major_number`, `race` and `sex` are stored as properties as well as being
 components of the key. Keyed-only, the fix would be invisible: two nodes with
@@ -95,18 +105,17 @@ the size at which `MERGE`'s problem is also invisible. Sampled once a minute
 
 | seconds elapsed | `Completion` nodes held | completions written /sec |
 |---:|---:|---:|
-| 64 | 2,578 | 40.3 |
-| 364 | 11,666 | 25.5 |
-| 664 | 19,380 | 24.8 |
-| 964 | 26,172 | 24.7 |
-| 1264 | 33,028 | 18.5 |
-| 1564 | 39,221 | 26.6 |
-| 1865 | 45,973 | 21.6 |
-| 2165 | 51,544 | 22.9 |
-| 2418 | 58,317 | 25.5 |
+| 63 | 3,374 | 53.2 |
+| 243 | 11,069 | 36.8 |
+| 424 | 18,115 | 39.8 |
+| 604 | 25,491 | 44.9 |
+| 784 | 33,121 | 40.6 |
+| 964 | 40,234 | 41.4 |
+| 1144 | 47,307 | 36.6 |
+| 1324 | 53,746 | 35.6 |
+| 1443 | 58,317 | 38.6 |
 
-It finishes at 25.5/sec holding
-58,317. Each completion is six statements — three
+It finishes at 38.6/sec holding 58,317. Each completion is six statements — three
 lookups and three creates — so that is about
 153 statements/sec.
 
@@ -119,7 +128,7 @@ The same load, run again against the graph it had just made:
 | statements issued | 175,762 |
 | **nodes and edges created** | **0** |
 | already present | 175,762 |
-| seconds | 1977.9 |
+| seconds | 856.1 |
 
 Exactly one lookup per object and no writes, with every count unchanged.
 
