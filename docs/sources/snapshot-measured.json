@@ -1,8 +1,8 @@
 {
-  "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built.",
+  "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built. `snapshot.bytes` is the export this run published; `snapshot.reproducible` compares three FURTHER exports of the same graph. They are different exports, and exports of one unchanged graph differ in size, so `bytes` is not expected to fall between `bytes_min` and `bytes_max` — it did not on an earlier run, and the two looked inconsistent.",
   "snapshot": {
-    "file": "/Users/tarunallam/samyama/edtech-kg/data/edtech-kg.sgsnap",
-    "bytes": 160362,
+    "file": "data/edtech-kg.sgsnap",
+    "bytes": 160268,
     "taken_from": {
       "Course": 791,
       "Subject": 127,
@@ -15,15 +15,15 @@
     },
     "reproducible": {
       "exports_compared": 3,
-      "bytes_min": 160242,
-      "bytes_max": 160329,
-      "bytes_spread": 87,
+      "bytes_min": 160264,
+      "bytes_max": 160352,
+      "bytes_spread": 88,
       "byte_identical": false
     }
   },
   "import": {
     "seconds": 0.02,
-    "bytes": 160362,
+    "bytes": 160268,
     "engine_said": {
       "edge_types": [
         "HAS_REQUIREMENT",
@@ -65,7 +65,7 @@
     "HAS_REQUIREMENT": 138
   },
   "code": {
-    "commit": "6259a753c841c50b2e4a79bb55afbce918e19127",
+    "commit": "89be87e42c5161faf3359fc85eadaaa375966b66",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
