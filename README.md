@@ -201,7 +201,7 @@ preference, and the working is on the page.
 
 ```
 .github/      ci.yml — the suite on every push and PR, with a real engine
-etl/          probes (one per source) + load_pwcs.py
+etl/          probes (one per source) + load_pwcs.py, load_education.py
 schema/       edtech_kg.cypher + edtech_kg_tier2.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
 docs/         scope, questions, schema, ontology-reuse, sources/
@@ -222,10 +222,14 @@ reads as "nothing to do here", which is the opposite of what it means.
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
-python -m etl.load_pwcs          # build + load the graph
-python -m demo.demo              # walk it
-pytest                           # the whole suite, no engine needed
+python -m etl.probe_pwcs                  # measure a source — every figure in the docs comes from these
+python -m etl.load_pwcs --graph edtech    # build + load one district
+
+python -m etl.download_education          # the national spine: cached, ~20 requests
+python -m etl.load_education --graph edtech   # ~24 minutes, 58,317 completions
+
+python -m demo.demo                       # walk it
+pytest                                    # the whole suite, no engine needed
 ```
 
 CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an

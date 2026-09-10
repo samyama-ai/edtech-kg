@@ -131,14 +131,19 @@ Written before anyone finds them.
   `/ccd/Data/zip/` answers 403, so CCD arrives only through the wrapper.
 - **The Credential Registry cannot be loaded at all**, which removes the one
   source publishing pathways as structured data nationally.
-- **Everything but one district is unloaded**, so the figures above describe
-  sources rather than a graph.
+- **Two sources are loaded: one district and one state's higher education.**
+  Everything else above is a source this repo can reach, not a graph it holds
+  — the counts for those describe what the source publishes.
 
 ## Usage
 
     docker run --rm -p 8080:8080 -p 6379:6379 \
       public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0
-    python -m etl.load_pwcs
+    python -m etl.load_pwcs --graph edtech
+
+    # and the national spine — the download is cached, the load takes ~24 min
+    python -m etl.download_education
+    python -m etl.load_education --graph edtech
 
 See [`docs/scope.md`](docs/scope.md) for what this graph deliberately does
 not model. `CONTRIBUTING.md` carries the PR and evidence standards — named

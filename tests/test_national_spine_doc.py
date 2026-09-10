@@ -121,6 +121,40 @@ def test_the_rate_curve_on_the_page_comes_from_the_recorded_run():
             samples, f"the row at {seconds}s is in no sample of the record"
 
 
+def test_the_statement_rate_is_derived_from_the_curve_it_sits_under():
+    """**The only figure on this page computed rather than substituted, and
+    the only one that was wrong.**
+
+    The page read "finishes at 38.6/sec ... so that is about 153
+    statements/sec". 38.6 x 6 is 232; the 153 was the previous run's 25.5 x 6.
+    When the record was regenerated both measured figures either side of that
+    sentence were substituted and the arithmetic between them was not — on a
+    page whose opening line is that nothing here was typed by hand, and for
+    the figure a reader uses to size a fifty-state load.
+
+    It survived because every other doc test checks a figure LIFTED from the
+    record and none checked one DERIVED from it. This closes that shape.
+
+    Nothing here is typed, including the six: the statements a completion
+    costs come out of the record exactly, because institutions and programmes
+    cost two apiece and the rest of the run is completions.
+    """
+    issued = ISSUED
+    each = ((issued["statements_issued"]
+             - 2 * (issued["institutions_in"] + issued["programmes_in"]))
+            / issued["completions_in"])
+    assert each == int(each), (
+        f"a completion no longer costs a whole number of statements ({each}); "
+        f"the page's 'six statements' sentence needs re-deriving")
+    finishing = round(ISSUED["rate_curve"][-1]["completions_per_second"] * each)
+    assert f"{finishing} statements/sec as it finishes" in PAGE, (
+        f"the page does not carry the finishing rate its own curve gives "
+        f"({finishing} statements/sec)")
+    whole = round(issued["statements_issued"] / issued["seconds"])
+    assert f"{whole} statements/sec averaged over the whole run" in PAGE, (
+        f"the page does not carry the whole-run rate ({whole} statements/sec)")
+
+
 def test_the_curve_reaches_the_load_it_describes():
     """A curve stopping short of the total hides the rate the load finished
     at — the one nearest the size a larger slice would start from."""

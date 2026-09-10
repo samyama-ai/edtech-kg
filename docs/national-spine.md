@@ -117,7 +117,8 @@ the size at which `MERGE`'s problem is also invisible. Sampled once a minute
 
 It finishes at 38.6/sec holding 58,317. Each completion is six statements — three
 lookups and three creates — so that is about
-153 statements/sec.
+232 statements/sec as it finishes, and
+244 statements/sec averaged over the whole run.
 
 ## Idempotence, measured by the recorded run itself
 
