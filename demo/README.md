@@ -1,5 +1,20 @@
 # Demo
 
+## From nothing to a demo
+
+    ./demo/ready.sh
+
+Starts a fresh engine, imports the published snapshot into the `edtech`
+graph, and **checks the graph before saying it is ready** — well under a
+second, against a load of about eight. It removes a container named
+`edtech-demo` without asking; set `NAME` if that collides. `SNAPSHOT=`,
+`PORT=`, `GRAPH=` and `PYTHON=` all override.
+
+The snapshot is a release asset, not source. Download `edtech-kg.sgsnap` from
+the Releases page, or produce one with
+`python -m etl.snapshot export --url <a loaded engine>`.
+
+
 A narrated walk through one district's course catalogue, as a graph. Twenty-one
 questions in five tiers, climbing from ones a spreadsheet answers perfectly to
 ones nothing published can answer at all. Every figure is read from the engine

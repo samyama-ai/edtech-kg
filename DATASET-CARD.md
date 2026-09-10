@@ -48,8 +48,17 @@ different one, which is what a hand-maintained count does.
 
 **Do not read the edge count from `/api/status`.** On a Cypher-loaded graph it
 reports **2,834** for the 1,417 edges above; the same graph imported from a
-snapshot reports 1,417. Both engines answer identically per type. Measured
-in [`sources/snapshot-measured.json`](docs/sources/snapshot-measured.json).
+snapshot reports 1,417.
+
+The two graphs are the same graph. Both answer **1,417** directed and
+**2,834** undirected, per type and in total, with `storage.nodes` matching at
+1,098 — so the endpoint is double-counting on the Cypher-loaded side rather
+than the import having dropped half. That distinction matters: had the
+imported graph answered 2,834 undirected against 1,417 directed only on one
+side, the endpoint would have been right and this snapshot lossy. Both
+readings are recorded, from both engines, in
+[`sources/snapshot-measured.json`](docs/sources/snapshot-measured.json) under
+`edge_count_readings`.
 
 | graph artefact | |
 |---|---|
@@ -110,7 +119,7 @@ district at one point in time.
 | Code | Records carry a `code` stamp — the commit the tree was at when the probe ran, whether it was clean, and the package version — written by `etl/provenance.py`. **Records written before that mechanism existed carry no stamp; they gain one when their probe is next run (#6).** `tests/test_provenance.py` lists which are still unstamped. The commit that *contains* a record cannot be inside it. |
 | Data year | **2022** for IPEDS and CCD |
 | Engine | `1.1.0` pinned in CI; `1.7.0` also verified against the parse table |
-| Graph artefact | **none published** — no snapshot export exists yet (#25) |
+| Graph artefact | `edtech-kg.sgsnap`, a release asset — see the table above. Not committed: `data/` is gitignored |
 
 ## Known issues
 

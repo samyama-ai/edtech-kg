@@ -335,3 +335,29 @@ def test_a_snapshot_matching_the_published_hash_is_imported(monkeypatch,
     digest = hashlib.sha256(b"the published bytes").hexdigest()
     assert snapshot.load("http://engine.test", target,
                          expect_sha256=digest)["bytes"] == 19
+
+
+def test_an_unreadable_count_is_a_refusal_not_a_zero():
+    """**`or 0` is how this guard fails open**, and `etl/scratch_engine.py`
+    records it happening twice. `counts` read
+    `int(rows[0][0]) if rows and rows[0] else 0`, so an engine that answered
+    nothing to a count read as a graph holding none of that label — and the
+    pre-import guard is built on this function, so an unmeasurable engine read
+    as an empty one and got merged into.
+    """
+    class Silent(Graph):
+        def scalar(self, statement):
+            return None
+    with pytest.raises(Refused, match="could not be measured"):
+        snapshot.counts(Silent())
+
+
+def test_a_count_that_is_not_a_number_is_a_refusal():
+    """The engine returning a count as text crashed the formatting rather
+    than reporting the graph it found — `etl/engine.py` documents that
+    answers come back typed however the engine felt like typing them."""
+    class Wordy(Graph):
+        def scalar(self, statement):
+            return "seven hundred and ninety-one"
+    with pytest.raises(Refused, match="not a number"):
+        snapshot.counts(Wordy())

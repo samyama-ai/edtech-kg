@@ -78,7 +78,15 @@ def test_no_grouped_figure_on_the_card_is_unaccounted_for():
     known |= {snap["snapshot"]["bytes"],
               sum(snap["counts"][k] for k in
                   ("REQUIRES", "IN_SUBJECT", "INCLUDES", "HAS_REQUIREMENT")),
-              2_834}
+              # **2,834 was TYPED here**, in the set whose whole job is to
+              # catch typed figures, under a comment reading "From the record,
+              # not typed" — and the record carried no such field, only a
+              # sentence in its `_` note. It is measured now, from both
+              # engines, so it comes from the record like everything else.
+              snap["edge_count_readings"]["cypher_loaded"]
+                  ["api_status_storage"]["edges"],
+              snap["edge_count_readings"]["cypher_loaded"]
+                  ["per_type"]["undirected_total"]}
     unexplained = grouped(card()) - known
     assert not unexplained, (
         f"these grouped figures are on the card and in no record: "

@@ -2,7 +2,8 @@
   "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built. `snapshot.bytes` is the export this run published; `snapshot.reproducible` compares three FURTHER exports of the same graph. They are different exports, and exports of one unchanged graph differ in size, so `bytes` is not expected to fall between `bytes_min` and `bytes_max` — it did not on an earlier run, and the two looked inconsistent.",
   "snapshot": {
     "file": "data/edtech-kg.sgsnap",
-    "bytes": 160268,
+    "bytes": 160224,
+    "sha256": "f2de11a83854755d9048006acafb7ea1d103250aa6f07b072bcb483d64cf0d4d",
     "taken_from": {
       "Course": 791,
       "Subject": 127,
@@ -15,15 +16,20 @@
     },
     "reproducible": {
       "exports_compared": 3,
-      "bytes_min": 160264,
-      "bytes_max": 160352,
-      "bytes_spread": 88,
-      "byte_identical": false
+      "bytes_min": 160294,
+      "bytes_max": 160383,
+      "bytes_spread": 89,
+      "byte_identical": false,
+      "sha256": [
+        "907c3539fdb6258e417849d335e692775e561027656d7d4503592e00d97d7035",
+        "edcf731c2460e3df17804f9b789e07a2aa1f687f9b67be4b55e15628383fe382",
+        "9073f4dc565565210c7e45608ff4685e24ceb25704160fdb503eddf7f40bab65"
+      ]
     }
   },
   "import": {
     "seconds": 0.02,
-    "bytes": 160268,
+    "bytes": 160224,
     "engine_said": {
       "edge_types": [
         "HAS_REQUIREMENT",
@@ -64,8 +70,54 @@
     "INCLUDES": 316,
     "HAS_REQUIREMENT": 138
   },
+  "edge_count_readings": {
+    "cypher_loaded": {
+      "api_status_storage": {
+        "edges": 2834,
+        "nodes": 1098
+      },
+      "per_type": {
+        "directed": {
+          "REQUIRES": 240,
+          "IN_SUBJECT": 723,
+          "INCLUDES": 316,
+          "HAS_REQUIREMENT": 138
+        },
+        "undirected": {
+          "REQUIRES": 480,
+          "IN_SUBJECT": 1446,
+          "INCLUDES": 632,
+          "HAS_REQUIREMENT": 276
+        },
+        "directed_total": 1417,
+        "undirected_total": 2834
+      }
+    },
+    "imported": {
+      "api_status_storage": {
+        "edges": 1417,
+        "nodes": 1098
+      },
+      "per_type": {
+        "directed": {
+          "REQUIRES": 240,
+          "IN_SUBJECT": 723,
+          "INCLUDES": 316,
+          "HAS_REQUIREMENT": 138
+        },
+        "undirected": {
+          "REQUIRES": 480,
+          "IN_SUBJECT": 1446,
+          "INCLUDES": 632,
+          "HAS_REQUIREMENT": 276
+        },
+        "directed_total": 1417,
+        "undirected_total": 2834
+      }
+    }
+  },
   "code": {
-    "commit": "89be87e42c5161faf3359fc85eadaaa375966b66",
+    "commit": "0b8cbd1abd7acce02e1b18febde0b3003f53c7bc",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
