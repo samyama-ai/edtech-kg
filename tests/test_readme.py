@@ -93,7 +93,15 @@ def test_the_page_states_why_this_needs_a_graph_with_the_depth_that_shows_it():
     assert one_hop < total, (
         "the transitive closure adds nothing on this data, so the page's "
         "argument for a graph needs re-making rather than re-wording")
-    assert str(one_hop) in PAGE and str(total) in PAGE
+    # **THE SEQUENCE, not just its endpoints.** `str(9) in PAGE` and
+    # `str(28) in PAGE` were both satisfied by other figures on the page, so
+    # changing "9, 26, 28" to "9, 26, 30" passed — mutation-verified. The
+    # claim is the shape of the climb, so the climb is what is pinned.
+    climb = [depths[str(d)] for d in sorted(int(k) for k in depths)]
+    settled = climb.index(total)
+    printed = ", ".join(str(n) for n in climb[:settled + 1])
+    assert printed in PAGE, (
+        f"the page does not carry the measured climb {printed!r}")
     # It stops growing — that is what makes the bound honest rather than
     # arbitrary.
     assert depths[str(max(int(d) for d in depths))] == total
