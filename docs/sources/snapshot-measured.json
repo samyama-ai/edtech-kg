@@ -1,0 +1,66 @@
+{
+  "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built.",
+  "snapshot": {
+    "file": "/Users/tarunallam/samyama/edtech-kg/data/edtech-kg.sgsnap",
+    "bytes": 160311,
+    "taken_from": {
+      "Course": 791,
+      "Subject": 127,
+      "Pathway": 42,
+      "Requirement": 138,
+      "REQUIRES": 240,
+      "IN_SUBJECT": 723,
+      "INCLUDES": 316,
+      "HAS_REQUIREMENT": 138
+    }
+  },
+  "import": {
+    "seconds": 0.02,
+    "bytes": 160311,
+    "engine_said": {
+      "edge_types": [
+        "HAS_REQUIREMENT",
+        "INCLUDES",
+        "IN_SUBJECT",
+        "REQUIRES"
+      ],
+      "edges_imported": 1417,
+      "labels": [
+        "Course",
+        "Pathway",
+        "Requirement",
+        "Subject"
+      ],
+      "nodes_imported": 1098,
+      "nodes_merged": 0,
+      "status": "ok",
+      "vector_indices_rebuilt": 0
+    },
+    "in_graph": {
+      "Course": 791,
+      "Subject": 127,
+      "Pathway": 42,
+      "Requirement": 138,
+      "REQUIRES": 240,
+      "IN_SUBJECT": 723,
+      "INCLUDES": 316,
+      "HAS_REQUIREMENT": 138
+    }
+  },
+  "counts": {
+    "Course": 791,
+    "Subject": 127,
+    "Pathway": 42,
+    "Requirement": 138,
+    "REQUIRES": 240,
+    "IN_SUBJECT": 723,
+    "INCLUDES": 316,
+    "HAS_REQUIREMENT": 138
+  },
+  "code": {
+    "commit": "aadb9718f0ecce4abea2f87a6a285089b5c65b33",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
