@@ -32,16 +32,26 @@ import argparse
 import hashlib
 import json
 import pathlib
+import secrets
 import sys
 import time
 import urllib.error
 import urllib.request
 
-from etl.engine import Engine
+from etl.engine import Engine, identifier
+from etl.engine import Refused as EngineRefused
 from etl.provenance import write_record
+from etl.scratch_engine import Unusable, still_held
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_FILE = ROOT / "data" / "edtech-kg.sgsnap"
+#: **The graph this repo loads into.** Everything here built `Engine(url)`
+#: with no graph, so it all worked on `default` while `etl/load_pwcs.py` and
+#: `demo/demo.py` both default to `edtech` and `README.md` creates that tenant
+#: explicitly. Either the import landed in `edtech` and `verify` read `default`
+#: and found zeros, or it landed in `default` and the walkthrough opened on an
+#: empty graph.
+DEFAULT_GRAPH = "edtech"
 RECORD = ROOT / "docs" / "sources" / "snapshot-measured.json"
 RECORD_NOTE = (
     "Measured by `python -m etl.snapshot record`. Size, import time and the "
@@ -89,17 +99,41 @@ def counts(engine: Engine) -> dict:
     """
     held = {}
     for label in NODE_LABELS:
-        rows = engine.run(f"MATCH (n:{label}) WITH n RETURN count(n)").get("records")
-        held[label] = int(rows[0][0]) if rows and rows[0] else 0
+        held[label] = _count(
+            engine, f"MATCH (n:{identifier(label)}) WITH n RETURN count(n)")
     for kind in EDGE_TYPES:
-        rows = engine.run(f"MATCH ()-[r:{kind}]->() RETURN count(r)").get("records")
-        held[kind] = int(rows[0][0]) if rows and rows[0] else 0
+        held[kind] = _count(
+            engine, f"MATCH ()-[r:{identifier(kind)}]->() RETURN count(r)")
     return held
 
 
-def export(url: str, into: pathlib.Path) -> dict:
+def _count(engine: Engine, query: str) -> int:
+    """One count, or a refusal.
+
+    **Never `or 0`.** `int(rows[0][0]) if rows and rows[0] else 0` turned "I
+    could not measure this" into "the graph holds none of these" — and the
+    pre-import guard is built on this function, so an unreadable answer read
+    as an empty engine and the import merged into somebody's graph.
+    `Engine.scalar` exists to keep those apart.
+    """
+    answered = engine.scalar(query)
+    if answered is None:
+        raise Refused(
+            f"{engine.url} did not answer a count for `{query}`, so what the "
+            f"graph holds could not be measured. Refusing rather than reading "
+            f"an unmeasurable graph as an empty one.")
+    try:
+        return int(answered)
+    except (TypeError, ValueError) as unreadable:
+        raise Refused(
+            f"{engine.url} answered {answered!r} to `{query}`, which is not a "
+            f"number.") from unreadable
+
+
+def export(url: str, into: pathlib.Path,
+           graph: str = DEFAULT_GRAPH) -> dict:
     """Write a snapshot of `url`, and record what it was taken from."""
-    before = counts(Engine(url))
+    before = counts(Engine(url, graph=graph))
     if not sum(before.values()):
         raise Refused(
             f"{url} holds nothing. Exporting it would publish an empty "
@@ -120,24 +154,59 @@ def export(url: str, into: pathlib.Path) -> dict:
         where = into.resolve().relative_to(ROOT).as_posix()
     except ValueError:
         where = into.name          # written outside the repo; the name is all
-    return {"file": where, "bytes": len(body), "taken_from": before}
+    return {"file": where, "bytes": len(body),
+            # The digest of the file this run published — the one a download
+            # is checked against. `reproducible` compares three FURTHER
+            # exports, which differ from this one and from each other.
+            "sha256": hashlib.sha256(body).hexdigest(),
+            "taken_from": before}
 
 
-def load(url: str, snapshot: pathlib.Path) -> dict:
-    """Import into an engine that holds NOTHING, and time it."""
-    engine = Engine(url)
-    held = counts(engine)
-    if sum(held.values()):
+def load(url: str, snapshot: pathlib.Path, graph: str = DEFAULT_GRAPH,
+         expect_sha256: str | None = None) -> dict:
+    """Import into an engine that holds NOTHING, and time it.
+
+    **"Holds nothing" is asked of the INSTANCE, not of four labels.** It was
+    `sum(counts(engine).values())`, and `counts` only knows the district's
+    four labels and four edge types — so an engine holding the Virginia
+    spine, or any of the twelve declared-and-unloaded labels on the dataset
+    card, summed to zero and read as empty. The import is a MERGE and is not
+    undoable.
+
+    `still_held` is the same decision made earlier in `etl/scratch_engine.py`,
+    where it is documented as having failed open twice in exactly this
+    direction: instance-wide `/api/status`, and an unmeasurable count raises
+    rather than reading as zero.
+    """
+    engine = Engine(url, graph=graph)
+    try:
+        occupied = still_held(url)
+    except Unusable as unmeasured:
+        raise Refused(str(unmeasured)) from unmeasured
+    if occupied:
         raise Refused(
-            f"{url} already holds {sum(held.values())} nodes and edges. "
+            f"{url} already holds {occupied:,} nodes instance-wide. "
             f"Importing would merge into somebody's graph — point this at a "
             f"fresh engine.")
 
     raw = snapshot.read_bytes()
-    boundary = "----samyama-snapshot"
+    if expect_sha256 is not None:
+        # **The card promises this check.** Before it existed, a binary
+        # downloaded from a Releases page went straight into an engine on the
+        # strength of a documented guarantee with nothing behind it — and the
+        # import path is the trust boundary this module itself identifies.
+        got = hashlib.sha256(raw).hexdigest()
+        if got != expect_sha256:
+            raise Refused(
+                f"{snapshot.name} hashes to {got[:16]}... and the record says "
+                f"{expect_sha256[:16]}.... Exports of one graph differ byte "
+                f"for byte, so a re-export will not match — check this "
+                f"against the file that was published.")
+
+    boundary = f"----samyama-{secrets.token_hex(16)}"
     body = (f"--{boundary}\r\n"
             f'Content-Disposition: form-data; name="file"; '
-            f'filename="{snapshot.name}"\r\n'
+            f'filename="{pathlib.Path(snapshot.name).name}"\r\n'
             f"Content-Type: application/octet-stream\r\n\r\n").encode()
     body += raw + f"\r\n--{boundary}--\r\n".encode()
 
@@ -152,22 +221,25 @@ def load(url: str, snapshot: pathlib.Path) -> dict:
             "in_graph": counts(engine)}
 
 
-def should_hold() -> dict | None:
+def should_hold(whole: bool = False) -> dict | None:
     """The counts an import must reproduce, from the committed record.
 
     One reader for both `import` and `verify`, so neither can drift into
-    checking the graph against itself.
+    checking the graph against itself. `whole` returns the entire record,
+    for the caller that needs the published digest as well as the counts.
     """
     if not RECORD.exists():
         print(f"{RECORD.relative_to(ROOT)} is missing — run "
               f"`python -m etl.snapshot record` first.", file=sys.stderr)
         return None
-    return json.loads(RECORD.read_text(encoding="utf-8"))["counts"]
+    held = json.loads(RECORD.read_text(encoding="utf-8"))
+    return held if whole else held["counts"]
 
 
-def verify(url: str, expected: dict) -> list[str]:
+def verify(url: str, expected: dict,
+           graph: str = DEFAULT_GRAPH) -> list[str]:
     """Every label and edge type, compared. Returns what disagrees."""
-    held = counts(Engine(url))
+    held = counts(Engine(url, graph=graph))
     return [f"{name}: expected {expected[name]:,}, found {held.get(name, 0):,}"
             for name in expected if held.get(name, 0) != expected[name]]
 
@@ -203,7 +275,53 @@ def reproducibility(url: str, times: int = 3) -> dict:
         "bytes_max": max(sizes),
         "bytes_spread": max(sizes) - min(sizes),
         "byte_identical": len({d for _, d in seen}) == 1,
+        # The digests were computed and thrown away, so "three different
+        # sha256" was a sentence with nothing behind it. n=3 supports "these
+        # three exports differed", not "exports are non-deterministic in
+        # general" — and that conclusion drives both the card's rounding and
+        # the hash policy, so it is worth stating at its real strength.
+        "sha256": [digest for _, digest in seen],
     }
+
+
+def storage_reported(url: str) -> dict:
+    """What `/api/status` says the instance holds — recorded, not trusted."""
+    try:
+        with urllib.request.urlopen(f"{url.rstrip('/')}/api/status",
+                                    timeout=30) as answer:
+            return (json.loads(answer.read() or b"{}") or {}).get("storage", {})
+    except (urllib.error.URLError, TimeoutError, OSError) as gone:
+        raise Refused(f"{url}/api/status: {gone}") from gone
+
+
+def both_directions(url: str, graph: str = DEFAULT_GRAPH) -> dict:
+    """Every edge type counted directed AND undirected.
+
+    **This is what tells the two readings of 2,834 apart**, and the first
+    version of this measurement recorded neither.
+
+    Reading (a): `/api/status` double-counts edges on a Cypher-loaded graph.
+    Reading (b): it counts stored adjacency entries, two per edge, and the
+    IMPORTED graph holds only one — under which the endpoint is right and the
+    import is lossy. `verify` cannot separate them, because it only ever asks
+    `()-[r:T]->()`, which is identical under both.
+
+    The undirected count separates them: under (b) the imported graph would
+    answer half. Measured on 1.1.0 — Cypher-loaded and imported both answer
+    2,834 undirected against 1,417 directed, with `storage.nodes` matching at
+    1,098 — so (b) is refused and (a) stands.
+    """
+    engine = Engine(url, graph=graph)
+    directed, undirected = {}, {}
+    for kind in EDGE_TYPES:
+        name = identifier(kind)
+        directed[kind] = _count(
+            engine, f"MATCH ()-[r:{name}]->() RETURN count(r)")
+        undirected[kind] = _count(
+            engine, f"MATCH ()-[r:{name}]-() RETURN count(r)")
+    return {"directed": directed, "undirected": undirected,
+            "directed_total": sum(directed.values()),
+            "undirected_total": sum(undirected.values())}
 
 
 def report(measured: dict) -> None:
@@ -224,18 +342,25 @@ def main(argv: list[str] | None = None) -> int:
                         choices=("export", "import", "verify", "record"))
     parser.add_argument("--url", default="http://localhost:8200")
     parser.add_argument("--file", type=pathlib.Path, default=DEFAULT_FILE)
+    parser.add_argument("--graph", default=DEFAULT_GRAPH,
+                        help="The graph to read and write. Defaults to `edtech`, matching etl/load_pwcs.py and demo/demo.py.")
     parser.add_argument("--from-url", default="http://localhost:8200",
                         help="`record` only: the loaded graph to export FROM.")
     args = parser.parse_args(argv)
 
     try:
         if args.action == "export":
-            found = export(args.url, args.file)
+            found = export(args.url, args.file, graph=args.graph)
             print(f"  {found['bytes']:,} bytes -> {found['file']}")
+            print(f"  sha256 {found['sha256']}")
             return 0
 
         if args.action == "import":
-            found = load(args.url, args.file)
+            recorded = should_hold(whole=True)
+            expected_hash = ((recorded or {}).get("snapshot") or {}).get(
+                "sha256") if recorded else None
+            found = load(args.url, args.file, graph=args.graph,
+                         expect_sha256=expected_hash)
             print(f"  imported in {found['seconds']}s")
             # **NOT `found["in_graph"]`.** That is `counts(engine)` taken from
             # this same engine moments earlier, so it compared the graph to
@@ -245,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
             expected = should_hold()
             if expected is None:
                 return 2
-            wrong = verify(args.url, expected)
+            wrong = verify(args.url, expected, graph=args.graph)
             if wrong:
                 print("the imported graph is not what the snapshot should "
                       "produce:", file=sys.stderr)
@@ -258,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
             expected = should_hold()
             if expected is None:
                 return 2
-            wrong = verify(args.url, expected)
+            wrong = verify(args.url, expected, graph=args.graph)
             if wrong:
                 print("the graph is not what the snapshot should produce:",
                       file=sys.stderr)
@@ -269,10 +394,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         # record: export from the loaded graph, import into `--url`, measure.
-        taken = export(args.from_url, args.file)
+        #
+        # **Exported aside and moved into place only after the round trip
+        # verifies.** A failed `record` used to leave the bad snapshot at the
+        # path `demo/ready.sh` picks up by default, so the next run imported
+        # it and checked it against a stale record.
+        candidate = args.file.with_name(args.file.name + ".candidate")
+        taken = export(args.from_url, candidate, graph=args.graph)
         taken["reproducible"] = reproducibility(args.from_url)
-        found = load(args.url, args.file)
-        wrong = verify(args.url, taken["taken_from"])
+        found = load(args.url, candidate, graph=args.graph)
+        wrong = verify(args.url, taken["taken_from"], graph=args.graph)
         if wrong:
             # **The round trip did not reproduce the graph.** Recording that
             # would publish a snapshot the demo cannot trust.
@@ -280,14 +411,33 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             for line in wrong:
                 print(f"  {line}", file=sys.stderr)
+            candidate.unlink(missing_ok=True)
             return 4
+        candidate.replace(args.file)
+        taken["file"] = str(args.file.resolve().relative_to(ROOT).as_posix()) \
+            if ROOT in args.file.resolve().parents else args.file.name
+        # **The two measurements that tell the readings of 2,834 apart.**
+        # Recorded from BOTH engines so a reader can check the conclusion
+        # rather than take the note's word for it.
+        endpoint = {
+            "cypher_loaded": {"api_status_storage": storage_reported(args.from_url),
+                              "per_type": both_directions(args.from_url, args.graph)},
+            "imported": {"api_status_storage": storage_reported(args.url),
+                         "per_type": both_directions(args.url, args.graph)},
+        }
         measured = {"_": RECORD_NOTE, "snapshot": taken, "import": found,
-                    "counts": taken["taken_from"]}
+                    "counts": taken["taken_from"], "edge_count_readings": endpoint}
         report(measured)
         write_record(RECORD, measured)
         print(f"\n  -> {RECORD.relative_to(ROOT)}")
         return 0
-    except Refused as refused:
+    except (Refused, EngineRefused) as refused:
+        # **Both `Refused` classes.** This module defines one and
+        # `etl/engine.py:64` defines a different class of the same name; only
+        # the local one was caught, so an unreachable engine, a 4xx or a parse
+        # error during `counts` gave a traceback and exit 1. Under `set -e` in
+        # `demo/ready.sh` that is a stack trace in front of whoever is setting
+        # up the demo.
         print(f"{refused}", file=sys.stderr)
         return 3
 

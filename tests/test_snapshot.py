@@ -34,11 +34,17 @@ RECORD = ROOT / "docs" / "sources" / "snapshot-measured.json"
 
 
 class Graph:
-    """An engine answering fixed counts, so `counts` can be driven."""
+    """An engine answering fixed counts, so `counts` can be driven.
 
-    def __init__(self, held=None):
+    `scalar` as well as `run`: `counts` reads through `Engine.scalar` now, so
+    that "I could not measure this" and "the graph holds none of these" stay
+    apart — the pre-import guard is built on it.
+    """
+
+    def __init__(self, held=None, url="http://engine.test"):
         self.held = held or {}
         self.asked = []
+        self.url = url
 
     def run(self, statement):
         self.asked.append(statement)
@@ -46,6 +52,10 @@ class Graph:
             if f":{name})" in statement or f":{name}]" in statement:
                 return {"records": [[n]]}
         return {"records": [[0]]}
+
+    def scalar(self, statement):
+        rows = self.run(statement).get("records") or []
+        return rows[0][0] if rows and rows[0] else None
 
 
 def test_counts_never_ask_api_status():
@@ -74,7 +84,7 @@ def test_verify_names_what_disagrees_rather_than_saying_no():
     """A demo that will not open needs to say which part of the graph is
     missing — "verification failed" sends someone to re-import blind."""
     engine = Graph({"Course": 791, "REQUIRES": 100})
-    original, snapshot.Engine = snapshot.Engine, lambda url: engine
+    original, snapshot.Engine = snapshot.Engine, lambda url, graph=None: engine
     try:
         problems = snapshot.verify("http://engine.test",
                                    {"Course": 791, "REQUIRES": 240})
@@ -84,22 +94,71 @@ def test_verify_names_what_disagrees_rather_than_saying_no():
     assert "REQUIRES" in problems[0] and "240" in problems[0] and "100" in problems[0]
 
 
-def test_exporting_an_empty_graph_is_refused(monkeypatch):
+def test_exporting_an_empty_graph_is_refused(monkeypatch, tmp_path):
     """**An empty snapshot published as a demo is the worst artefact here.**
     It imports in no time, verifies against nothing, and shows a blank graph
     in front of a customer."""
-    monkeypatch.setattr(snapshot, "Engine", lambda url: Graph())
+    monkeypatch.setattr(snapshot, "Engine", lambda url, graph=None: Graph())
     with pytest.raises(Refused, match="holds nothing"):
-        snapshot.export("http://engine.test", ROOT / "data" / "unused.sgsnap")
+        snapshot.export("http://engine.test", tmp_path / "unused.sgsnap")
 
 
 def test_importing_into_a_loaded_engine_is_refused(monkeypatch, tmp_path):
     """It merges rather than replaces, so the result is neither graph."""
     monkeypatch.setattr(snapshot, "Engine",
-                        lambda url: Graph({"Course": 791}))
+                        lambda url, graph=None: Graph({"Course": 791}))
+    monkeypatch.setattr(snapshot, "still_held", lambda url: 1098)
+    sent = []
+    monkeypatch.setattr(snapshot, "post",
+                        lambda *a, **k: sent.append(a) or (200, b"{}"))
     target = tmp_path / "x.sgsnap"
     target.write_bytes(b"not really a snapshot")
     with pytest.raises(Refused, match="already holds"):
+        snapshot.load("http://engine.test", target)
+    # **Refused BEFORE, not after.** Relocating the guard below the POST kept
+    # this test passing on any machine where the POST happened to succeed;
+    # only this line catches it. The import is a MERGE and is not undoable.
+    assert sent == [], "the guard refused after already posting the snapshot"
+
+
+def test_an_engine_holding_labels_this_module_never_heard_of_is_not_empty(
+        monkeypatch, tmp_path):
+    """**The guard failed open on everything it does not know about.**
+
+    "Holds something" was `sum(counts(engine).values())`, and `counts` knows
+    four district labels and four district edge types. An engine holding the
+    Virginia spine — `Institution`, `Programme`, `Completion` from
+    `etl/load_education.py` — summed to zero and read as empty, and the same
+    goes for every declared-and-unloaded label on the dataset card. The
+    import is a MERGE, so it is not undoable.
+
+    `still_held` asks `/api/status`, which is instance-wide, so a graph full
+    of labels this module has never heard of is still a graph.
+    """
+    monkeypatch.setattr(snapshot, "Engine",
+                        lambda url, graph=None: Graph())   # counts -> all zero
+    monkeypatch.setattr(snapshot, "still_held", lambda url: 58_317)
+    sent = []
+    monkeypatch.setattr(snapshot, "post",
+                        lambda *a, **k: sent.append(a) or (200, b"{}"))
+    target = tmp_path / "x.sgsnap"
+    target.write_bytes(b"snapshot")
+    with pytest.raises(Refused, match="58,317"):
+        snapshot.load("http://engine.test", target)
+    assert sent == []
+
+
+def test_an_unmeasurable_engine_is_refused_rather_than_read_as_empty(
+        monkeypatch, tmp_path):
+    """`etl/scratch_engine.py` documents this guard failing open twice, both
+    times by letting something unmeasurable read as zero. A refusal is the
+    only safe reading."""
+    def cannot(url):
+        raise snapshot.Unusable(f"{url} answered without a storage.nodes count")
+    monkeypatch.setattr(snapshot, "still_held", cannot)
+    target = tmp_path / "x.sgsnap"
+    target.write_bytes(b"snapshot")
+    with pytest.raises(Refused, match="storage.nodes"):
         snapshot.load("http://engine.test", target)
 
 
@@ -179,8 +238,9 @@ def test_import_checks_the_graph_against_the_record_not_against_itself(
     Here the engine comes back holding one Course where the record wants 791.
     Against itself that agrees; against the record it does not.
     """
-    monkeypatch.setattr(snapshot, "Engine", lambda url: Graph({"Course": 1}))
-    monkeypatch.setattr(snapshot, "load", lambda url, path: {
+    monkeypatch.setattr(snapshot, "Engine", lambda url, graph=None: Graph({"Course": 1}))
+    monkeypatch.setattr(snapshot, "load",
+                        lambda url, path, graph=None, expect_sha256=None: {
         "seconds": 0.01, "bytes": 10, "engine_said": {},
         "in_graph": {"Course": 1}})
     target = tmp_path / "x.sgsnap"
@@ -196,7 +256,7 @@ def test_the_record_carries_no_absolute_path(monkeypatch, tmp_path):
     """A committed document carrying somebody's home directory. `export`
     recorded `str(into)`, so `snapshot-measured.json` shipped
     `/Users/.../edtech-kg/data/edtech-kg.sgsnap`."""
-    monkeypatch.setattr(snapshot, "Engine", lambda url: Graph({"Course": 791}))
+    monkeypatch.setattr(snapshot, "Engine", lambda url, graph=None: Graph({"Course": 791}))
     monkeypatch.setattr(snapshot, "post",
                         lambda *a, **k: (200, b"snapshot-bytes"))
     into = ROOT / "data" / "written-by-a-test.sgsnap"
@@ -206,3 +266,72 @@ def test_the_record_carries_no_absolute_path(monkeypatch, tmp_path):
         into.unlink(missing_ok=True)
     assert found["file"] == "data/written-by-a-test.sgsnap"
     assert not pathlib.Path(found["file"]).is_absolute()
+
+
+def test_a_round_trip_that_does_not_reproduce_the_graph_is_not_recorded(
+        monkeypatch, tmp_path, capsys):
+    """**The guard protecting every other figure here, and it had no test.**
+    Changing `if wrong:` to `if False:` left the full suite green at 1,844
+    passing — so a snapshot that did not reproduce its source could become
+    the record everything else is measured against.
+    """
+    target = tmp_path / "x.sgsnap"
+    record = tmp_path / "snapshot-measured.json"
+    monkeypatch.setattr(snapshot, "RECORD", record)
+    monkeypatch.setattr(snapshot, "export", lambda url, into, graph=None: (
+        into.write_bytes(b"snapshot"),
+        {"file": "data/x.sgsnap", "bytes": 8, "sha256": "deadbeef",
+         "taken_from": {"Course": 791}})[1])
+    monkeypatch.setattr(snapshot, "reproducibility",
+                        lambda url, times=3: {"byte_identical": False})
+    monkeypatch.setattr(snapshot, "load", lambda url, path, graph=None,
+                        expect_sha256=None: {"seconds": 0.02, "bytes": 8,
+                                             "engine_said": {},
+                                             "in_graph": {"Course": 790}})
+    # the imported graph disagrees with what the export was taken from
+    monkeypatch.setattr(snapshot, "Engine",
+                        lambda url, graph=None: Graph({"Course": 790}))
+    assert snapshot.main(["record", "--file", str(target),
+                          "--url", "http://a.test",
+                          "--from-url", "http://b.test"]) == 4
+    assert "Course" in capsys.readouterr().err
+    assert not record.exists(), (
+        "a round trip that did not reproduce the graph was still recorded")
+    # and the bad export did not land at the path demo/ready.sh reads
+    assert not target.exists(), (
+        f"the failed export was left at {target.name}, which is the file "
+        f"`demo/ready.sh` imports by default")
+
+
+def test_a_snapshot_that_does_not_match_the_published_hash_is_refused(
+        monkeypatch, tmp_path):
+    """`DATASET-CARD.md` promises a download is checked against the published
+    file's hash. Before this, `reproducibility` computed digests and threw
+    them away, `export` recorded none, and `load` posted whatever it read —
+    a documented guarantee with nothing behind it, on the one path where a
+    binary from a Releases page reaches an engine."""
+    monkeypatch.setattr(snapshot, "still_held", lambda url: 0)
+    sent = []
+    monkeypatch.setattr(snapshot, "post",
+                        lambda *a, **k: sent.append(a) or (200, b"{}"))
+    target = tmp_path / "x.sgsnap"
+    target.write_bytes(b"not the published bytes")
+    with pytest.raises(Refused, match="hashes to"):
+        snapshot.load("http://engine.test", target,
+                      expect_sha256="0" * 64)
+    assert sent == [], "posted a snapshot whose hash did not match"
+
+
+def test_a_snapshot_matching_the_published_hash_is_imported(monkeypatch,
+                                                            tmp_path):
+    """The other direction, so the check cannot be satisfied by always
+    refusing."""
+    import hashlib
+    monkeypatch.setattr(snapshot, "still_held", lambda url: 0)
+    monkeypatch.setattr(snapshot, "Engine", lambda url, graph=None: Graph())
+    monkeypatch.setattr(snapshot, "post", lambda *a, **k: (200, b"{}"))
+    target = tmp_path / "x.sgsnap"
+    target.write_bytes(b"the published bytes")
+    digest = hashlib.sha256(b"the published bytes").hexdigest()
+    assert snapshot.load("http://engine.test", target,
+                         expect_sha256=digest)["bytes"] == 19
