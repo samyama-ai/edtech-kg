@@ -204,3 +204,86 @@ def test_the_order_by_guard_catches_the_form_it_exists_for():
 
     assert offends(offending), "the guard would not catch the form #79 is about"
     assert not offends(compliant), "an aggregate alias is the documented exception"
+
+
+def test_a_question_whose_data_is_absent_is_skipped_not_shown_empty():
+    """**An empty table in front of an audience reads as a broken product**,
+    not as an absent source. The spine questions need labels the published
+    snapshot does not carry — it holds the district only — so they name what
+    to load rather than printing nothing.
+    """
+    gated = [q for q in demo.QUESTIONS if q.get("needs")]
+    assert gated, "no question declares what it needs"
+    for item in gated:
+        assert item["needs"] in ("Institution", "Programme", "Completion"), (
+            f"{item['needs']!r} is not a spine label; the district's own "
+            f"labels are guaranteed by preflight and need no gate")
+
+
+def test_the_spine_questions_type_no_figures():
+    """The asides elsewhere quote the catalogue, which is fixed and measured.
+    A spine aside quoting a number would be a second copy of a figure the
+    query beside it already prints — and #187's whole review round was about
+    exactly that drift. The wrong number is READ too, not asserted."""
+    import re
+    for item in demo.QUESTIONS:
+        if not item.get("needs"):
+            continue
+        digits = re.findall(r"\d[\d,]{2,}", item.get("aside", ""))
+        assert not digits, (
+            f"Q{demo.QUESTIONS.index(item)}'s aside types {digits}; the "
+            f"queries beside it print those figures from the engine")
+
+
+def test_the_walkthrough_closes_by_saying_what_is_absent():
+    """edtech-kg#8 asks for this by name. A demo that closes on what it can
+    do invites the room to assume the rest."""
+    import inspect
+    source = inspect.getsource(demo)
+    assert "What this graph does not hold" in source
+    for absent in ("occupations", "enrolment", "ZERO awards", "earnings"):
+        assert absent in source, f"the closing does not name {absent!r}"
+
+
+class Stub:
+    """An engine holding the district and nothing else — the shape the
+    published snapshot has."""
+
+    def __init__(self, held=None):
+        self.held = held or {"Course": 791, "REQUIRES": 240}
+        self.asked = []
+
+    def run(self, statement):
+        self.asked.append(statement)
+        for name, n in self.held.items():
+            if f":{name})" in statement or f":{name}]" in statement:
+                return {"records": [[n]]}
+        if "RETURN labels(n), count(n)" in statement:
+            return {"records": [[["Course"], self.held.get("Course", 0)]]}
+        if "MATCH (n) RETURN count(n)" in statement:
+            return {"records": [[self.held.get("Course", 0)]]}
+        return {"records": [[0]]}
+
+    url = "http://engine.test"
+    graph = "edtech"
+
+
+def test_the_spine_question_is_skipped_when_the_spine_is_absent(monkeypatch,
+                                                                capsys):
+    """**Driven, not declared.** Asserting only that a question carries a
+    `needs` key leaves the guard itself free to be deleted — verified: with
+    the skip removed the suite stayed green. This runs the walkthrough against
+    a district-only engine, which is exactly what `demo/ready.sh` produces
+    from the published snapshot.
+    """
+    engine = Stub()
+    monkeypatch.setattr(demo, "Engine", lambda url, graph=None: engine)
+    spine = next(i for i, q in enumerate(demo.QUESTIONS) if q.get("needs"))
+    assert demo.main(["--only", str(spine), "--auto",
+                      "--url", "http://engine.test"]) == 0
+    printed = capsys.readouterr().out
+    assert f"Q{spine} skipped" in printed, printed[-600:]
+    assert "load_education" in printed, "the skip does not say how to fix it"
+    # and it did not run the question's queries anyway
+    assert not any("cip_code" in q for q in engine.asked), (
+        "the skipped question still queried the engine")
