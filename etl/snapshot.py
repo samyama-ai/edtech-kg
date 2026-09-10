@@ -79,6 +79,14 @@ RECORD_NOTE = (
 #: shape rather than a single total — a total can be right while two types are
 #: wrong in opposite directions.
 NODE_LABELS = ("Course", "Subject", "Pathway", "Requirement")
+
+#: The property each label is worthless without, and the one `load_pwcs`
+#: already checks after its own load (`etl/load_pwcs.py:427-434`). Counting
+#: nodes and edges says the SHAPE survived the round trip; it says nothing
+#: about whether they carry anything, and a graph of nameless nodes verifies
+#: clean while the walkthrough opens on blanks.
+REQUIRED_PROPERTIES = (("Course", "name"), ("Subject", "name"),
+                       ("Pathway", "name"), ("Requirement", "text"))
 EDGE_TYPES = ("REQUIRES", "IN_SUBJECT", "INCLUDES", "HAS_REQUIREMENT")
 
 
@@ -219,12 +227,44 @@ def should_hold(whole: bool = False) -> dict | None:
     return held if whole else held["counts"]
 
 
-def verify(url: str, expected: dict,
-           graph: str = DEFAULT_GRAPH) -> list[str]:
-    """Every label and edge type, compared. Returns what disagrees."""
-    held = counts(Engine(url, graph=graph))
-    return [f"{name}: expected {expected[name]:,}, found {held.get(name, 0):,}"
-            for name in expected if held.get(name, 0) != expected[name]]
+def properties(engine: Engine) -> dict:
+    """How many nodes of each label actually carry their key property.
+
+    Asked as `IS NOT NULL` rather than as a total, so the answer is directly
+    comparable with the label count beside it: equal means every node carries
+    it, and anything less names how many do not.
+    """
+    return {f"{label}.{prop}": _count(
+        engine, f"MATCH (n:{identifier(label)}) "
+                f"WHERE n.{identifier(prop)} IS NOT NULL RETURN count(n)")
+        for label, prop in REQUIRED_PROPERTIES}
+
+
+def verify(url: str, expected: dict, graph: str = DEFAULT_GRAPH,
+           expect_properties: dict | None = None) -> list[str]:
+    """Every label and edge type, compared — and their key properties.
+
+    **Cardinality is not content.** This compared counts per label and per
+    edge type only, so a snapshot that reproduced every node and every edge
+    and dropped every PROPERTY verified clean, and the demo then opened on
+    nameless nodes. `demo/ready.sh` runs this as its gate, so it is the check
+    standing between a bad import and a customer-facing walkthrough — and
+    `etl/engine.py:208-220` records that properties are effectively
+    unremovable on 1.1.0, so such a graph cannot be repaired in place.
+    """
+    engine = Engine(url, graph=graph)
+    held = counts(engine)
+    wrong = [f"{name}: expected {expected[name]:,}, found {held.get(name, 0):,}"
+             for name in expected if held.get(name, 0) != expected[name]]
+    if expect_properties:
+        carried = properties(engine)
+        wrong += [
+            f"{name}: expected {expect_properties[name]:,} node(s) carrying "
+            f"it, found {carried.get(name, 0):,} — the nodes arrived and the "
+            f"values did not"
+            for name in expect_properties
+            if carried.get(name, 0) != expect_properties[name]]
+    return wrong
 
 
 def reproducibility(url: str, times: int = 3) -> dict:
@@ -313,7 +353,9 @@ def main(argv: list[str] | None = None) -> int:
             expected = should_hold()
             if expected is None:
                 return 2
-            wrong = verify(args.url, expected, graph=args.graph)
+            wrong = verify(args.url, expected, graph=args.graph,
+                           expect_properties=should_hold(whole=True)
+                           .get("property_counts"))
             if wrong:
                 print("the imported graph is not what the snapshot should "
                       "produce:", file=sys.stderr)
@@ -326,7 +368,9 @@ def main(argv: list[str] | None = None) -> int:
             expected = should_hold()
             if expected is None:
                 return 2
-            wrong = verify(args.url, expected, graph=args.graph)
+            wrong = verify(args.url, expected, graph=args.graph,
+                           expect_properties=should_hold(whole=True)
+                           .get("property_counts"))
             if wrong:
                 print("the graph is not what the snapshot should produce:",
                       file=sys.stderr)
@@ -376,6 +420,11 @@ def main(argv: list[str] | None = None) -> int:
                     # on a two-engine comparison, and `cypher_loaded` versus
                     # `imported` was attributable to nothing but a key name.
                     "graph": args.graph,
+                    # What the nodes CARRY, not just how many arrived. A
+                    # snapshot reproducing every node and edge with no
+                    # property values verified clean before this.
+                    "property_counts": properties(
+                        Engine(args.url, graph=args.graph)),
                     "exported_from": args.from_url, "imported_into": args.url,
                     "edge_count_readings": endpoint}
         report(measured)

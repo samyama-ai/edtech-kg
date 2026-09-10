@@ -463,3 +463,58 @@ def test_the_command_line_defaults_to_the_named_graph(monkeypatch, tmp_path):
                           "--url", "http://engine.test"]) == 0
     assert seen == ["edtech"], (
         f"a bare `export` worked in graph {seen}, not the one this repo loads")
+
+
+def test_a_graph_of_nameless_nodes_does_not_verify(monkeypatch):
+    """**Cardinality is not content.** `verify` compared counts per label and
+    per edge type only, so a snapshot that reproduced every node and every
+    edge and dropped every PROPERTY passed — and `demo/ready.sh` runs this as
+    its gate, so it stands between a bad import and a customer-facing
+    walkthrough.
+
+    Worse than it sounds: `etl/engine.py:208-220` records that properties are
+    effectively unremovable on 1.1.0, so a graph in this state cannot be
+    repaired in place. It has to be rebuilt.
+    """
+    class Nameless(Graph):
+        def scalar(self, statement):
+            if "IS NOT NULL" in statement:
+                return 0                      # nodes arrived, values did not
+            return super().scalar(statement)
+
+    monkeypatch.setattr(snapshot, "Engine", lambda url, graph=None: Nameless(
+        {"Course": 791, "Subject": 127, "Pathway": 42, "Requirement": 138}))
+    counts = {"Course": 791, "Subject": 127, "Pathway": 42, "Requirement": 138}
+    props = {"Course.name": 791, "Subject.name": 127,
+             "Pathway.name": 42, "Requirement.text": 138}
+
+    assert verify_ok(counts), "the counts alone should still agree"
+    wrong = snapshot.verify("http://engine.test", counts,
+                            expect_properties=props)
+    assert wrong, "a graph carrying no property values verified clean"
+    assert any("the values did not" in line for line in wrong), wrong
+    assert len(wrong) == len(props), (
+        f"only {len(wrong)} of {len(props)} missing properties were named")
+
+
+def verify_ok(counts):
+    return not snapshot.verify("http://engine.test", counts)
+
+
+def test_properties_are_counted_per_label_and_key(monkeypatch):
+    """Named per label and property, so a report says WHICH values are gone
+    rather than that something is."""
+    engine = Graph({"Course": 791, "Subject": 127, "Pathway": 42,
+                    "Requirement": 138})
+    held = snapshot.properties(engine)
+    assert set(held) == {f"{label}.{prop}"
+                         for label, prop in snapshot.REQUIRED_PROPERTIES}
+    for statement in engine.asked:
+        assert "IS NOT NULL" in statement, statement
+
+
+def test_the_property_check_is_skipped_when_the_record_predates_it():
+    """An older record carries no `property_counts`. That is a record without
+    the measurement, not a graph without the values — so it must not read as
+    every property missing."""
+    assert snapshot.verify.__defaults__[-1] is None
