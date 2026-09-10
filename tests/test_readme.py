@@ -42,9 +42,24 @@ def test_the_record_behind_the_front_page_exists():
 def test_the_page_opens_with_the_question():
     """#6's actual ask: the house convention is question, query, table — not
     architecture. Measured as a position, not as presence: the question was
-    already on the page, twenty lines below a badge."""
-    before_question = PAGE.index(RECORD["question"].split(",")[0].split("If")[-1]
-                                 .strip().split()[0])
+    already on the page, twenty lines below a badge.
+
+    **Anchored on the page's own heading**, recorded verbatim. The first
+    version reduced `RECORD["question"]` through `split(",")[0].split("If")[-1]
+    .strip().split()[0]` to the single character `"I"`, so what it actually
+    asserted was that some capital I appears before the gif and the badges.
+    `IB Programme` in the table supplies one, so the test passed with the
+    question anywhere on the page — including back at the bottom, the one
+    regression it names in its own docstring.
+
+    The record's `question` is the student's wording and the page's is the
+    heading's; they are different sentences, so neither pinned the other.
+    Both are recorded now and both are asserted.
+    """
+    assert RECORD["heading"] in PAGE, (
+        f"the page's opening heading is not the recorded one\n"
+        f"record: {RECORD['heading']!r}")
+    before_question = PAGE.index(RECORD["heading"])
     for later in ("![", "img.shields.io", "## Demo"):
         assert PAGE.index(later) > before_question, (
             f"{later!r} comes before the question; the page still opens with "

@@ -22,12 +22,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pathlib
+import re
 import sys
 
 from etl.engine import Engine
 from etl.provenance import write_record
-
-import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "readme-question-measured.json"
@@ -53,6 +53,21 @@ RETURN s.name AS subject, count(DISTINCT blocked) AS closed_off
 ORDER BY closed_off DESC LIMIT 5"""
 
 GATE = "Algebra 1"
+
+#: **The heading the page opens with, character for character** — the same
+#: question in the page's own words rather than the student's. Recorded like
+#: `QUERY` is, and for the same reason: the test that checks the question comes
+#: FIRST needs a needle that is actually the question. Its first version
+#: reduced `QUESTION` through a `split` chain to the single character `"I"`, so
+#: it asserted that some capital I appeared before the badges — true of any
+#: page with `IB` in the body, and still true with the question moved back to
+#: the bottom, which is the exact regression it was advertised as catching.
+HEADING = "> ### If a student doesn't pass Algebra 1, what closes off?"
+
+#: The depth bound in `QUERY`, read OFF the query rather than repeated. The
+#: depth probe exists to justify this bound, so a probe that stopped short of
+#: it could only ever verify part of it.
+BOUND = int(re.search(r"REQUIRES\*1\.\.(\d+)", QUERY).group(1))
 
 
 def rows(engine: Engine, statement: str) -> list:
@@ -86,7 +101,7 @@ def measure(url: str) -> dict:
     # rather than assumed. Asked of the engine at increasing depths: the
     # answer stops growing at the real depth.
     depths = {}
-    for depth in range(1, 7):
+    for depth in range(1, BOUND + 1):
         found = rows(engine, f'MATCH (l:Course)-[:REQUIRES*1..{depth}]->'
                              f'(g:Course) WHERE g.name = "{GATE}" '
                              f'WITH l RETURN l.name')
@@ -95,7 +110,9 @@ def measure(url: str) -> dict:
     return {
         "_": RECORD_NOTE,
         "question": QUESTION,
+        "heading": HEADING,
         "query": QUERY,
+        "bound": BOUND,
         "gate": GATE,
         "courses_in_graph": int(courses[0][0]) if courses else 0,
         "requires_edges": int(edges[0][0]) if edges else 0,
