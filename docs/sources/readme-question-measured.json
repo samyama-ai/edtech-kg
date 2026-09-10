@@ -1,0 +1,46 @@
+{
+  "_": "Measured by `python -m etl.probe_readme_question --record` against a graph with the district loaded. The README's opening question, its query and its answer come from here — `tests/test_readme.py` fails if the page and this file disagree. The front page's table is the most-read set of figures in this repo and was the only one with no run behind it.",
+  "question": "If I skip Algebra 1, what does that close off later?",
+  "query": "MATCH (blocked:Course)-[:REQUIRES*1..8]->(:Course {name: 'Algebra 1'})\nMATCH (blocked)-[:IN_SUBJECT]->(s:Subject)\nRETURN s.name AS subject, count(DISTINCT blocked) AS closed_off\nORDER BY closed_off DESC LIMIT 5",
+  "gate": "Algebra 1",
+  "courses_in_graph": 791,
+  "requires_edges": 240,
+  "closes_off": 28,
+  "subjects": 14,
+  "table": [
+    {
+      "subject": "Science - IB Programme",
+      "closed_off": 4
+    },
+    {
+      "subject": "Math - Electives",
+      "closed_off": 3
+    },
+    {
+      "subject": "Math - Computer Electives",
+      "closed_off": 3
+    },
+    {
+      "subject": "Math - Standard",
+      "closed_off": 3
+    },
+    {
+      "subject": "Science - Dual Enrollment",
+      "closed_off": 3
+    }
+  ],
+  "distinct_by_depth": {
+    "1": 9,
+    "2": 26,
+    "3": 28,
+    "4": 28,
+    "5": 28,
+    "6": 28
+  },
+  "code": {
+    "commit": "496973547ff102309a1ff7c025040235bc10c4eb",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
