@@ -22,8 +22,11 @@ believe it can be filled.
 ## Node labels — tier 1
 
 Tier 1 means **a probe in `etl/` has measured the source**. It does not mean the
-rows are loaded — nothing is loaded yet, and the Measured column says what the
-source holds, not what any graph contains.
+rows are loaded: the Measured column says what the source holds, not what any
+graph contains. Two loaders have run — `etl/load_pwcs.py` writes `Course`,
+`Subject`, `Pathway` and `Requirement`; `etl/load_education.py` writes
+`Institution`, `Programme` and `Completion`. Every other label here is
+measured at the source and unloaded.
 
 | Label | Key | Meaning | Measured in the source |
 |---|---|---|---|

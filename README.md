@@ -45,8 +45,11 @@ you can walk — plus nine measured public sources for the college and career si
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
 
 > **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
-> The national spine (CIP-SOC, IPEDS, BLS, College Scorecard) is measured but not yet
-> loaded. Counts, licences and known limitations are in [`docs/`](docs/).
+> **One state's higher education is loaded too** — Virginia (`fips=51`),
+> data year 2022: 147 institutions, 664 programmes and
+> 58,317 completions ([`docs/national-spine.md`](docs/national-spine.md)).
+> Occupations and the CIP–SOC crosswalk are measured and **not** loaded.
+> Counts, licences and known limitations are in [`docs/`](docs/).
 
 A student picks courses four times in high school. The decisions are close to irreversible,
 and they are made with almost no information about what each one leads to.
@@ -88,8 +91,17 @@ that exist nowhere else:
 
 ## What is loaded
 
+**Two tiers, and they do not yet join.**
+
 Prince William County Schools, `catalog.pwcs.edu`. Public pages only — no login, no student
 data, nothing that is not already on the internet.
+
+Plus Virginia's higher education for 2022 — 147 institutions,
+664 programmes, 58,317 completions and 58,317 edges of each
+kind, loaded by `etl/load_education.py` and recorded in
+[`docs/national-spine.md`](docs/national-spine.md). No edge crosses from a district course
+to a college programme, and [`docs/questions.md`](docs/questions.md) Q39 is marked blocked
+for exactly that reason — nothing public states the join.
 
 | Label | Count | |
 |---|---:|---|
@@ -169,8 +181,11 @@ preference, and the working is on the page.
   Held as `Requirement` nodes, never turned into edges the district did not publish.
 - **16 of 390 pathway rows** point at an internal Drupal node id with no published alias
   and cannot be resolved by URL. Reported, never dropped.
-- **The national spine is measured, not loaded.** No programme, occupation, institution or
-  earnings data is in the graph yet.
+- **Occupations are measured, not loaded.** The CIP–SOC crosswalk is measured
+  (867 occupations) and has a probe but no loader, so **nothing in the graph says where a
+  programme leads**. Institutions, programmes and completions ARE loaded — one state of
+  them — which is the half that says who awards what, not the half that says what it is
+  worth. Earnings are not loaded either.
 - **Earnings cover a quarter of programmes.** College Scorecard publishes a median
   figure for 25.5% of programme rows; the rest are suppressed or not applicable, and
   the figure is for graduates who took federal aid, not all graduates. That caveat has
@@ -186,7 +201,7 @@ preference, and the working is on the page.
 
 ```
 .github/      ci.yml — the suite on every push and PR, with a real engine
-etl/          probes (one per source) + load_pwcs.py
+etl/          probes (one per source) + load_pwcs.py, load_education.py
 schema/       edtech_kg.cypher + edtech_kg_tier2.cypher — the executable ontology
 demo/         demo.py — 21 questions, tiered
 docs/         scope, questions, schema, ontology-reuse, sources/
@@ -207,10 +222,14 @@ reads as "nothing to do here", which is the opposite of what it means.
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-python -m etl.probe_pwcs         # measure a source — every figure in the docs comes from these
-python -m etl.load_pwcs          # build + load the graph
-python -m demo.demo              # walk it
-pytest                           # the whole suite, no engine needed
+python -m etl.probe_pwcs                  # measure a source — every figure in the docs comes from these
+python -m etl.load_pwcs --graph edtech    # build + load one district
+
+python -m etl.download_education          # the national spine: cached, ~20 requests
+python -m etl.load_education --graph edtech   # ~24 minutes, 58,317 completions
+
+python -m demo.demo                       # walk it
+pytest                                    # the whole suite, no engine needed
 ```
 
 CI runs the same suite against a real engine. `SAMYAMA_REQUIRE_ENGINE=1` makes an
