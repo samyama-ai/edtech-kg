@@ -110,31 +110,25 @@ def test_the_checkout_is_deep_enough_for_the_ratchets(workflow):
         "not name the cause")
 
 
-def test_the_workflow_fetches_no_actions(workflow):
+def test_the_workflow_fetches_no_actions():
     """One fewer external dependency on a runner nobody here can inspect.
 
-    **This is NOT asserted as the fix for #109, and an earlier version of this
-    docstring said it was.** That claim rested on the #109 diagnostics having
-    7 runs and 7 successes without actions — and those diagnostics carry
-    `continue-on-error: true` on every step by design, so a workflow built to
-    be unfailable did not fail. Removing the actions here did not turn the
-    tick green either.
+    **That is the whole rationale, and this test's message used to claim more
+    than that** — it said fetching an action is "the one thing this runner
+    cannot do", which is exactly the causal claim #109's PR retracted. A
+    ratchet repeating a retracted belief is worse than no ratchet.
 
-    What is true: this workflow has 242 runs and 0 successes, and the shell
-    these two actions were wrapping is cheap enough that not fetching them
-    costs nothing. The test exists so the dependency is not reintroduced
-    without someone deciding to, not because it is known to matter.
-    
-    **If the cause turns out to be elsewhere, DELETE this test — do not work
-    around it.** A ratchet resting on an unproven belief is worth keeping only
-    while the belief is unfalsified, and the honest way to drop it is to drop
-    it rather than to add an exception to it.
+    It is NOT known to fix anything: this workflow has never produced a
+    successful run, and removing the actions did not change that. Keep it
+    because the shell these two actions wrapped is cheap, and **delete it —
+    do not work around it** — if the cause turns out to be elsewhere.
     """
-    offending = [line for line in workflow.splitlines()
+    offending = [line for line in WORKFLOW.read_text(encoding="utf-8").splitlines()
                  if re.match(r"\s*-?\s*uses:", line)]
     assert not offending, (
-        f"this workflow fetches an action, which is the one thing this "
-        f"runner cannot do: {offending}")
+        f"this workflow fetches an action. The shell these wrapped is cheap "
+        f"and this is one fewer dependency on a runner nobody here can "
+        f"inspect: {offending}")
 
 
 def test_the_python_version_is_asserted_rather_than_assumed(workflow):
@@ -315,3 +309,55 @@ def test_this_file_imports_nothing_ci_does_not_install():
     assert not outside, (
         f"this file imports {outside}, which CI does not install — the "
         f"workflow's install step is `pip install pytest setuptools`")
+
+
+def test_the_credential_does_not_survive_the_job():
+    """**`git config --local http.extraheader` writes the token into
+    `.git/config` and nothing was removing it.**
+
+    `actions/checkout` writes the same header and deletes it in a post-job
+    step — that is precisely why using `.git/config` is safe there. This
+    workflow had no post step, and it explicitly assumes a runner that REUSES
+    WORKSPACES (that is why the checkout guards `git remote add`). So the
+    token survived the job and was readable by any later job on the box.
+
+    An earlier comment here argued it was "not a regression against
+    actions/checkout". That was wrong: the post step is the difference.
+    """
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "http.extraheader" in text, "no credential is written at all"
+    assert re.search(r"config --local --unset-all http\.extraheader", text), (
+        "the credential is written into .git/config and never removed")
+    assert re.search(r"if:\s*always\(\)\s*\n\s*run:[^\n]*unset-all http\.extraheader",
+                     text), (
+        "the removal is not unconditional, so a failure above leaves the "
+        "token on disk — which is the case it exists for")
+
+
+def test_dependencies_are_installed_into_a_virtualenv():
+    """**PEP 668.** `actions/setup-python` supplied a private interpreter;
+    without it, `pip install` against a Debian or Ubuntu image's system
+    Python fails with `error: externally-managed-environment`.
+
+    On a change whose whole purpose is a green tick, discovering that on the
+    next run would be another new permanent red.
+    """
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "python3 -m venv" in text, (
+        "dependencies go into the system interpreter, which may be "
+        "externally managed")
+    assert "python3 -m pip --version" in text, (
+        "pip is not guaranteed present without setup-python, and this does "
+        "not check")
+    assert "GITHUB_PATH" in text, (
+        "the venv is created and never put on PATH, so the tests run against "
+        "the system interpreter anyway")
+
+
+def test_a_reused_workspace_is_cleaned_before_checkout():
+    """`checkout -f` overwrites tracked files and leaves untracked ones — a
+    stale venv, a half-written record, a `data/` from a previous job.
+    `actions/checkout` cleans."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"find \. -mindepth 1 -maxdepth 1 ! -name \.git", text), (
+        "a reused workspace keeps untracked files from the last run")

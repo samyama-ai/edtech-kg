@@ -52,32 +52,14 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # **NO `uses:` ANYWHERE IN THIS FILE (#109), AND IT IS NOT KNOWN TO BE
-      # THE FIX.**
+      # **NO `uses:` ANYWHERE IN THIS FILE.** One fewer external dependency
+      # on a runner nobody here can inspect — that is the whole claim, and it
+      # is NOT known to fix anything. This workflow has never produced a
+      # successful run, and removing the actions did not change that.
       #
-      # The fact: this workflow has 242 runs and 0 successes, so the `Tests`
-      # step has never executed and the tick has never been a statement about
-      # this repo's tests.
-      #
-      # The cause is NOT established, and the argument that first went in
-      # here was wrong. It compared this workflow against the #109
-      # diagnostics — 7 runs, 7 successes, no actions — and concluded the
-      # runner cannot fetch an action. **Those diagnostics carry
-      # `continue-on-error: true` on every step and `|| true` inside them, by
-      # design.** A workflow built so that nothing can fail it did not fail.
-      # That is not evidence its steps worked.
-      #
-      # Removing the actions was then tried, and the first run of THIS file
-      # without them failed too. So the action fetch is at most part of it.
-      #
-      # The two actions stay out because the shell they were wrapping is
-      # cheap and one fewer external dependency on a runner nobody here can
-      # inspect is worth having. That is the whole claim. Reverting to
-      # `uses:` is a two-line change if the cause turns out to be elsewhere.
-      #
-      # What would settle it is the step log of a failing run, which needs a
-      # web session — the API token can read run status and not step output,
-      # and has no admin scope to list the runner or its labels.
+      # The reasoning, the measurements and the retraction of an earlier
+      # causal claim are in edtech-kg#109, where they belong: this file will
+      # outlive the incident.
       - name: Check out, with full history
         # **`GITHUB_TOKEN` IS NOT AN AMBIENT VARIABLE IN A `run:` STEP.** It
         # is exposed as `${{ github.token }}` and has to be put into the step
@@ -95,6 +77,12 @@ jobs:
         # subject one layer down.
         run: |
           set -euo pipefail
+          # **A reused workspace can hold anything.** `checkout -f` overwrites
+          # tracked files and leaves untracked ones — a stale `.ci-venv`, a
+          # half-written record, a `data/` from a previous job. `actions/
+          # checkout` cleans; this does too, before `git init` so there is no
+          # repository to protect yet.
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} + || true
           git init -q .
           # Re-run-safe: a reused workspace already has the remote, and
           # `git remote add` exits 3 on it rather than doing nothing.
@@ -122,6 +110,14 @@ jobs:
           # safety that is actually fatal — the `git remote add` case just
           # exits 3 harmlessly.
           git checkout -q -f "$GITHUB_SHA"
+          # **THE CREDENTIAL COMES BACK OUT.** `actions/checkout` writes the
+          # same header into `.git/config` and removes it in a post-job step;
+          # this had no post step, so on a runner that REUSES WORKSPACES —
+          # which the `git remote add` handling above exists because it does —
+          # the token survived the job and was readable by any later one.
+          # Unset as soon as the fetch is done, and again unconditionally at
+          # the end of the job in case a later step fails.
+          git config --local --unset-all http.extraheader || true
           # **NOT `|| true`.** The size ratchets compare against `main`, and
           # swallowing this makes the one thing this step exists to guarantee
           # silently optional — the ratchets would then skip, and SAMYAMA_CI=1
@@ -144,8 +140,7 @@ jobs:
         # whose whole purpose is to get the tick green.
         run: |
           python3 --version
-          python3 -c 'import sys; assert sys.version_info[:2] >= (3, 11), \
-            f"CI is on {sys.version.split()[0]}; this repo requires >= 3.11"'
+          python3 -c "import sys; assert sys.version_info[:2] >= (3, 11), f'CI is on {sys.version.split()[0]}; this repo requires >= 3.11'"
 
       - name: Install test dependencies
         # `pip install -e .` is NOT used, and that is still deliberate — but
@@ -172,7 +167,22 @@ jobs:
         # CI could resolve a setuptools older than the one the metadata
         # test needs and fail for a reason that has nothing to do with
         # the change under review.
-        run: python3 -m pip install --quiet pytest "setuptools>=61.0"
+        run: |
+          set -euo pipefail
+          # **A VENV, because the system interpreter may be externally
+          # managed (PEP 668).** `actions/setup-python` supplied a private
+          # interpreter; without it, `pip install` on a Debian/Ubuntu image
+          # fails with `error: externally-managed-environment`. Discovering
+          # that on run 244 would be another new permanent red on a change
+          # whose whole purpose is a green tick.
+          #
+          # `pip` is also not guaranteed present without `setup-python`, so
+          # it is asserted rather than assumed.
+          python3 -m pip --version
+          python3 -m venv .ci-venv
+          .ci-venv/bin/python -m pip install --quiet --upgrade pip
+          .ci-venv/bin/python -m pip install --quiet pytest "setuptools>=61.0"
+          echo "$PWD/.ci-venv/bin" >> "$GITHUB_PATH"
 
       - name: Start a fresh engine
         # A FRESH instance, never a loaded one: the schema tests validate
@@ -205,7 +215,14 @@ jobs:
           SAMYAMA_REQUIRE_ENGINE: "1"
           # Turns an UNEXPECTED skip into a failure. See conftest.py.
           SAMYAMA_CI: "1"
-        run: python3 -m pytest -q -rs
+        run: python -m pytest -q -rs
+
+      - name: Remove the credential
+        # `always()`, because the point is the case where something above
+        # failed. Belt and braces with the unset in the checkout step: that
+        # one runs on the happy path, this one runs regardless.
+        if: always()
+        run: git config --local --unset-all http.extraheader || true
 
       - name: Engine logs
         # On failure the engine's own log is usually the shortest route to why.
