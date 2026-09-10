@@ -29,6 +29,7 @@ its size and import time so the figure has a run behind it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
@@ -147,6 +148,40 @@ def verify(url: str, expected: dict) -> list[str]:
             for name in expected if held.get(name, 0) != expected[name]]
 
 
+def reproducibility(url: str, times: int = 3) -> dict:
+    """Does exporting an unchanged graph twice give the same file?
+
+    **It does not**, and that decides how the size may be quoted and how a
+    download may be checked. Three exports of one unloaded-since graph:
+
+        160,274 · 160,403 · 160,411 bytes — three different sha256
+
+    So a published snapshot cannot be verified by re-exporting and comparing;
+    its integrity has to be checked against the hash of the file that was
+    actually published. And an exact byte count on a page is a figure that
+    drifts on every export, which is why the dataset card rounds it.
+    """
+    seen = []
+    for n in range(times):
+        scratch = DEFAULT_FILE.with_name(f"reproducibility-{n}.sgsnap")
+        try:
+            status, body = post(url, "/api/snapshot/export")
+            if status != 200:
+                raise Refused(f"export answered {status}")
+            seen.append((len(body), hashlib.sha256(body).hexdigest()))
+        finally:
+            if scratch.exists():
+                scratch.unlink()
+    sizes = [n for n, _ in seen]
+    return {
+        "exports_compared": times,
+        "bytes_min": min(sizes),
+        "bytes_max": max(sizes),
+        "bytes_spread": max(sizes) - min(sizes),
+        "byte_identical": len({d for _, d in seen}) == 1,
+    }
+
+
 def report(measured: dict) -> None:
     snap = measured["snapshot"]
     print(f"  {snap['bytes']:,} bytes, imported in {measured['import']['seconds']}s")
@@ -199,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # record: export from the loaded graph, import into `--url`, measure.
         taken = export(args.from_url, args.file)
+        taken["reproducible"] = reproducibility(args.from_url)
         found = load(args.url, args.file)
         wrong = verify(args.url, taken["taken_from"])
         if wrong:

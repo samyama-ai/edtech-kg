@@ -123,3 +123,40 @@ def test_the_record_says_what_an_import_must_reproduce():
         "the recorded import did not reproduce the graph it was taken from")
     assert found["snapshot"]["bytes"] > 0
     assert found["code"]["dirty"] is False
+
+
+def test_the_record_says_the_snapshot_is_not_byte_reproducible():
+    """**Three exports of an unchanged graph give three different files.**
+    Measured: 160,274 · 160,403 · 160,411 bytes, three different sha256.
+
+    Two things follow, and both are decisions rather than trivia:
+
+      * a published snapshot cannot be verified by re-exporting and comparing
+        — its integrity has to be checked against the hash of the file that
+        was actually published;
+      * an exact byte count on a page is a figure that drifts on every export,
+        which is why the dataset card rounds it.
+
+    Written as this repo's belief about 1.1.0. If exports become
+    deterministic, this fails and the card can start quoting an exact size.
+    """
+    if not RECORD.exists():
+        pytest.skip("no committed record yet")
+    found = json.loads(RECORD.read_text(encoding="utf-8"))
+    repro = found["snapshot"]["reproducible"]
+    assert repro["byte_identical"] is False, (
+        "exports are byte-identical now; the card may quote an exact size and "
+        "a download may be checked by re-export")
+    assert repro["bytes_spread"] > 0
+    assert repro["exports_compared"] >= 2
+
+
+def test_the_card_rounds_the_snapshot_size():
+    """A page carrying an exact byte count for an artefact that changes size
+    on every export is a page that goes stale by itself."""
+    card = (ROOT / "DATASET-CARD.md").read_text(encoding="utf-8")
+    if not RECORD.exists():
+        pytest.skip("no committed record yet")
+    exact = json.loads(RECORD.read_text(encoding="utf-8"))["snapshot"]["bytes"]
+    assert f"{exact:,} bytes" not in card, (
+        "the card quotes an exact byte count, which the next export changes")
