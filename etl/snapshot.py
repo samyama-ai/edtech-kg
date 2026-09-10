@@ -48,7 +48,12 @@ RECORD_NOTE = (
     "counts an import must reproduce. The counts are per-type Cypher, NOT "
     "`/api/status`: on a Cypher-loaded graph that endpoint reports twice the "
     "edges it holds, so a check against it would pass or fail depending on "
-    "how the graph it is checking was built.")
+    "how the graph it is checking was built. `snapshot.bytes` is the export "
+    "this run published; `snapshot.reproducible` compares three FURTHER "
+    "exports of the same graph. They are different exports, and exports of "
+    "one unchanged graph differ in size, so `bytes` is not expected to fall "
+    "between `bytes_min` and `bytes_max` — it did not on an earlier run, and "
+    "the two looked inconsistent.")
 
 #: What the district's graph holds, by type. Named so `verify` compares a
 #: shape rather than a single total — a total can be right while two types are
@@ -109,7 +114,13 @@ def export(url: str, into: pathlib.Path) -> dict:
     scratch = into.with_name(into.name + ".part")
     scratch.write_bytes(body)
     scratch.replace(into)
-    return {"file": str(into), "bytes": len(body), "taken_from": before}
+    # **Repo-relative.** `str(into)` put a committed document's author's home
+    # directory into `snapshot-measured.json`.
+    try:
+        where = into.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        where = into.name          # written outside the repo; the name is all
+    return {"file": where, "bytes": len(body), "taken_from": before}
 
 
 def load(url: str, snapshot: pathlib.Path) -> dict:
@@ -141,6 +152,19 @@ def load(url: str, snapshot: pathlib.Path) -> dict:
             "in_graph": counts(engine)}
 
 
+def should_hold() -> dict | None:
+    """The counts an import must reproduce, from the committed record.
+
+    One reader for both `import` and `verify`, so neither can drift into
+    checking the graph against itself.
+    """
+    if not RECORD.exists():
+        print(f"{RECORD.relative_to(ROOT)} is missing — run "
+              f"`python -m etl.snapshot record` first.", file=sys.stderr)
+        return None
+    return json.loads(RECORD.read_text(encoding="utf-8"))["counts"]
+
+
 def verify(url: str, expected: dict) -> list[str]:
     """Every label and edge type, compared. Returns what disagrees."""
     held = counts(Engine(url))
@@ -152,9 +176,11 @@ def reproducibility(url: str, times: int = 3) -> dict:
     """Does exporting an unchanged graph twice give the same file?
 
     **It does not**, and that decides how the size may be quoted and how a
-    download may be checked. Three exports of one unloaded-since graph:
-
-        160,274 · 160,403 · 160,411 bytes — three different sha256
+    download may be checked. Three exports of one unloaded-since graph differ
+    in size and in sha256; the figures are in `snapshot-measured.json` under
+    `snapshot.reproducible`, and are not repeated here — the three sizes this
+    docstring used to quote had drifted from the record they came from, which
+    is the same defect this module was written to remove from the card.
 
     So a published snapshot cannot be verified by re-exporting and comparing;
     its integrity has to be checked against the hash of the file that was
@@ -162,16 +188,14 @@ def reproducibility(url: str, times: int = 3) -> dict:
     drifts on every export, which is why the dataset card rounds it.
     """
     seen = []
-    for n in range(times):
-        scratch = DEFAULT_FILE.with_name(f"reproducibility-{n}.sgsnap")
-        try:
-            status, body = post(url, "/api/snapshot/export")
-            if status != 200:
-                raise Refused(f"export answered {status}")
-            seen.append((len(body), hashlib.sha256(body).hexdigest()))
-        finally:
-            if scratch.exists():
-                scratch.unlink()
+    # In memory: the export is compared as bytes, never written. An earlier
+    # version built scratch paths, wrote nothing to them, then unlinked them
+    # in a `finally`.
+    for _ in range(times):
+        status, body = post(url, "/api/snapshot/export")
+        if status != 200:
+            raise Refused(f"export answered {status}")
+        seen.append((len(body), hashlib.sha256(body).hexdigest()))
     sizes = [n for n, _ in seen]
     return {
         "exports_compared": times,
@@ -213,15 +237,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "import":
             found = load(args.url, args.file)
             print(f"  imported in {found['seconds']}s")
-            wrong = verify(args.url, found["in_graph"])
-            return 0 if not wrong else 4
+            # **NOT `found["in_graph"]`.** That is `counts(engine)` taken from
+            # this same engine moments earlier, so it compared the graph to
+            # itself: it could only fail on a race, and a half-import — the
+            # failure this module exists to catch — passed. It also returned 4
+            # without saying what disagreed. Both actions use the record now.
+            expected = should_hold()
+            if expected is None:
+                return 2
+            wrong = verify(args.url, expected)
+            if wrong:
+                print("the imported graph is not what the snapshot should "
+                      "produce:", file=sys.stderr)
+                for line in wrong:
+                    print(f"  {line}", file=sys.stderr)
+                return 4
+            return 0
 
         if args.action == "verify":
-            if not RECORD.exists():
-                print(f"{RECORD.relative_to(ROOT)} is missing — run "
-                      f"`python -m etl.snapshot record` first.", file=sys.stderr)
+            expected = should_hold()
+            if expected is None:
                 return 2
-            expected = json.loads(RECORD.read_text(encoding="utf-8"))["counts"]
             wrong = verify(args.url, expected)
             if wrong:
                 print("the graph is not what the snapshot should produce:",

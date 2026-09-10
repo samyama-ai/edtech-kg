@@ -57,8 +57,9 @@ in [`sources/snapshot-measured.json`](docs/sources/snapshot-measured.json).
 | Against | a load of about 8 seconds — and no network, no source pages |
 | Published as | a release asset. Not committed: `data/` is gitignored and a graph artefact is not source |
 | Size varies | exporting the same graph twice gives different bytes — so a download is checked against the published file's hash, not by re-exporting |
-| Verified by | `python -m etl.snapshot verify`, per label and per edge type, before a demo opens | Everything else above is measured at the
-source and **not loaded**.
+| Verified by | `python -m etl.snapshot verify`, per label and per edge type, before a demo opens |
+
+Everything else above is measured at the source and **not loaded**.
 
 **Node and edge counts for the other sources are absent, not blank.** No loader
 has run for them. **Sixteen labels are declared and four are written**, so

@@ -108,9 +108,14 @@ def test_the_snapshot_is_not_committed():
     artefact is not source, and #6's house rule is that no raw data can be
     committed by accident."""
     import subprocess
-    tracked = subprocess.run(["git", "ls-files"], cwd=ROOT,
-                             capture_output=True, text=True).stdout
-    assert ".sgsnap" not in tracked, "a snapshot is committed"
+    listed = subprocess.run(["git", "ls-files"], cwd=ROOT,
+                            capture_output=True, text=True)
+    # `check=True` and a non-empty listing: without them a subprocess that
+    # failed for any reason returns empty stdout and the assertion below
+    # passes vacuously — a test that reports success when nothing ran.
+    assert listed.returncode == 0, f"git ls-files failed: {listed.stderr}"
+    assert listed.stdout.strip(), "git ls-files listed nothing"
+    assert ".sgsnap" not in listed.stdout, "a snapshot is committed"
 
 
 def test_the_record_says_what_an_import_must_reproduce():
@@ -127,7 +132,9 @@ def test_the_record_says_what_an_import_must_reproduce():
 
 def test_the_record_says_the_snapshot_is_not_byte_reproducible():
     """**Three exports of an unchanged graph give three different files.**
-    Measured: 160,274 · 160,403 · 160,411 bytes, three different sha256.
+    Measured over three exports; the sizes and the spread are in the record
+    under `snapshot.reproducible` and are deliberately not repeated here —
+    the three figures this docstring used to quote had drifted from it.
 
     Two things follow, and both are decisions rather than trivia:
 
@@ -160,3 +167,42 @@ def test_the_card_rounds_the_snapshot_size():
     exact = json.loads(RECORD.read_text(encoding="utf-8"))["snapshot"]["bytes"]
     assert f"{exact:,} bytes" not in card, (
         "the card quotes an exact byte count, which the next export changes")
+
+
+def test_import_checks_the_graph_against_the_record_not_against_itself(
+        monkeypatch, tmp_path, capsys):
+    """**The check that could only pass.** `import` verified against
+    `found["in_graph"]` — `counts(engine)` read from the same engine moments
+    earlier — so it compared the graph to itself. A half-import, the failure
+    this module exists to catch, sailed through it.
+
+    Here the engine comes back holding one Course where the record wants 791.
+    Against itself that agrees; against the record it does not.
+    """
+    monkeypatch.setattr(snapshot, "Engine", lambda url: Graph({"Course": 1}))
+    monkeypatch.setattr(snapshot, "load", lambda url, path: {
+        "seconds": 0.01, "bytes": 10, "engine_said": {},
+        "in_graph": {"Course": 1}})
+    target = tmp_path / "x.sgsnap"
+    target.write_bytes(b"snapshot")
+    assert snapshot.main(["import", "--file", str(target),
+                          "--url", "http://engine.test"]) == 4
+    said = capsys.readouterr().err
+    assert "Course" in said, (
+        f"the import failed without naming what disagreed:\n{said}")
+
+
+def test_the_record_carries_no_absolute_path(monkeypatch, tmp_path):
+    """A committed document carrying somebody's home directory. `export`
+    recorded `str(into)`, so `snapshot-measured.json` shipped
+    `/Users/.../edtech-kg/data/edtech-kg.sgsnap`."""
+    monkeypatch.setattr(snapshot, "Engine", lambda url: Graph({"Course": 791}))
+    monkeypatch.setattr(snapshot, "post",
+                        lambda *a, **k: (200, b"snapshot-bytes"))
+    into = ROOT / "data" / "written-by-a-test.sgsnap"
+    try:
+        found = snapshot.export("http://engine.test", into)
+    finally:
+        into.unlink(missing_ok=True)
+    assert found["file"] == "data/written-by-a-test.sgsnap"
+    assert not pathlib.Path(found["file"]).is_absolute()
