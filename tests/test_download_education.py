@@ -5,13 +5,12 @@ none of them is visible in the file that lands on disk: whether the walk
 followed the source's own `next` link, whether it stopped short, and whether
 an empty answer was written down as a measurement of zero.
 
-**Nothing here opens a socket, and that is asserted rather than trusted** —
-`test_this_file_opens_no_sockets` runs this file under a watcher in a child
-process. An earlier draft of this docstring claimed a `tests/conftest.py`
-refused sockets suite-wide. There is no such file on this branch; the claim
-was written from a sibling branch where one is being built. An unbacked claim
-about the test harness is worse than no claim, because it is the sentence a
-reader uses to decide how much the rest of the file is worth.
+**Nothing here opens a socket**, and that is enforced by `tests/conftest.py`,
+which refuses `connect` and `connect_ex` suite-wide. This file carried its own
+per-file watcher until #179 landed that conftest; the two then disagreed, and
+the watcher lost. It ran the file in a child that replaced `socket.socket`
+with a counting subclass, so the conftest patched the counter off the class it
+had just been handed and the guard passed while counting nothing.
 """
 
 from __future__ import annotations
@@ -240,16 +239,43 @@ def test_only_with_no_tables_named_does_not_download_everything():
         dl.main(["--only"])
 
 
-def test_this_file_opens_no_sockets():
-    """The docstring above says nothing here fetches. Asserted, not trusted.
+def test_a_corrupt_cache_file_is_refused_not_a_traceback(tmp_path,
+                                                         monkeypatch):
+    """An interrupted write leaves unparseable JSON, and `json.loads` raised
+    `JSONDecodeError` straight through `main`'s `except Truncated` — the
+    module documents a clean refusal for every other unusable slice and
+    delivered a traceback for this one."""
+    monkeypatch.setattr(dl, "CACHE", tmp_path)
+    monkeypatch.setattr(dl, "ROOT", tmp_path)
+    (tmp_path / f"completions-{dl.FIPS}-{dl.YEAR}.json").write_text(
+        "{not json", encoding="utf-8")
+    with pytest.raises(dl.Truncated, match="not readable JSON"):
+        dl.fetch("completions", {"url": "https://x/c", "what": "c"})
 
-    A missing monkeypatch is invisible until somebody watches the socket:
-    `test_sced_doc.py` made live requests on every full-suite run and nothing
-    noticed. Both `connect` and `connect_ex` are watched — a guard covering
-    one of them is green against the other.
-    """
-    from tests.no_sockets import connects_made_by
-    connects, output = connects_made_by(__file__)
-    assert connects == 0, (
-        f"{connects} socket(s) opened — a test in this file reached the "
-        f"network:\n{output}")
+
+def test_a_cached_slice_with_no_counts_is_refused_not_a_key_error(tmp_path,
+                                                                  monkeypatch):
+    """Both counts absent compare equal as `None`, so the agreement check
+    passed them and `held["rows_collected"]` raised `KeyError` two lines
+    later. A slice carrying no counts cannot be checked at all, which is a
+    refusal, not a crash."""
+    monkeypatch.setattr(dl, "CACHE", tmp_path)
+    monkeypatch.setattr(dl, "ROOT", tmp_path)
+    (tmp_path / f"completions-{dl.FIPS}-{dl.YEAR}.json").write_text(
+        json.dumps({"rows": rows(2)}), encoding="utf-8")
+    with pytest.raises(dl.Truncated, match="rows_collected or count_reported"):
+        dl.fetch("completions", {"url": "https://x/c", "what": "c"})
+
+
+def test_check_prints_a_table_reporting_zero_rows(tmp_path, monkeypatch,
+                                                  capsys):
+    """`check` sets `pages` to None when a table reports no rows, and `:>3`
+    cannot format None — `--check` died with a `TypeError` on the one answer
+    it most needed to show. Zero rows is a report, not a crash."""
+    monkeypatch.setattr(dl, "CACHE", tmp_path)
+    monkeypatch.setattr(dl, "ROOT", tmp_path)
+    monkeypatch.setattr(dl, "get", lambda url: {"count": 0, "results": []})
+    assert dl.main(["--check"]) == 0
+    printed = capsys.readouterr().out
+    assert "0 rows" in printed
+    assert "- pages" in printed

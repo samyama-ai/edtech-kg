@@ -130,7 +130,15 @@ def fetch(name: str, table: dict, force: bool = False) -> dict:
     CACHE.mkdir(parents=True, exist_ok=True)
     path = CACHE / f"{name}-{FIPS}-{YEAR}.json"
     if path.exists() and not force:
-        held = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            held = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as unreadable:
+            # This file is written by this module, so a corrupt one means an
+            # interrupted write or a hand-edit. Either way it is the same
+            # answer as a truncated slice, and it arrived as a traceback.
+            raise Truncated(
+                f"{path.name}: the cached slice is not readable JSON "
+                f"({unreadable}). Re-fetch it with --force.") from unreadable
         # **CHECKED ON THE READ PATH TOO.** The completeness check used to run
         # only on the fetch that wrote the file, so a truncated or hand-edited
         # slice on disk was served as trustworthy — and this module is the
@@ -138,6 +146,16 @@ def fetch(name: str, table: dict, force: bool = False) -> dict:
         # check it was built to make possible is worse than no cache.
         if not held.get("rows"):
             raise Truncated(f"{path.name}: the cached slice holds no rows.")
+        absent = [key for key in ("rows_collected", "count_reported")
+                  if key not in held]
+        if absent:
+            # Both missing compare equal as `None`, so the check below passed
+            # and `held["rows_collected"]` raised KeyError two lines later. A
+            # slice carrying no counts cannot be checked at all.
+            raise Truncated(
+                f"{path.name}: the cached slice carries no "
+                f"{' or '.join(absent)}, so its completeness cannot be "
+                f"checked. Re-fetch it with --force.")
         if held.get("rows_collected") != held.get("count_reported"):
             raise Truncated(
                 f"{path.name}: the cached slice reports "
@@ -232,8 +250,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.check:
             for name, size in check().items():
+                # `pages` is None for a table reporting zero rows, and `:>3`
+                # cannot format None — a zero-row table died here with a
+                # TypeError instead of printing the zero.
+                pages = "-" if size["pages"] is None else f"{size['pages']:,}"
                 print(f"  {name:<14} {size['rows']:>9,} rows  "
-                      f"{size['pages']:>3} pages  "
+                      f"{pages:>3} pages  "
                       f"{'cached' if size['cached'] else 'not cached'}")
             return 0
 
