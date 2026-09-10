@@ -178,11 +178,20 @@ CREATE CONSTRAINT ON (r:Requirement) ASSERT r.id IS UNIQUE;
 // `majornum`, and in 3,524 of those MORE THAN ONE HAS
 // A NON-ZERO AWARD COUNT.
 //
-// Keyed without it, those 3,524 merge two real
-// completions into one node — **23,126 completions disappear**,
-// which is the figure to quote. The larger
-// 16,800 is NOT that number: in most of
-// those groups every other row is a zero and nothing is lost.
+// Keyed without it, those 16,800 groups
+// merge two real completions into one node — **16,800
+// Completion nodes disappear**, which is six-part keys minus five-part
+// (189,450 - 172,650).
+//
+// THREE FIGURES, AND TWO OF THEM WERE CONFLATED HERE. This comment used to
+// say "23,126 completions disappear". That figure is a SUM OF
+// AWARD COUNTS across the 3,524 groups where more
+// than one row carries a non-zero award — not a count of nodes, and not
+// comparable to one.
+//
+// `majornum` takes exactly two values in this slice, so a merging group holds
+// two six-part keys and loses one node. That is why the node loss and the
+// count of groups carrying two majornums are the same 16,800.
 //
 // Nothing would fail: the load would report fewer nodes than rows, which is
 // what a MERGE is supposed to do.

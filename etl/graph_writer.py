@@ -18,22 +18,36 @@ first write rather than discovering row 40,000 cannot be quoted.
 
 from __future__ import annotations
 
-from etl.engine import Engine, Refused
+from etl.engine import Engine, Refused, Unquotable, lit
 
 
 def quote(value) -> str:
-    """A Cypher string literal. 1.1.0 has no escape sequence inside one.
+    """A Cypher literal — `etl.engine.lit`, not a second implementation.
 
-    `etl/cypher_script.py` records why that matters: a quote character always
-    opens or closes a literal and never appears within, so a value carrying
-    one cannot be written at all. Refused rather than mangled — a silently
-    truncated institution name is a wrong answer that looks like a right one.
+    **This WAS a second implementation, and it was worse in two ways that
+    both reached the graph.** It did `str(value)` and always wrapped in `"`,
+    so every number landed as a string: `year: "2022"`, `awards: "3"`. The
+    schema declares `CREATE INDEX ON :Completion(year)` over that, and
+    `sum(c.awards)` — the obvious next query — does not behave. The tell was
+    already in this repo's own tests, which had to `int()` their way back out
+    of results they had just written.
+
+    It also refused more than the engine does. Any `"` or `\\` was rejected
+    outright, so `St. Mary"s College` aborted a 58,000-row load — while `lit`
+    picks the other quote character per value and writes it. Only a string
+    holding BOTH quote characters is genuinely inexpressible on 1.1.0.
+
+    Two loaders in one graph disagreeing about property typing is the thing
+    worth avoiding here; `etl/load_pwcs.py` already used `lit`.
+
+    `Unquotable` is re-raised as `Refused` because the callers catch that —
+    though `Refused` means "the engine answered 4xx" and the engine never saw
+    this, which is why the message says so.
     """
-    text = str(value)
-    if '"' in text or "\\" in text:
-        raise Refused(400, f"cannot quote {text!r}: 1.1.0 has no escape "
-                           f"sequence inside a string literal")
-    return '"' + text + '"'
+    try:
+        return lit(value)
+    except Unquotable as cannot:
+        raise Refused(0, f"not sent — {cannot}") from cannot
 
 
 class Writer:

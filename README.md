@@ -45,8 +45,11 @@ you can walk — plus nine measured public sources for the college and career si
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
 
 > **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
-> The national spine (CIP-SOC, IPEDS, BLS, College Scorecard) is measured but not yet
-> loaded. Counts, licences and known limitations are in [`docs/`](docs/).
+> **One state's higher education is loaded too** — Virginia (`fips=51`),
+> data year 2022: 147 institutions, 664 programmes and
+> 58,317 completions ([`docs/national-spine.md`](docs/national-spine.md)).
+> Occupations and the CIP–SOC crosswalk are measured and **not** loaded.
+> Counts, licences and known limitations are in [`docs/`](docs/).
 
 A student picks courses four times in high school. The decisions are close to irreversible,
 and they are made with almost no information about what each one leads to.
@@ -88,8 +91,17 @@ that exist nowhere else:
 
 ## What is loaded
 
+**Two tiers, and they do not yet join.**
+
 Prince William County Schools, `catalog.pwcs.edu`. Public pages only — no login, no student
 data, nothing that is not already on the internet.
+
+Plus Virginia's higher education for 2022 — 147 institutions,
+664 programmes, 58,317 completions and 58,317 edges of each
+kind, loaded by `etl/load_education.py` and recorded in
+[`docs/national-spine.md`](docs/national-spine.md). No edge crosses from a district course
+to a college programme, and [`docs/questions.md`](docs/questions.md) Q39 is marked blocked
+for exactly that reason — nothing public states the join.
 
 | Label | Count | |
 |---|---:|---|
@@ -169,8 +181,11 @@ preference, and the working is on the page.
   Held as `Requirement` nodes, never turned into edges the district did not publish.
 - **16 of 390 pathway rows** point at an internal Drupal node id with no published alias
   and cannot be resolved by URL. Reported, never dropped.
-- **The national spine is measured, not loaded.** No programme, occupation, institution or
-  earnings data is in the graph yet.
+- **Occupations are measured, not loaded.** The CIP–SOC crosswalk is measured
+  (867 occupations) and has a probe but no loader, so **nothing in the graph says where a
+  programme leads**. Institutions, programmes and completions ARE loaded — one state of
+  them — which is the half that says who awards what, not the half that says what it is
+  worth. Earnings are not loaded either.
 - **Earnings cover a quarter of programmes.** College Scorecard publishes a median
   figure for 25.5% of programme rows; the rest are suppressed or not applicable, and
   the figure is for graduates who took federal aid, not all graduates. That caveat has

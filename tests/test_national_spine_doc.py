@@ -134,10 +134,15 @@ def test_the_skipped_rows_are_stated_rather_than_left_out():
     # **In their own table rows, not loose in the prose.** `"169" in PAGE`
     # is satisfied by any incidental three digits — a port number, a byte
     # count, part of a larger figure.
-    for figure in (ISSUED["rows_skipped_zero_awards"],
-                   ISSUED["duplicate_rows_skipped"]):
-        assert re.search(rf"\| {figure:,} \|", PAGE), (
-            f"{figure:,} is not in a table row on the page")
+    # **ROW-ANCHORED, not merely cell-anchored.** Cell-anchored, swapping
+    # 132,284 and 169 between the "zero awards" row and the "collapsing onto
+    # one key" row passed every test while the page said the opposite of the
+    # truth — mutation-verified.
+    for figure, names in ((ISSUED["rows_skipped_zero_awards"], "zero awards"),
+                          (ISSUED["duplicate_rows_skipped"], "one key")):
+        assert re.search(rf"^\|[^|]*{re.escape(names)}[^|]*\| {figure:,} \|",
+                         PAGE, re.M), (
+            f"the row naming {names!r} does not carry {figure:,}")
 
 
 def test_the_page_says_the_writes_are_not_merge_and_why():
@@ -145,8 +150,13 @@ def test_the_page_says_the_writes_are_not_merge_and_why():
     and a deviation from the issue that is not stated is a deviation a
     reviewer has to find."""
     assert "MERGE" in PAGE
-    assert "692" in PAGE and "35/sec" in PAGE, (
-        "the page does not carry the measurement that justifies the deviation")
+    # **In their own sentence, not loose on the page.** `"692" in PAGE` was
+    # satisfied by any unrelated 692 — mutation-verified: changing the MERGE
+    # rate to 999 and adding a sentence containing 692 elsewhere passed.
+    assert re.search(r"692 statements/sec at 1,500 nodes", PAGE), (
+        "the page does not carry the MERGE rate that justifies the deviation")
+    assert re.search(r"35/sec at 37,141", PAGE), (
+        "the page does not carry the rate MERGE falls to")
 
 
 def test_the_page_says_what_is_not_loaded():
@@ -189,8 +199,11 @@ def test_the_page_says_which_slice_this_is():
     The record carries `fips` and `year`; the page did not, and every figure
     on it describes Virginia. A reader multiplying up to fifty states would
     be doing so on a page that never said not to."""
-    assert str(RECORD["fips"]) in PAGE
-    assert str(RECORD["year"]) in PAGE
+    # `str(fips)` alone was satisfied by the 51 inside 51,544 in the curve
+    # table. Anchored to how the page actually writes it.
+    assert re.search(rf"fips={RECORD['fips']}\b", PAGE), (
+        "the page does not name the slice's FIPS code")
+    assert re.search(rf"\b{RECORD['year']}\b", PAGE)
     assert "Virginia" in PAGE
     assert "one state" in PAGE.lower()
 

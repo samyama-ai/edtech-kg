@@ -134,3 +134,26 @@ def test_the_state_access_figure_agrees_with_the_record_everywhere():
     assert claim.group(1) == words[unanswered], (
         f"scope.md says {claim.group(1)} of {claim.group(2)} departments do not "
         f"answer; the record has {unanswered} of {len(departments)}")
+
+
+def test_the_spine_the_record_holds_is_actually_on_the_card():
+    """**The reverse direction, which was missing.** Every check here ran
+    page → record: a figure on the page had to be in a run. Nothing ran
+    record → page, so the whole "One state's higher education" section could
+    be DELETED and the suite stayed green — mutation-verified.
+
+    CONTRIBUTING names this direction: *a figure in the record that is not on
+    the page is a measurement nobody published.*
+    """
+    spine = record("national-spine")
+    text = card()
+    assert "higher education" in text, (
+        "the card no longer describes the loaded spine at all, and every "
+        "other check here would still pass")
+    for label, count in spine["in_graph"].items():
+        assert f"{count:,}" in text, (
+            f"the record holds {label} = {count:,} and the card does not "
+            f"carry it")
+    assert f"{spine['second_run']['nodes_and_edges_created']:,} created" in text \
+        or f"**{spine['second_run']['nodes_and_edges_created']:,}** created" in text, (
+        "the idempotence figure is recorded and not published")

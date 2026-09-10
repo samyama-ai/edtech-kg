@@ -1,8 +1,13 @@
 {
-  "_": "Measured by `python -m etl.probe_completion_key --record` over the cached slice. `groups_losing_a_count` is the figure that matters: groups where the five-part key merges rows AND more than one of them carries a non-zero award, so a real count disappears. The larger `groups_with_more_than_one_majornum` includes merges where every other row is a zero and nothing is lost.",
+  "_": "Measured by `python -m etl.probe_completion_key --record` over the cached slice. THREE DIFFERENT QUANTITIES, and they were conflated once: `completions_lost` counts Completion NODES the five-part key loses; `awards_lost` SUMS award counts across the groups that lose one, so it is not a count of nodes and is not comparable to one; `groups_losing_a_count` is the figure that matters: groups where the five-part key merges rows AND more than one of them carries a non-zero award, so a real count disappears. The larger `groups_with_more_than_one_majornum` includes merges where every other row is a zero and nothing is lost.",
   "fips": 51,
   "year": 2022,
   "rows": 190770,
+  "completions_lost": 16800,
+  "majornum_values": [
+    1,
+    2
+  ],
   "distinct_five_part_keys": 172650,
   "distinct_six_part_keys": 189450,
   "groups_the_five_part_key_merges": 18120,
@@ -10,8 +15,8 @@
   "groups_losing_a_count": 3524,
   "awards_lost": 23126,
   "code": {
-    "commit": "5c9fe24a0033d8436ba18fb74f79d851084886d5",
-    "dirty": false,
+    "commit": "d156ebee07dfe55ced09585c9e5e13f84cf306bc",
+    "dirty": true,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
   }

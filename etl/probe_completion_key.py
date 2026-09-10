@@ -35,7 +35,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "completion-key-measured.json"
 RECORD_NOTE = (
     "Measured by `python -m etl.probe_completion_key --record` over the "
-    "cached slice. `groups_losing_a_count` is the figure that matters: "
+    "cached slice. THREE DIFFERENT QUANTITIES, and they were conflated once: "
+    "`completions_lost` counts Completion NODES the five-part key loses; "
+    "`awards_lost` SUMS award counts across the groups that lose one, so it "
+    "is not a count of nodes and is not comparable to one; "
+    "`groups_losing_a_count` is the figure that matters: "
     "groups where the five-part key merges rows AND more than one of them "
     "carries a non-zero award, so a real count disappears. The larger "
     "`groups_with_more_than_one_majornum` includes merges where every other "
@@ -60,14 +64,29 @@ def measure() -> dict:
         key: group for key, group in many_majors.items()
         if sum(1 for row in group if (row.get("awards_6digit") or 0) > 0) > 1}
 
+    five_keys = len(by_five)
+    six_keys = len({tuple(row[field] for field in FIVE) + (row["majornum"],)
+                    for row in rows})
     return {
         "_": RECORD_NOTE,
         "fips": FIPS, "year": YEAR,
         "rows": len(rows),
-        "distinct_five_part_keys": len(by_five),
-        "distinct_six_part_keys": len({
-            tuple(row[field] for field in FIVE) + (row["majornum"],)
-            for row in rows}),
+        #: **The figure the page leads with.** Completion NODES the five-part
+        #: key loses: every six-part key that collapses onto a five-part one.
+        #: Distinct from `awards_lost`, which is a sum of award COUNTS — the
+        #: two were conflated on the page and in the schema comment, and
+        #: 23,126 was reported as a number of completions when it is neither
+        #: a count of nodes nor comparable to one.
+        "completions_lost": six_keys - five_keys,
+        #: `majornum` takes exactly two values here, so a merging group holds
+        #: exactly two six-part keys and loses exactly one node. That is why
+        #: `completions_lost` and `groups_with_more_than_one_majornum` are the
+        #: same number — they count the same rows, once as losses and once as
+        #: groups. Recorded so the coincidence is checkable rather than
+        #: surprising.
+        "majornum_values": sorted({row["majornum"] for row in rows}),
+        "distinct_five_part_keys": five_keys,
+        "distinct_six_part_keys": six_keys,
         "groups_the_five_part_key_merges": len(merged),
         "groups_with_more_than_one_majornum": len(many_majors),
         "groups_losing_a_count": len(losing),
@@ -87,7 +106,9 @@ def report(found: dict) -> None:
           f"carry more than one majornum")
     print(f"    of those, {found['groups_losing_a_count']:,} have more than "
           f"one NON-ZERO award — these lose data")
-    print(f"  awards that disappear: {found['awards_lost']:,}")
+    print(f"  COMPLETIONS that disappear: {found['completions_lost']:,}")
+    print(f"  award counts those carried: {found['awards_lost']:,}"
+          f"   (a sum of awards, not a count of nodes)")
 
 
 def main(argv: list[str] | None = None) -> int:

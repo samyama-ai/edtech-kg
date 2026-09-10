@@ -202,7 +202,20 @@ def empty_engine():
             pytest.fail(f"nothing answering at {TEST_URL}")
         pytest.skip(f"nothing answering at {TEST_URL}")
 
-    held = rows(TEST_URL, "MATCH (n) RETURN count(n)")[0][0]
+    # **THE LABELS THIS FILE WRITES, not every node on the engine.** The guard
+    # asked `MATCH (n) RETURN count(n)`, so it refused any engine holding
+    # anything at all — including `tests/test_load_education_engine.py`'s
+    # slice, which is `Institution`, `Programme` and `Completion` and touches
+    # nothing here. Both files read `SAMYAMA_TEST_URL`, and CI points both at
+    # one container in one pytest run, so the two contracts were directly
+    # opposed and whichever collected first won.
+    #
+    # What this file needs is narrower than "the graph is empty": it declares
+    # constraints on `Course` and traverses `REQUIRES`, and its teardown is
+    # scoped to its own `src = 'fx'` fixture rows — measured to remove exactly
+    # those and leave everything else readable.
+    held = rows(TEST_URL,
+                "MATCH (n:Course) WITH n RETURN count(n)")[0][0]
     # `if held:` on a string is truthy for "0" — an engine returning the count
     # as text would report an empty instance as loaded. Coerced first, and a
     # value that will not coerce is reported rather than guessed at.
@@ -218,8 +231,9 @@ def empty_engine():
         # of reporting the graph it found — an error about formatting, in the
         # message whose job is to say "point this somewhere else".
         pytest.fail(
-            f"SAMYAMA_TEST_URL points at an engine holding {held:,} nodes. These "
-            f"tests write and DETACH DELETE; use a fresh instance.")
+            f"SAMYAMA_TEST_URL points at an engine holding {held:,} Course "
+            f"nodes. These tests declare constraints on :Course and DETACH "
+            f"DELETE their own rows; use a fresh instance.")
     return TEST_URL
 
 

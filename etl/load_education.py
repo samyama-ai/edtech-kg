@@ -103,31 +103,53 @@ def completion_id(row: dict) -> str:
     """The Completion key, spelled exactly as `schema/edtech_kg.cypher` does.
 
     Six parts. `majornum` is one of them: without it,
-    3,524 groups in this slice merge two real
-    completions into one node and 23,126 completions disappear.
-    Measured by `etl/probe_completion_key.py`, not counted once by hand —
-    these figures were in three files and no run.
+    16,800 Completion nodes disappear in this slice, and
+    3,524 of those merges also lose an award count.
+    Measured by `etl/probe_completion_key.py` — these figures were in three
+    files and no run, and two of them were the same number wearing different
+    labels.
     """
     parts = (row["unitid"], row["cipcode_6digit"], row["award_level"],
              row["majornum"], row["race"], row["sex"], YEAR)
     return hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()
 
 
-def refuse_unwritable(institutions: list[dict]) -> None:
+#: Every field that reaches a Cypher literal, per table. Named rather than
+#: discovered, because a field added to a write and not to this list is a
+#: field the pre-flight silently stops covering.
+WRITTEN_FIELDS = {
+    "institutions": ("unitid", "inst_name", "state_abbr"),
+    "completions": ("unitid", "cipcode_6digit", "award_level", "majornum",
+                    "race", "sex", "awards_6digit"),
+}
+
+
+def refuse_unwritable(institutions: list[dict],
+                      completions: list[dict] | None = None) -> None:
     """Raise if any value cannot be written, BEFORE the first write.
 
-    1.1.0 has no escape sequence inside a string literal, so a value carrying
-    a quote or a backslash cannot be written at all. Discovering that at row
-    40,000 leaves a partly loaded graph and no way back: there is no
-    transaction here, and the loader's own `DETACH DELETE` teardown is
-    measured to remove more than it names.
+    **This covered institutions only, and its own docstring said "any".** Six
+    completion fields reach a literal — `cipcode_6digit`, `award_level`,
+    `majornum`, `race`, `sex`, `awards` — plus the Programme CIP, and a bad
+    value in any of them raised at row 40,000. That is exactly the
+    partial-graph-with-no-rollback case this function exists to close, still
+    open through the larger of the two tables.
+
+    They are numeric from the API today, so the exposure is low — but that
+    argument was not written down and nothing asserted it, which is what made
+    it a gap rather than a decision.
+
+    There is no transaction here, and the loader's own `DETACH DELETE`
+    teardown is measured to remove more than it names, so discovering an
+    unwritable value part-way is not recoverable.
     """
-    for row in institutions:
-        for field in ("unitid", "inst_name", "state_abbr"):
-            value = row.get(field)
-            if value is None:
-                continue
-            quote(value)          # raises Refused, naming the value
+    for table, rows in (("institutions", institutions),
+                        ("completions", completions or [])):
+        for row in rows:
+            for field in WRITTEN_FIELDS[table]:
+                value = row.get(field)
+                if value is not None:
+                    quote(value)          # raises Refused, naming the value
 
 
 def load(engine: Engine, dry_run: bool = False,
@@ -149,7 +171,13 @@ def load(engine: Engine, dry_run: bool = False,
     started = time.monotonic()
     writer = Writer(engine, dry_run)
 
+    # **BOTH tables are read before either is written.** The old order wrote
+    # all 147 institutions and only then called `held("completions")`, so a
+    # missing completions cache exited 2 with institutions already in the
+    # graph — the same partial-write this function's own comment says is
+    # closed.
     institutions = held("institutions", cache)["rows"]
+    completions = held("completions", cache)["rows"]
     # **CHECKED BEFORE ANYTHING IS WRITTEN.** A `quote()` refusal used to
     # raise part-way through, leaving a graph half loaded with no rollback —
     # this engine has no transaction to roll back to. One unwritable
@@ -158,13 +186,12 @@ def load(engine: Engine, dry_run: bool = False,
     #
     # The scan is over the values that actually reach a literal, and it costs
     # a fraction of a second against a load measured in minutes.
-    refuse_unwritable(institutions)
+    refuse_unwritable(institutions, completions)
     for row in institutions:
         writer.node("Institution", "unitid", row["unitid"],
                     {"unitid": row["unitid"], "name": row.get("inst_name") or "",
                      "state": row.get("state_abbr") or ""})
 
-    completions = held("completions", cache)["rows"]
     skipped_zero = 0
     if only_awarded:
         keep = [r for r in completions if (r.get("awards_6digit") or 0) > 0]
@@ -333,6 +360,15 @@ def report(loaded: dict, graph: dict, before: dict | None = None) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m etl.load_education")
     parser.add_argument("--url", default="http://localhost:8200")
+    # **THE SAME DEFAULT AS `etl/load_pwcs.py`.** Without this the loader took
+    # `Engine`'s `graph="default"` while the district loads into `edtech`, so
+    # somebody following the README got PWCS in one graph and the spine in
+    # another — two disconnected halves, and the cross-tier join they exist
+    # for cannot be written across them.
+    parser.add_argument("--graph", default="edtech",
+                        help="The graph to write into. Must match the one "
+                             "`load_pwcs` used, or the two tiers cannot be "
+                             "joined.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Count the statements without sending them.")
     parser.add_argument("--all-rows", action="store_true",
@@ -346,7 +382,16 @@ def main(argv: list[str] | None = None) -> int:
                              f"stamped with the code that produced it.")
     args = parser.parse_args(argv)
 
-    engine = Engine(args.url)
+    # **REFUSED BEFORE THE LOAD, not after it.** This sat after `load()`
+    # returned, so a `--record --limit 100` spent forty minutes and then
+    # declined to write. A flag combination knowable at parse time is one to
+    # check at parse time.
+    if args.record and (args.dry_run or args.limit is not None or args.all_rows):
+        print("--record describes the full default slice; drop --dry-run, "
+              "--limit and --all-rows", file=sys.stderr)
+        return 4
+
+    engine = Engine(args.url, graph=args.graph)
     # **Read BEFORE the load.** Without it the report has nothing to subtract
     # and a graph that already held anything shows this run as having lost or
     # gained nodes it never touched.
@@ -366,19 +411,12 @@ def main(argv: list[str] | None = None) -> int:
         print(line)
 
     if args.record:
-        if args.dry_run or args.limit or args.all_rows:
-            # A record of a partial load, filed where the card reads the whole
-            # one, is a wrong figure that looks measured. Refused rather than
-            # written with a caveat nobody reads.
-            print("--record describes the full default slice; drop --dry-run, "
-                  "--limit and --all-rows", file=sys.stderr)
-            return 4
-        # **THE IDEMPOTENCE RE-RUN IS PART OF THE RECORD.** The page claimed
-        # "175,762 statements, zero created" and that figure was in no
-        # record — it came from a run I did by hand, on a page whose opening
-        # sentence says every figure was substituted from the record. A
-        # second pass is the only way that claim can be true, and it is the
-        # claim the loader's whole design rests on.
+        # **THE IDEMPOTENCE RE-RUN IS PART OF THE RECORD.** The page used to
+        # claim "175,762 statements, zero created" and that figure was in no
+        # record — a run done by hand, on a page whose first sentence says
+        # every figure came from the record. A second pass is the only way
+        # that claim can be true, and it is the claim the loader's whole
+        # design rests on.
         print("  re-running to measure idempotence...")
         again = load(engine, only_awarded=not args.all_rows)
         after = in_the_graph(engine)

@@ -116,3 +116,54 @@ def test_the_committed_record_and_the_schema_agree(monkeypatch):
         assert f"{found[figure]:,}" in schema, (
             f"the schema does not carry the measured {figure} "
             f"({found[figure]:,})")
+
+
+def test_completions_lost_and_awards_lost_are_different_quantities(monkeypatch):
+    """**They were conflated, and the wrong one was the headline.**
+
+    `awards_lost` SUMS award counts across the groups that lose one.
+    `completions_lost` counts NODES. 23,126 was reported on the page, in the
+    schema comment and in the PR body as "completions that disappear"; it is
+    neither a count of nodes nor comparable to one.
+
+    Two rows differing only by majornum, carrying 3 awards and 1: one node
+    disappears, and one award count of 1 goes with it.
+    """
+    found = drive(monkeypatch, [row(majornum=1, awards_6digit=3),
+                                row(majornum=2, awards_6digit=1)])
+    assert found["completions_lost"] == 1
+    assert found["awards_lost"] == 1
+    # And they diverge as soon as the surviving count is not 1.
+    bigger = drive(monkeypatch, [row(majornum=1, awards_6digit=3),
+                                 row(majornum=2, awards_6digit=9)])
+    assert bigger["completions_lost"] == 1
+    assert bigger["awards_lost"] == 3, (
+        "awards_lost is a sum of award counts; it tracks the awards, not the "
+        "nodes")
+
+
+def test_completions_lost_is_the_two_key_counts_subtracted(monkeypatch):
+    """It is derivable from figures already in the record, which is what
+    makes it checkable without re-running anything."""
+    found = drive(monkeypatch, [row(majornum=1), row(majornum=2),
+                                row(cipcode_6digit=999999)])
+    assert found["completions_lost"] == (found["distinct_six_part_keys"]
+                                         - found["distinct_five_part_keys"])
+
+
+def test_why_two_of_the_figures_coincide(monkeypatch):
+    """`majornum` takes exactly two values in this slice, so a merging group
+    holds exactly two six-part keys and loses exactly one node — which is why
+    `completions_lost` and `groups_with_more_than_one_majornum` are the same
+    number. Recorded so the coincidence is checkable rather than surprising,
+    and so a third value would break this rather than pass silently."""
+    found = drive(monkeypatch, [row(majornum=1), row(majornum=2)])
+    assert found["majornum_values"] == [1, 2]
+    assert found["completions_lost"] == found["groups_with_more_than_one_majornum"]
+
+    three = drive(monkeypatch, [row(majornum=1), row(majornum=2),
+                                row(majornum=3)])
+    assert three["majornum_values"] == [1, 2, 3]
+    assert three["completions_lost"] == 2, "one group, three keys, two lost"
+    assert three["groups_with_more_than_one_majornum"] == 1, (
+        "with three majornum values the two figures must diverge")

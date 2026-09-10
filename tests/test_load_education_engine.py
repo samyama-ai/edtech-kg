@@ -91,8 +91,18 @@ def loaded(tmp_path_factory):
     # the container. The load is idempotent, so proceeding is a no-op — which
     # is itself one of the things under test.
     #
-    # Anything else is still refused outright. It does not clean up after
-    # itself either: 1.1.0's scoped DETACH DELETE removes more than it names.
+    # Anything else is still refused outright, because this writes into
+    # labels somebody else's data could be in.
+    #
+    # **AN EARLIER VERSION OF THIS COMMENT SAID 1.1.0's SCOPED DETACH DELETE
+    # "removes more than it names". THAT WAS WRONG, and nothing asserted it.**
+    # Measured against 1.1.0: `MATCH (n) WHERE n.src = 'fx' DETACH DELETE n`
+    # over a graph holding two `src='fx'` Courses, one `src='pwcs'` Course, an
+    # Institution and a Completion removed exactly the two, and the survivors
+    # were still readable by key afterwards. A scoped delete scopes.
+    #
+    # It still does not clean up: the load is idempotent, so leaving the slice
+    # is free and re-running is the cheaper contract than deleting.
     ours = bool(held) and counts == EXPECTED
     if held and not ours:
         pytest.fail(

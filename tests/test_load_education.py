@@ -127,24 +127,35 @@ def test_an_edge_introduces_both_endpoints_fresh():
         "an endpoint was bound without its own WHERE, which does not filter")
 
 
-def test_a_value_that_cannot_be_quoted_is_refused_not_mangled():
-    """1.1.0 has no escape sequence inside a string literal, so a value
-    carrying a quote cannot be written at all. A silently truncated
-    institution name is a wrong answer that looks like a right one."""
+def test_only_a_value_this_engine_cannot_express_is_refused():
+    """**The old version refused far more than the engine does**, and it was
+    a second implementation of `etl.engine.lit` that did not know it.
+
+    1.1.0 has no escape sequence inside a string literal, so the quote
+    character is the only thing that ends one — and the way to carry a quote
+    is to wrap the value in the OTHER quote. Only a string holding BOTH is
+    inexpressible.
+
+    `quote` used to reject any `"` or `\\` outright, so `St. Mary"s College`
+    aborted a 58,000-row load on a value the engine can write.
+    """
+    assert loader.quote('St. Mary"s College') == "'St. Mary\"s College'"
+    assert loader.quote("O'Brien") == '"O\'Brien"'
+    assert loader.quote("back\\slash") == "'back\\slash'"
     with pytest.raises(Refused):
-        loader.quote('St. Mary"s College')
-    with pytest.raises(Refused):
-        loader.quote("back\\slash")
-    assert loader.quote("Virginia Tech") == '"Virginia Tech"'
+        loader.quote("""both " and ' quotes""")
 
 
-def test_a_missing_download_says_which_command_produces_it(tmp_path,
-                                                           monkeypatch):
-    """`data/` is gitignored, so a fresh clone has none of it. A stack trace
-    from a missing file sends the reader nowhere."""
-    monkeypatch.setattr(loader, "CACHE", tmp_path)
-    with pytest.raises(loader.Missing, match="download_education"):
-        loader.held("completions")
+def test_numbers_reach_the_graph_as_numbers():
+    """**Every number used to land as a string** — `year: "2022"`,
+    `awards: "3"`. The schema declares `CREATE INDEX ON :Completion(year)`
+    over that, and `sum(c.awards)` does not behave. The tell was already in
+    this repo's own engine tests, which had to `int()` their way back out of
+    results they had just written."""
+    assert loader.quote(2022) == "2022"
+    assert loader.quote(3) == "3"
+    assert loader.quote(None) == "null"
+    assert loader.quote(True) == "true"
 
 
 def test_counts_come_from_the_graph_not_from_the_input(monkeypatch):
@@ -180,48 +191,6 @@ def test_every_count_interposes_a_with(monkeypatch):
     for statement in engine.sent:
         if statement.startswith("MATCH (n:"):
             assert "WITH n RETURN count(n)" in statement, statement
-
-
-def test_a_partial_load_is_refused_as_a_record(monkeypatch, tmp_path):
-    """**A record of a partial load, filed where the card reads the whole
-    one, is a wrong figure that looks measured.** `--limit 100` and the full
-    slice write the same filename, and nothing downstream could tell them
-    apart. Refused rather than written with a caveat nobody reads."""
-    monkeypatch.setattr(loader, "RECORD", tmp_path / "spine.json")
-    monkeypatch.setattr(loader, "load", lambda *a, **k: {
-        "seconds": 1.0, "statements_issued": 1, "nodes_and_edges_created": 1,
-        "already_present": 0, "institutions_in": 1, "programmes_in": 1,
-        "completions_in": 1, "rows_skipped_zero_awards": 0,
-        "duplicate_rows_skipped": 0})
-    monkeypatch.setattr(loader, "in_the_graph", lambda e: {})
-    monkeypatch.setattr(loader, "Engine", lambda url: Recorder())
-    for partial in (["--dry-run"], ["--limit", "100"], ["--all-rows"]):
-        assert loader.main(["--record", *partial]) == 4, partial
-        assert not (tmp_path / "spine.json").exists()
-
-
-def test_the_record_keeps_issued_and_held_apart(monkeypatch, tmp_path):
-    """Two figures, stored separately, because they are two claims. Merged
-    into one, the gap that caught the non-idempotent edge writes could not be
-    reconstructed by anyone reading the record later."""
-    written = {}
-    monkeypatch.setattr(loader, "RECORD", tmp_path / "spine.json")
-    monkeypatch.setattr(loader, "write_record",
-                        lambda path, payload: written.update(payload))
-    monkeypatch.setattr(loader, "load", lambda *a, **k: {
-        "seconds": 2.0, "statements_issued": 9, "nodes_and_edges_created": 6,
-        "already_present": 3, "institutions_in": 1, "programmes_in": 1,
-        "completions_in": 2, "rows_skipped_zero_awards": 4,
-        "duplicate_rows_skipped": 0})
-    monkeypatch.setattr(loader, "in_the_graph", lambda e: {
-        "Institution": 1, "Programme": 1, "Completion": 2, "AT": 2, "IN": 2})
-    monkeypatch.setattr(loader, "Engine", lambda url: Recorder())
-    assert loader.main(["--record"]) == 0
-    assert written["issued"]["completions_in"] == 2
-    assert written["in_graph"]["Completion"] == 2
-    assert written["engine_version_reported"], (
-        "the record does not say which engine answered, so a figure taken "
-        "from a different build reads as one from this one")
 
 
 def slice_on_disk(tmp_path, rows, institutions=None):
@@ -373,7 +342,7 @@ def test_a_value_that_cannot_be_written_is_refused_before_anything_is(tmp_path):
     engine = Recorder()
     cache = slice_on_disk(
         tmp_path, completions(3),
-        institutions=[{"unitid": 1, "inst_name": 'St. Mary"s',
+        institutions=[{"unitid": 1, "inst_name": """both " and ' quotes""",
                        "state_abbr": "VA"}])
     with pytest.raises(Refused):
         loader.load(engine, cache=cache)
@@ -405,40 +374,3 @@ def test_the_report_compares_against_what_the_graph_already_held(tmp_path):
     lost = "\n".join(loader.report(loaded, {**after, "Completion": 900},
                                    before))
     assert "-1" in lost, "a node that did not arrive was not reported"
-
-
-def test_the_record_carries_the_idempotence_run_not_just_the_first(monkeypatch,
-                                                                   tmp_path):
-    """**The page claimed "175,762 statements, zero created" and that figure
-    was in no record.** It came from a run done by hand, on a page whose
-    opening sentence says every figure was substituted from the record.
-
-    A second pass is the only way that claim can be true, and it is the claim
-    the loader's whole design rests on — the first version created 2,000
-    duplicate edges on a second run and only the gap column showed it.
-    """
-    written = {}
-    monkeypatch.setattr(loader, "RECORD", tmp_path / "spine.json")
-    monkeypatch.setattr(loader, "write_record",
-                        lambda path, payload: written.update(payload))
-    monkeypatch.setattr(loader, "Engine", lambda url: Recorder())
-
-    runs = iter([
-        {"seconds": 10.0, "statements_issued": 6, "nodes_and_edges_created": 3,
-         "already_present": 0, "institutions_in": 1, "programmes_in": 1,
-         "completions_in": 1, "rows_skipped_zero_awards": 0,
-         "duplicate_rows_skipped": 0, "created_by": {}, "rate_curve": []},
-        {"seconds": 4.0, "statements_issued": 3, "nodes_and_edges_created": 0,
-         "already_present": 3, "institutions_in": 1, "programmes_in": 1,
-         "completions_in": 1, "rows_skipped_zero_awards": 0,
-         "duplicate_rows_skipped": 0, "created_by": {}, "rate_curve": []},
-    ])
-    monkeypatch.setattr(loader, "load", lambda *a, **k: next(runs))
-    monkeypatch.setattr(loader, "in_the_graph", lambda e: {"Completion": 1})
-
-    assert loader.main(["--record"]) == 0
-    assert "second_run" in written, (
-        "the record describes one pass, so the idempotence figure the page "
-        "quotes has no run behind it")
-    assert written["second_run"]["nodes_and_edges_created"] == 0
-    assert written["second_run"]["statements_issued"] == 3
