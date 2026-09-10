@@ -1,34 +1,8 @@
 # Education-to-Career Pathways Knowledge Graph
 
-![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
-
-**1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
-you can walk — plus nine measured public sources for the college and career side.**
-
-> Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
-> This repo holds the loader and source-data specifics for the KG.
-
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
-
-> **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
-> The national spine (CIP-SOC, IPEDS, BLS, College Scorecard) is measured but not yet
-> loaded. Counts, licences and known limitations are in [`docs/`](docs/).
-
----
-
-A student picks courses four times in high school. The decisions are close to irreversible,
-and they are made with almost no information about what each one leads to.
-
-> *"If a student doesn't pass Algebra 1, what closes off?"*
-
-Nobody publishes that answer. The district publishes the courses. It publishes the
-prerequisites, as real links between its own pages. It does not publish where any of them
-lead — because that is not a page, it is the relationships between pages.
-
-As a graph it is one traversal.
+> ### If a student doesn't pass Algebra 1, what closes off?
 
 ```cypher
-// Everything a student can no longer reach, at any depth
 MATCH (blocked:Course)-[:REQUIRES*1..8]->(:Course {name: 'Algebra 1'})
 MATCH (blocked)-[:IN_SUBJECT]->(s:Subject)
 RETURN s.name AS subject, count(DISTINCT blocked) AS closed_off
@@ -44,8 +18,39 @@ ORDER BY closed_off DESC LIMIT 5
 | Science - Dual Enrollment | 3 |
 
 **28 courses across 14 subjects** — and not just more maths: chemistry, biology, IB and
-dual-enrolment science. The depth is not known before the question is asked, which is why a
-relational database does this badly and the graph does it in 10 ms.
+dual-enrolment science.
+
+The question, the query and this table come from one run, recorded in
+[`docs/sources/readme-question-measured.json`](docs/sources/readme-question-measured.json)
+by `python -m etl.probe_readme_question --record` against a loaded graph.
+`tests/test_readme.py` fails if this page and that record disagree.
+
+**Nine of those 28 are one hop away. The rest are two and three.** That is the whole
+argument for a graph, and it is measured rather than asserted: asked one hop at a time
+the answer is 9, 26, 28, and then it stops growing. A query that looked only at direct
+prerequisites would report 9 and be confidently wrong by two thirds.
+
+Nobody publishes that answer. The district publishes the courses. It publishes the
+prerequisites, as real links between its own pages. It does not publish where any of them
+lead — because that is not a page, it is the relationships between pages.
+
+![Education-to-Career Pathways KG demo](demo/edtech-kg.gif)
+
+**1,098 nodes. 1,417 edges. One school district's published course catalogue, as a graph
+you can walk — plus nine measured public sources for the college and career side.**
+
+> Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
+> This repo holds the loader and source-data specifics for the KG.
+
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
+
+> **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
+> The national spine (CIP-SOC, IPEDS, BLS, College Scorecard) is measured but not yet
+> loaded. Counts, licences and known limitations are in [`docs/`](docs/).
+
+A student picks courses four times in high school. The decisions are close to irreversible,
+and they are made with almost no information about what each one leads to.
+
 
 ---
 
