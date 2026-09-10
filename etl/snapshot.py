@@ -73,7 +73,10 @@ RECORD_NOTE = (
     "exports of the same graph. They are different exports, and exports of "
     "one unchanged graph differ in size, so `bytes` is not expected to fall "
     "between `bytes_min` and `bytes_max` — it did not on an earlier run, and "
-    "the two looked inconsistent.")
+    "the two looked inconsistent. `property_counts` says how many nodes of "
+    "each label carry the property they are worthless without, measured on "
+    "the SOURCE during export and proved by the round trip — counting "
+    "nodes says the shape survived, not that they carry anything.")
 
 #: What the district's graph holds, by type. Named so `verify` compares a
 #: shape rather than a single total — a total can be right while two types are
@@ -124,7 +127,15 @@ def counts(engine: Engine) -> dict:
 def export(url: str, into: pathlib.Path,
            graph: str = DEFAULT_GRAPH) -> dict:
     """Write a snapshot of `url`, and record what it was taken from."""
-    before = counts(Engine(url, graph=graph))
+    source = Engine(url, graph=graph)
+    before = counts(source)
+    # **From the SOURCE, beside `taken_from`.** Measured on the imported
+    # graph instead, this became self-fulfilling: an engine whose import
+    # dropped values would have `Course.name: 0` written into the record as
+    # the published expectation, and every later `demo/ready.sh` would then
+    # verify the nameless graph as clean — the check certifying the state it
+    # exists to detect.
+    carried = properties(source)
     if not sum(before.values()):
         raise Refused(
             f"{url} holds nothing. Exporting it would publish an empty "
@@ -145,7 +156,7 @@ def export(url: str, into: pathlib.Path,
         where = into.resolve().relative_to(ROOT).as_posix()
     except ValueError:
         where = into.name          # written outside the repo; the name is all
-    return {"file": where, "bytes": len(body),
+    return {"file": where, "bytes": len(body), "properties": carried,
             # The digest of the file this run published — the one a download
             # is checked against. `reproducible` compares three FURTHER
             # exports, which differ from this one and from each other.
@@ -340,8 +351,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.action == "import":
             recorded = should_hold(whole=True)
-            expected_hash = ((recorded or {}).get("snapshot") or {}).get(
-                "sha256") if recorded else None
+            if recorded is None:
+                return 2
+            expected_hash = (recorded.get("snapshot") or {}).get("sha256")
             found = load(args.url, args.file, graph=args.graph,
                          expect_sha256=expected_hash)
             print(f"  imported in {found['seconds']}s")
@@ -350,12 +362,8 @@ def main(argv: list[str] | None = None) -> int:
             # itself: it could only fail on a race, and a half-import — the
             # failure this module exists to catch — passed. It also returned 4
             # without saying what disagreed. Both actions use the record now.
-            expected = should_hold()
-            if expected is None:
-                return 2
-            wrong = verify(args.url, expected, graph=args.graph,
-                           expect_properties=should_hold(whole=True)
-                           .get("property_counts"))
+            wrong = verify(args.url, recorded["counts"], graph=args.graph,
+                           expect_properties=recorded.get("property_counts"))
             if wrong:
                 print("the imported graph is not what the snapshot should "
                       "produce:", file=sys.stderr)
@@ -365,12 +373,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.action == "verify":
-            expected = should_hold()
-            if expected is None:
+            recorded = should_hold(whole=True)
+            if recorded is None:
                 return 2
+            expected = recorded["counts"]
             wrong = verify(args.url, expected, graph=args.graph,
-                           expect_properties=should_hold(whole=True)
-                           .get("property_counts"))
+                           expect_properties=recorded.get("property_counts"))
             if wrong:
                 print("the graph is not what the snapshot should produce:",
                       file=sys.stderr)
@@ -392,7 +400,8 @@ def main(argv: list[str] | None = None) -> int:
         # No `expect_sha256`: this run just wrote those bytes, so checking
         # them against a digest of themselves would prove nothing.
         found = load(args.url, candidate, graph=args.graph)
-        wrong = verify(args.url, taken["taken_from"], graph=args.graph)
+        wrong = verify(args.url, taken["taken_from"], graph=args.graph,
+                       expect_properties=taken["properties"])
         if wrong:
             # **The round trip did not reproduce the graph.** Recording that
             # would publish a snapshot the demo cannot trust.
@@ -420,11 +429,11 @@ def main(argv: list[str] | None = None) -> int:
                     # on a two-engine comparison, and `cypher_loaded` versus
                     # `imported` was attributable to nothing but a key name.
                     "graph": args.graph,
-                    # What the nodes CARRY, not just how many arrived. A
-                    # snapshot reproducing every node and edge with no
-                    # property values verified clean before this.
-                    "property_counts": properties(
-                        Engine(args.url, graph=args.graph)),
+                    # What the nodes CARRY, not just how many arrived, and
+                    # measured on the SOURCE during `export` — see the note
+                    # there. The round trip above already proved the imported
+                    # graph reproduces it.
+                    "property_counts": taken["properties"],
                     "exported_from": args.from_url, "imported_into": args.url,
                     "edge_count_readings": endpoint}
         report(measured)
