@@ -108,3 +108,70 @@ def test_the_record_was_written_by_a_clean_tree():
     if not RECORD:
         pytest.skip("no record")
     assert RECORD["code"]["dirty"] is False
+
+
+def measured():
+    """The vendors that actually answered — not everyone named."""
+    return {n: v for n, v in RECORD["vendors"].items() if "terms" in v}
+
+
+def test_the_page_counts_only_the_vendors_that_answered():
+    """**An unmeasured vendor was counted as a silent one.** The page said
+    "five of six do not use it at all" while six were named and five
+    answered — LTS Education is recorded `reachable: false` with no term
+    counts, so it was being read as a vendor measuring zero rather than as a
+    vendor we could not measure.
+
+    That is the same error as `or 0` on an unreadable count: the difference
+    between "we asked and the answer was none" and "we never got to ask" is
+    the whole point of the section above.
+    """
+    #: Spelled out because the page is prose. Kept here rather than in the
+    #: page so the figure still comes from the record.
+    WORD = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
+            6: "six"}
+    silent = [n for n, v in measured().items()
+              if v.get("says_nothing_about_planning")]
+    expected = f"{WORD[len(silent)]} of the {WORD[len(measured())]}"
+    assert expected in PAGE.lower(), (
+        f"the page should say {expected!r} — {len(silent)} of the "
+        f"{len(measured())} vendors that answered say nothing about planning")
+    unreachable = [n for n, v in RECORD["vendors"].items() if "terms" not in v]
+    assert unreachable, "no unreachable vendor in the record to guard against"
+    # The CLAIM, not any mention — the paragraph above it quotes the old
+    # wording to say what was corrected, and that should not trip this.
+    named = WORD[len(RECORD["vendors"])]
+    assert f"of {named} do not use" not in PAGE.lower(), (
+        f"the page counts all {len(RECORD['vendors'])} named vendors where "
+        f"only {len(measured())} answered; {unreachable} never did")
+
+
+def test_the_terms_nobody_uses_are_the_measured_ones():
+    """#47's own definition of done calls this "the only part that changes
+    what we build", so it is pinned to the record like every other figure
+    here rather than left as prose."""
+    unused = sorted(t for t in RECORD["terms_counted"]
+                    if all(v["terms"][t] == 0 for v in measured().values()))
+    assert unused, "no term is unused; the section's claim no longer holds"
+    for term in unused:
+        assert re.search(rf"\| `{re.escape(term)}` \| 0 of {len(measured())} \|",
+                         PAGE), (
+            f"`{term}` is used by no vendor in the record and the page's "
+            f"table does not say so")
+    # And the other direction: nothing is claimed unused that somebody uses.
+    for row in re.findall(r"^\| `([^`]+)` \| 0 of \d+ \|$", PAGE, re.M):
+        assert row in unused, (
+            f"the page says `{row}` is used by nobody; the record disagrees")
+
+
+def test_the_three_terms_this_repo_is_built_on_are_named():
+    """The claim the section turns on. If a vendor ever starts using one of
+    them, this fails rather than the page quietly overstating the gap."""
+    ours = ("prerequisite", "graduation requirement", "course plan")
+    for term in ours:
+        assert term in RECORD["terms_counted"], (
+            f"{term!r} is not counted by the probe, so the page cannot claim "
+            f"anything about it")
+        users = [n for n, v in measured().items() if v["terms"][term] > 0]
+        assert not users, (
+            f"the page says no vendor uses {term!r}; {users} do")

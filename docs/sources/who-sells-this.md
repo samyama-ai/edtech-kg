@@ -77,5 +77,49 @@ something about its web estate rather than its product.
 
 What the counts DO support is narrower and still useful: **on the page each of
 these companies leads with, the vocabulary of prerequisite structure is almost
-absent.** Five of six do not use it at all. That is a fact about how the
-category is sold, and it is the gap a demo would be landing in.
+absent.** Four of the five we could reach do not use it at all. That is a fact
+about how the category is sold, and it is the gap a demo would be landing in.
+
+This said "five of six" until #47's second pass. Six vendors are named; five
+answered. LTS Education never did — it is recorded `reachable: false` and
+carries no term counts at all — so counting it among the companies that "do
+not use" the vocabulary treated a vendor we could not measure as a vendor
+measuring zero. A company that has stopped trading and a company that sells
+without this vocabulary are different facts, which is the distinction the
+section above this one exists to make.
+
+## What nobody appears to be doing
+
+Nine terms were counted. **Four of them are used by none of the five vendors
+that answered:**
+
+| term | vendors using it |
+|---|---|
+| `course plan` | 0 of 5 |
+| `prerequisite` | 0 of 5 |
+| `graduation requirement` | 0 of 5 |
+| `transfer credit` | 0 of 5 |
+
+The rest are thin and concentrated: `degree audit` and `pathway` appear on
+Stellic and nowhere else, `knowledge graph` on Ellucian and nowhere else. Only
+`api` reaches two vendors.
+
+**The three terms this repo is built on — `prerequisite`, `graduation
+requirement`, `course plan` — appear on none of the five front pages.** Not
+rarely: zero, on every page fetched, including the incumbent's.
+
+`pathway` is the interesting exception, because it is the one word the field
+does use and the one this repo means differently. Stellic uses it twice, in a
+higher-education degree-planning context. Nobody uses it to mean a traversable
+chain of prerequisites between published course pages.
+
+**What that changes.** It is evidence about vocabulary, not about capability —
+Naviance certainly does course planning whatever its front page says. But it
+means the thing to lead with is not a better planner. It is the question a
+planner cannot answer without the chain: *what does skipping this course close
+off later?* Nobody is selling an answer to that, so nobody has taught the
+market to ask it, and a demo has to ask it before it answers it.
+
+Read against ["What this does not establish"](#what-this-does-not-establish)
+above: one page per vendor, on one day, is enough to say what the category
+leads with and not enough to say what it can do.
