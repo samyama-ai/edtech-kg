@@ -427,13 +427,17 @@ def test_both_directions_asks_all_three_shapes():
     """
     engine = Graph({"REQUIRES": 240, "IN_SUBJECT": 723,
                     "INCLUDES": 316, "HAS_REQUIREMENT": 138})
-    import etl.snapshot as sn
-    original = sn.Engine
-    sn.Engine = lambda url, graph=None: engine
+    # Patched on `etl.edge_count_readings`, where `both_directions` now
+    # lives and resolves its own `Engine` — patching the name re-exported by
+    # `etl.snapshot` changes nothing the function reads.
+    import etl.edge_count_readings as ecr
+    original, seen = ecr.Engine, []
+    ecr.Engine = lambda url, graph=None: seen.append(graph) or engine
     try:
-        sn.both_directions("http://engine.test")
+        ecr.both_directions("http://engine.test")
     finally:
-        sn.Engine = original
+        ecr.Engine = original
+    assert seen == ["edtech"], f"both_directions read graph {seen}"
     outbound = [q for q in engine.asked if "]->()" in q]
     undirected = [q for q in engine.asked if "]-()" in q and "]->()" not in q]
     inbound = [q for q in engine.asked if "<-[" in q]
@@ -443,3 +447,19 @@ def test_both_directions_asks_all_three_shapes():
     assert len(inbound) == 4, (
         "the reverse expansion — the reading that excludes a lossy import — "
         "is not being asked")
+
+
+def test_the_command_line_defaults_to_the_named_graph(monkeypatch, tmp_path):
+    """`--graph`'s DEFAULT mutated green: changing it to `"default"` left the
+    suite passing, because every other test passes the graph explicitly or
+    calls the functions directly. This is the path an operator actually
+    takes — `python -m etl.snapshot export --url ...` with no `--graph`."""
+    seen = []
+    monkeypatch.setattr(snapshot, "Engine",
+                        lambda url, graph=None: seen.append(graph)
+                        or Graph({"Course": 791}))
+    monkeypatch.setattr(snapshot, "post", lambda *a, **k: (200, b"bytes"))
+    assert snapshot.main(["export", "--file", str(tmp_path / "x.sgsnap"),
+                          "--url", "http://engine.test"]) == 0
+    assert seen == ["edtech"], (
+        f"a bare `export` worked in graph {seen}, not the one this repo loads")

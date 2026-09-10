@@ -47,6 +47,8 @@ import time
 import urllib.error
 import urllib.request
 
+from etl.edge_count_readings import (DEFAULT_GRAPH, Refused, _count,
+                                     both_directions, storage_reported)
 from etl.engine import Engine, identifier
 from etl.engine import Refused as EngineRefused
 from etl.provenance import write_record
@@ -54,13 +56,6 @@ from etl.scratch_engine import Unusable, still_held
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_FILE = ROOT / "data" / "edtech-kg.sgsnap"
-#: **The graph this repo loads into.** Everything here built `Engine(url)`
-#: with no graph, so it all worked on `default` while `etl/load_pwcs.py` and
-#: `demo/demo.py` both default to `edtech` and `README.md` creates that tenant
-#: explicitly. Either the import landed in `edtech` and `verify` read `default`
-#: and found zeros, or it landed in `default` and the walkthrough opened on an
-#: empty graph.
-DEFAULT_GRAPH = "edtech"
 RECORD = ROOT / "docs" / "sources" / "snapshot-measured.json"
 RECORD_NOTE = (
     "Measured by `python -m etl.snapshot record`. Size, import time and the "
@@ -85,20 +80,6 @@ RECORD_NOTE = (
 #: wrong in opposite directions.
 NODE_LABELS = ("Course", "Subject", "Pathway", "Requirement")
 EDGE_TYPES = ("REQUIRES", "IN_SUBJECT", "INCLUDES", "HAS_REQUIREMENT")
-
-#: The same four edges with their end labels, so the reverse expansion can be
-#: written with both ends bound. `both_directions` needs the HEAD label to
-#: force the planner to start there and walk the edge backwards.
-EDGE_ENDS = (
-    ("REQUIRES", "Course", "Course"),
-    ("IN_SUBJECT", "Course", "Subject"),
-    ("INCLUDES", "Pathway", "Course"),
-    ("HAS_REQUIREMENT", "Course", "Requirement"),
-)
-
-
-class Refused(RuntimeError):
-    """The engine would not do what the snapshot needs."""
 
 
 def post(url: str, path: str, body: bytes | None = None,
@@ -130,29 +111,6 @@ def counts(engine: Engine) -> dict:
         held[kind] = _count(
             engine, f"MATCH ()-[r:{identifier(kind)}]->() RETURN count(r)")
     return held
-
-
-def _count(engine: Engine, query: str) -> int:
-    """One count, or a refusal.
-
-    **Never `or 0`.** `int(rows[0][0]) if rows and rows[0] else 0` turned "I
-    could not measure this" into "the graph holds none of these" — and the
-    pre-import guard is built on this function, so an unreadable answer read
-    as an empty engine and the import merged into somebody's graph.
-    `Engine.scalar` exists to keep those apart.
-    """
-    answered = engine.scalar(query)
-    if answered is None:
-        raise Refused(
-            f"{engine.url} did not answer a count for `{query}`, so what the "
-            f"graph holds could not be measured. Refusing rather than reading "
-            f"an unmeasurable graph as an empty one.")
-    try:
-        return int(answered)
-    except (TypeError, ValueError) as unreadable:
-        raise Refused(
-            f"{engine.url} answered {answered!r} to `{query}`, which is not a "
-            f"number.") from unreadable
 
 
 def export(url: str, into: pathlib.Path,
@@ -307,70 +265,6 @@ def reproducibility(url: str, times: int = 3) -> dict:
         # the hash policy, so it is worth stating at its real strength.
         "sha256": [digest for _, digest in seen],
     }
-
-
-def storage_reported(url: str) -> dict:
-    """What `/api/status` says the instance holds — recorded, not trusted."""
-    try:
-        with urllib.request.urlopen(f"{url.rstrip('/')}/api/status",
-                                    timeout=30) as answer:
-            return (json.loads(answer.read() or b"{}") or {}).get("storage", {})
-    except (urllib.error.URLError, TimeoutError, OSError) as gone:
-        raise Refused(f"{url}/api/status: {gone}") from gone
-
-
-def both_directions(url: str, graph: str = DEFAULT_GRAPH) -> dict:
-    """Every edge type counted directed AND undirected.
-
-    **This is what tells the two readings of 2,834 apart**, and the first
-    version of this measurement recorded neither.
-
-    Reading (a): `/api/status` double-counts edges on a Cypher-loaded graph.
-    Reading (b): it counts stored adjacency entries, two per edge, and the
-    IMPORTED graph holds only one — under which the endpoint is right and the
-    import is lossy. `verify` cannot separate them, because it only ever asks
-    `()-[r:T]->()`, which is identical under both.
-
-    **The undirected count alone does NOT separate them**, and an earlier
-    version of this docstring claimed it did. Undirected comes back at
-    exactly 2x directed for all four types on both engines — 480/240,
-    1446/723, 632/316, 276/138, no self-loop residue, no exceptions. That is
-    the signature of a query-level doubling rule at least as much as of a
-    traversal over stored entries, and if it is doubling then this function
-    discriminates nothing.
-
-    **The INBOUND expansion does separate them**, because it does not depend
-    on undirected semantics at all. `MATCH (c:Course)<-[r:INCLUDES]-(p:Pathway)`
-    starts at a Course and walks the edge backwards. Under (b) — one stored
-    adjacency entry per edge, held at the tail — the imported graph could not
-    answer it from a Course start. Measured on 1.1.0: both engines answer
-    316, and 240 for the reverse of REQUIRES. So (b) is excluded.
-
-    It is also the query the demo's correctness already rests on:
-    `demo/demo.py:213` runs this pattern and `docs/questions.md:115` makes
-    the reverse edge a supported question.
-
-    `storage.nodes` matching at 1,098 is NOT evidence here — (b) predicts
-    matching node counts too. It reads as corroboration and is not.
-    """
-    engine = Engine(url, graph=graph)
-    directed, undirected, inbound = {}, {}, {}
-    for kind, tail, head in EDGE_ENDS:
-        name = identifier(kind)
-        directed[kind] = _count(
-            engine, f"MATCH ()-[r:{name}]->() RETURN count(r)")
-        undirected[kind] = _count(
-            engine, f"MATCH ()-[r:{name}]-() RETURN count(r)")
-        # Planner-forced reverse expansion: the HEAD label is bound first and
-        # the edge is walked backwards to the tail.
-        inbound[kind] = _count(
-            engine, f"MATCH ({identifier(head).lower()[:1]}:{identifier(head)})"
-                    f"<-[r:{name}]-(:{identifier(tail)}) RETURN count(r)")
-    return {"directed": directed, "undirected": undirected,
-            "inbound": inbound,
-            "directed_total": sum(directed.values()),
-            "undirected_total": sum(undirected.values()),
-            "inbound_total": sum(inbound.values())}
 
 
 def report(measured: dict) -> None:
