@@ -78,8 +78,13 @@ curl -fsS "${URL}/api/tenants" >/dev/null 2>&1 || {
 # `demo.demo` and README all work in `edtech`; this script created no tenant
 # and passed no graph, so the import landed in `default` and either `verify`
 # read `edtech` and found zeros, or the walkthrough opened on an empty graph.
+# `|| true` because an already-existing tenant is not an error — but a real
+# failure is swallowed with it, after which the import lands in a graph that
+# may not exist. `verify` catches that; this is about the message a presenter
+# sees, so say something rather than nothing.
 curl -fsS -X POST "${URL}/api/tenants" -H 'Content-Type: application/json' \
-  -d "{\"id\":\"${GRAPH}\",\"name\":\"${GRAPH}\"}" >/dev/null 2>&1 || true
+  -d "{\"id\":\"${GRAPH}\",\"name\":\"${GRAPH}\"}" >/dev/null 2>&1 \
+  || echo "note: could not create tenant ${GRAPH} (it may already exist)"
 
 "$PY" -m etl.snapshot import --url "$URL" --file "$SNAPSHOT" --graph "$GRAPH"
 

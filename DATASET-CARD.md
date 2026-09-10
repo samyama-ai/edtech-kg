@@ -50,15 +50,27 @@ different one, which is what a hand-maintained count does.
 reports **2,834** for the 1,417 edges above; the same graph imported from a
 snapshot reports 1,417.
 
-The two graphs are the same graph. Both answer **1,417** directed and
-**2,834** undirected, per type and in total, with `storage.nodes` matching at
-1,098 — so the endpoint is double-counting on the Cypher-loaded side rather
-than the import having dropped half. That distinction matters: had the
-imported graph answered 2,834 undirected against 1,417 directed only on one
-side, the endpoint would have been right and this snapshot lossy. Both
-readings are recorded, from both engines, in
+The two graphs are the same graph. The distinction matters: if `storage.edges`
+counted stored adjacency entries and the import kept only one per edge, then
+the endpoint would be right and this snapshot would be lossy.
+
+That is excluded by the **reverse expansion**, which both engines answer
+identically — 240, 723, 316, 138, **1,417** in total:
+
+    MATCH (c:Course)<-[r:INCLUDES]-(:Pathway) RETURN count(r)     316 on both
+
+Starting from a `Course` and walking the edge backwards, an engine holding
+one adjacency entry at the tail could not answer that. It answers. This is
+also the query the walkthrough already rests on — `demo/demo.py` runs the
+pattern and `docs/questions.md` makes the reverse edge a supported question.
+
+The undirected count is recorded too but does **not** settle it on its own: it
+comes back at exactly twice directed for all four types on both engines, which
+is as much the signature of a doubling rule as of a traversal. Nor does
+`storage.nodes` matching at 1,098 — a lossy-edge import would match on nodes
+too. All three readings are in
 [`sources/snapshot-measured.json`](docs/sources/snapshot-measured.json) under
-`edge_count_readings`.
+`edge_count_readings`, from both engines.
 
 | graph artefact | |
 |---|---|

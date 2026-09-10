@@ -21,6 +21,15 @@ So a verification that trusted `/api/status` would call a correct import a
 failure, or a half-imported graph a success, depending on which side it read.
 Every count here is a per-type `MATCH ()-[r:TYPE]->() RETURN count(r)`.
 
+**Why that is the endpoint's fault and not the import's**, which matters
+because the other reading is that the import silently drops half its edges:
+`both_directions` records a REVERSE expansion on both engines, and both
+answer 1,417 — an engine holding one adjacency entry per edge could not walk
+`(c:Course)<-[r:INCLUDES]-(:Pathway)` from the Course end. The undirected
+count is recorded too and settles nothing alone: it is exactly twice directed
+for every type on both engines, which is as much a doubling rule as a
+traversal. See `both_directions` and `edge_count_readings` in the record.
+
 The snapshot is NOT committed. `data/` is gitignored and this ships as a
 release asset — a graph artefact is not source, and the dataset card records
 its size and import time so the figure has a run behind it.
@@ -58,7 +67,13 @@ RECORD_NOTE = (
     "counts an import must reproduce. The counts are per-type Cypher, NOT "
     "`/api/status`: on a Cypher-loaded graph that endpoint reports twice the "
     "edges it holds, so a check against it would pass or fail depending on "
-    "how the graph it is checking was built. `snapshot.bytes` is the export "
+    "how the graph it is checking was built. `edge_count_readings` carries "
+    "the evidence for that, from both engines, written by `both_directions`: "
+    "the REVERSE expansion is the reading that excludes a lossy import, "
+    "because an engine holding one adjacency entry per edge could not answer "
+    "it from the head. The undirected count is recorded but settles nothing "
+    "on its own — it is exactly twice directed everywhere, which is as much "
+    "a doubling rule as a traversal. `snapshot.bytes` is the export "
     "this run published; `snapshot.reproducible` compares three FURTHER "
     "exports of the same graph. They are different exports, and exports of "
     "one unchanged graph differ in size, so `bytes` is not expected to fall "
@@ -70,6 +85,16 @@ RECORD_NOTE = (
 #: wrong in opposite directions.
 NODE_LABELS = ("Course", "Subject", "Pathway", "Requirement")
 EDGE_TYPES = ("REQUIRES", "IN_SUBJECT", "INCLUDES", "HAS_REQUIREMENT")
+
+#: The same four edges with their end labels, so the reverse expansion can be
+#: written with both ends bound. `both_directions` needs the HEAD label to
+#: force the planner to start there and walk the edge backwards.
+EDGE_ENDS = (
+    ("REQUIRES", "Course", "Course"),
+    ("IN_SUBJECT", "Course", "Subject"),
+    ("INCLUDES", "Pathway", "Course"),
+    ("HAS_REQUIREMENT", "Course", "Requirement"),
+)
 
 
 class Refused(RuntimeError):
@@ -306,22 +331,46 @@ def both_directions(url: str, graph: str = DEFAULT_GRAPH) -> dict:
     import is lossy. `verify` cannot separate them, because it only ever asks
     `()-[r:T]->()`, which is identical under both.
 
-    The undirected count separates them: under (b) the imported graph would
-    answer half. Measured on 1.1.0 — Cypher-loaded and imported both answer
-    2,834 undirected against 1,417 directed, with `storage.nodes` matching at
-    1,098 — so (b) is refused and (a) stands.
+    **The undirected count alone does NOT separate them**, and an earlier
+    version of this docstring claimed it did. Undirected comes back at
+    exactly 2x directed for all four types on both engines — 480/240,
+    1446/723, 632/316, 276/138, no self-loop residue, no exceptions. That is
+    the signature of a query-level doubling rule at least as much as of a
+    traversal over stored entries, and if it is doubling then this function
+    discriminates nothing.
+
+    **The INBOUND expansion does separate them**, because it does not depend
+    on undirected semantics at all. `MATCH (c:Course)<-[r:INCLUDES]-(p:Pathway)`
+    starts at a Course and walks the edge backwards. Under (b) — one stored
+    adjacency entry per edge, held at the tail — the imported graph could not
+    answer it from a Course start. Measured on 1.1.0: both engines answer
+    316, and 240 for the reverse of REQUIRES. So (b) is excluded.
+
+    It is also the query the demo's correctness already rests on:
+    `demo/demo.py:213` runs this pattern and `docs/questions.md:115` makes
+    the reverse edge a supported question.
+
+    `storage.nodes` matching at 1,098 is NOT evidence here — (b) predicts
+    matching node counts too. It reads as corroboration and is not.
     """
     engine = Engine(url, graph=graph)
-    directed, undirected = {}, {}
-    for kind in EDGE_TYPES:
+    directed, undirected, inbound = {}, {}, {}
+    for kind, tail, head in EDGE_ENDS:
         name = identifier(kind)
         directed[kind] = _count(
             engine, f"MATCH ()-[r:{name}]->() RETURN count(r)")
         undirected[kind] = _count(
             engine, f"MATCH ()-[r:{name}]-() RETURN count(r)")
+        # Planner-forced reverse expansion: the HEAD label is bound first and
+        # the edge is walked backwards to the tail.
+        inbound[kind] = _count(
+            engine, f"MATCH ({identifier(head).lower()[:1]}:{identifier(head)})"
+                    f"<-[r:{name}]-(:{identifier(tail)}) RETURN count(r)")
     return {"directed": directed, "undirected": undirected,
+            "inbound": inbound,
             "directed_total": sum(directed.values()),
-            "undirected_total": sum(undirected.values())}
+            "undirected_total": sum(undirected.values()),
+            "inbound_total": sum(inbound.values())}
 
 
 def report(measured: dict) -> None:
@@ -402,6 +451,8 @@ def main(argv: list[str] | None = None) -> int:
         candidate = args.file.with_name(args.file.name + ".candidate")
         taken = export(args.from_url, candidate, graph=args.graph)
         taken["reproducible"] = reproducibility(args.from_url)
+        # No `expect_sha256`: this run just wrote those bytes, so checking
+        # them against a digest of themselves would prove nothing.
         found = load(args.url, candidate, graph=args.graph)
         wrong = verify(args.url, taken["taken_from"], graph=args.graph)
         if wrong:
@@ -426,7 +477,13 @@ def main(argv: list[str] | None = None) -> int:
                          "per_type": both_directions(args.url, args.graph)},
         }
         measured = {"_": RECORD_NOTE, "snapshot": taken, "import": found,
-                    "counts": taken["taken_from"], "edge_count_readings": endpoint}
+                    "counts": taken["taken_from"],
+                    # Which graph, and which engine was which — the card leans
+                    # on a two-engine comparison, and `cypher_loaded` versus
+                    # `imported` was attributable to nothing but a key name.
+                    "graph": args.graph,
+                    "exported_from": args.from_url, "imported_into": args.url,
+                    "edge_count_readings": endpoint}
         report(measured)
         write_record(RECORD, measured)
         print(f"\n  -> {RECORD.relative_to(ROOT)}")

@@ -16,7 +16,9 @@ So a verification that trusted `/api/status` would call a correct import a
 failure, or a half-imported graph a success, depending on which side it read.
 Everything here counts per type.
 
-Nothing in this file needs an engine except the round trip, which is gated.
+Nothing here needs an engine: every test drives a stub. There is no
+engine-backed round trip in this file — an earlier version of this line
+said there was one and gated, and there was neither.
 """
 
 from __future__ import annotations
@@ -239,14 +241,21 @@ def test_import_checks_the_graph_against_the_record_not_against_itself(
     Against itself that agrees; against the record it does not.
     """
     monkeypatch.setattr(snapshot, "Engine", lambda url, graph=None: Graph({"Course": 1}))
+    handed = {}
     monkeypatch.setattr(snapshot, "load",
-                        lambda url, path, graph=None, expect_sha256=None: {
-        "seconds": 0.01, "bytes": 10, "engine_said": {},
-        "in_graph": {"Course": 1}})
+                        lambda url, path, graph=None, expect_sha256=None: (
+                            handed.update(sha256=expect_sha256),
+                            {"seconds": 0.01, "bytes": 10, "engine_said": {},
+                             "in_graph": {"Course": 1}})[1])
     target = tmp_path / "x.sgsnap"
     target.write_bytes(b"snapshot")
     assert snapshot.main(["import", "--file", str(target),
                           "--url", "http://engine.test"]) == 4
+    # The `import` action's hash wiring mutated green: it reads the published
+    # digest out of the record and hands it to `load`, and nothing checked it
+    # arrived.
+    recorded = json.loads(snapshot.RECORD.read_text(encoding="utf-8"))
+    assert handed["sha256"] == recorded["snapshot"]["sha256"]
     said = capsys.readouterr().err
     assert "Course" in said, (
         f"the import failed without naming what disagreed:\n{said}")
@@ -361,3 +370,76 @@ def test_a_count_that_is_not_a_number_is_a_refusal():
             return "seven hundred and ninety-one"
     with pytest.raises(Refused, match="not a number"):
         snapshot.counts(Wordy())
+
+
+def test_the_graph_is_named_and_it_is_the_one_everything_else_uses():
+    """**The graph-naming fix had no test.** All three mutations were green
+    at 1,851 passing:
+
+        DEFAULT_GRAPH = "edtech" -> "default"
+        Engine(url, graph=graph) -> Engine(url)
+        --graph default          -> "default"
+
+    because every stub here was `lambda url, graph=None: ...` — accepting the
+    argument and discarding it. The failure that fix exists for is the import
+    landing in `edtech` while `verify` reads `default` and finds zeros.
+    """
+    assert snapshot.DEFAULT_GRAPH == "edtech"
+    # Tied to the walkthrough's own default, so the two cannot drift apart —
+    # a snapshot imported into a graph `demo.demo` does not open is a demo
+    # that opens on nothing.
+    walkthrough = (ROOT / "demo" / "demo.py").read_text(encoding="utf-8")
+    assert f'"--graph", default="{snapshot.DEFAULT_GRAPH}"' in walkthrough, (
+        "demo/demo.py and etl/snapshot.py disagree about the default graph")
+
+
+def test_export_reads_the_graph_it_was_told_to(monkeypatch, tmp_path):
+    """The stub captures the graph rather than swallowing it."""
+    seen = []
+    monkeypatch.setattr(snapshot, "Engine",
+                        lambda url, graph=None: seen.append(graph)
+                        or Graph({"Course": 791}))
+    monkeypatch.setattr(snapshot, "post", lambda *a, **k: (200, b"bytes"))
+    snapshot.export("http://engine.test", tmp_path / "x.sgsnap")
+    assert seen == ["edtech"], f"export read graph {seen}"
+
+
+def test_load_and_verify_work_in_the_named_graph(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(snapshot, "Engine",
+                        lambda url, graph=None: seen.append(graph) or Graph())
+    monkeypatch.setattr(snapshot, "still_held", lambda url: 0)
+    monkeypatch.setattr(snapshot, "post", lambda *a, **k: (200, b"{}"))
+    target = tmp_path / "x.sgsnap"
+    target.write_bytes(b"snapshot")
+    snapshot.load("http://engine.test", target)
+    snapshot.verify("http://engine.test", {"Course": 0})
+    assert seen == ["edtech", "edtech"], f"worked in graph {seen}"
+
+
+def test_both_directions_asks_all_three_shapes():
+    """**The undirected query mutated green.** Flipping `]-()` to `]->()`
+    changed nothing in the suite, and that function backs the whole card
+    paragraph — collapsed into two copies of one count, the record would say
+    1,417 undirected and the argument would be gone with nothing noticing.
+    The inbound form is the one that actually discriminates, so it is pinned
+    hardest.
+    """
+    engine = Graph({"REQUIRES": 240, "IN_SUBJECT": 723,
+                    "INCLUDES": 316, "HAS_REQUIREMENT": 138})
+    import etl.snapshot as sn
+    original = sn.Engine
+    sn.Engine = lambda url, graph=None: engine
+    try:
+        sn.both_directions("http://engine.test")
+    finally:
+        sn.Engine = original
+    outbound = [q for q in engine.asked if "]->()" in q]
+    undirected = [q for q in engine.asked if "]-()" in q and "]->()" not in q]
+    inbound = [q for q in engine.asked if "<-[" in q]
+    assert len(outbound) == 4, engine.asked
+    assert len(undirected) == 4, (
+        "the undirected counts are not being asked undirected")
+    assert len(inbound) == 4, (
+        "the reverse expansion — the reading that excludes a lossy import — "
+        "is not being asked")
