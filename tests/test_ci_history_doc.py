@@ -369,3 +369,19 @@ def test_the_causal_claim_is_backed_by_more_than_one_run():
     assert "not a controlled experiment" in PAGE, (
         "the page must still name the other differences between the two "
         "workflows — trigger, step count, step tolerance")
+
+
+def test_the_page_no_longer_claims_fetching_is_the_cause():
+    """**The diagnostic cannot fail**, so its 7 of 7 was never evidence that
+    its steps worked — every step carries `continue-on-error: true`. And
+    removing the actions from `ci.yml` did not turn the tick green.
+
+    The page stated the cause anyway, with the step tolerance listed as one
+    confound among several rather than as the whole of the difference.
+    """
+    page = PAGE
+    assert "continue-on-error" in page, (
+        "the page compares the two workflows without saying that one of them "
+        "cannot fail")
+    assert "not established" in page or "at most part of the cause" in page, (
+        "the page still presents fetching an action as the established cause")
