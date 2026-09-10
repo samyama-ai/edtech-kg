@@ -54,8 +54,9 @@ def test_the_walk_follows_the_sources_own_next_link(monkeypatch):
     api = Api([("page=2", page(3, rows(1, 2))),
                ("completions", page(3, rows(2), "https://x/?page=2"))])
     monkeypatch.setattr(dl, "get", api)
-    collected, total = dl.walk("https://x/completions")
+    collected, total, unique = dl.walk("https://x/completions")
     assert total == 3
+    assert unique == 3
     assert len(collected) == 3
     assert "page=2" in api.asked[1], (
         "the second request was not the link the source offered")
@@ -72,6 +73,12 @@ def test_a_walk_that_stops_short_is_refused_not_written(tmp_path,
     monkeypatch.setattr(dl, "get", Api([("completions", page(190770, rows(7)))]))
     with pytest.raises(dl.Truncated, match="190,770"):
         dl.fetch("completions", {"url": "https://x/completions", "what": "c"})
+    # **The half the name promises.** Asserting only `raises` leaves the file
+    # green if the write moves above the validation — a truncated slice at the
+    # cache path with a refusal printed over it. This also pins the scratch
+    # `.part` being cleaned up rather than left behind.
+    assert not list(tmp_path.iterdir()), (
+        f"refused, and still wrote {[f.name for f in tmp_path.iterdir()]}")
 
 
 def test_an_empty_answer_is_not_a_measurement_of_zero(tmp_path,
@@ -84,6 +91,8 @@ def test_an_empty_answer_is_not_a_measurement_of_zero(tmp_path,
     monkeypatch.setattr(dl, "get", Api([("completions", page(0, []))]))
     with pytest.raises(dl.Truncated, match="not a measurement of zero"):
         dl.fetch("completions", {"url": "https://x/completions", "what": "c"})
+    assert not list(tmp_path.iterdir()), (
+        f"refused, and still wrote {[f.name for f in tmp_path.iterdir()]}")
 
 
 def test_an_answer_without_a_count_is_refused(monkeypatch):
@@ -101,8 +110,8 @@ def test_a_next_link_offered_past_the_count_does_not_loop(monkeypatch):
     against, so the count wins."""
     api = Api([("completions", page(2, rows(2), "https://x/?page=2"))])
     monkeypatch.setattr(dl, "get", api)
-    collected, total = dl.walk("https://x/completions")
-    assert len(collected) == 2 == total
+    collected, total, unique = dl.walk("https://x/completions")
+    assert len(collected) == 2 == total == unique
     assert len(api.asked) == 1, api.asked
 
 
@@ -279,3 +288,108 @@ def test_check_prints_a_table_reporting_zero_rows(tmp_path, monkeypatch,
     printed = capsys.readouterr().out
     assert "0 rows" in printed
     assert "- pages" in printed
+
+
+def test_reaching_the_count_by_repetition_is_refused(tmp_path, monkeypatch):
+    """**Cardinality is not identity.** The completeness check was
+    `len(rows) != total`, so a `next` chain that re-serves a page reaches the
+    count with duplicates and passes. Driven directly against the old code:
+
+        collected: [{'unitid': 1}, {'unitid': 2}, {'unitid': 1}, {'unitid': 2}]
+        len(rows) = 4   total = 4   unique = 2   -> check PASSED
+
+    The slice was then written with `count_reported == rows_collected == 4`
+    holding two real rows, and the read path could never catch it because all
+    three stored numbers agreed. That is this module's headline failure —
+    every figure downstream understating silently — arriving by repetition
+    instead of truncation.
+    """
+    monkeypatch.setattr(dl, "CACHE", tmp_path)
+    monkeypatch.setattr(dl, "ROOT", tmp_path)
+    monkeypatch.setattr(dl, "get", Api([
+        ("page=2", page(4, rows(2))),
+        ("completions", page(4, rows(2), "https://x/completions?page=2")),
+    ]))
+    with pytest.raises(dl.Truncated, match="repetition"):
+        dl.fetch("completions", {"url": "https://x/completions", "what": "c"})
+    assert not list(tmp_path.iterdir())
+
+
+def test_a_cached_slice_that_repeats_rows_is_refused(tmp_path, monkeypatch):
+    """A duplicated slice already on disk is self-consistent — every stored
+    number agrees — so identity has to be counted from the rows themselves,
+    not read back out of the file that got it wrong."""
+    monkeypatch.setattr(dl, "CACHE", tmp_path)
+    monkeypatch.setattr(dl, "ROOT", tmp_path)
+    doubled = rows(2) + rows(2)
+    (tmp_path / f"completions-{dl.FIPS}-{dl.YEAR}.json").write_text(
+        json.dumps({"rows": doubled, "count_reported": 4,
+                    "rows_collected": 4, "rows_unique": 4}), encoding="utf-8")
+    with pytest.raises(dl.Truncated, match="repetition"):
+        dl.fetch("completions", {"url": "https://x/completions", "what": "c"})
+
+
+def test_a_next_that_never_advances_is_refused_rather_than_paged_for_ever(
+        monkeypatch):
+    """`batch = []` is not `None`, so an empty page grew nothing while
+    `len(rows) >= total` stayed false and the loop re-requested at 2 req/s
+    with no output, no exit code and no refusal. Measured at **3,001 requests
+    and still going** before this guard.
+
+    Remembering page URLs rather than counting pages also catches an A->B->A
+    cycle, which a page ceiling would only catch late.
+    """
+    api = Api([("completions", page(10, [], "https://x/completions"))])
+
+    def bounded(url):
+        # **The stub refuses rather than letting the walk spin.** Without the
+        # guard this loop never returns, so the test would HANG rather than
+        # fail — and a hanging CI job is a worse regression signal than a red
+        # one. Five is far above the one request a correct walk makes here.
+        if len(api.asked) >= 5:
+            raise AssertionError(
+                f"the walk made {len(api.asked)} requests without advancing "
+                f"and was still going")
+        return api(url)
+
+    monkeypatch.setattr(dl, "get", bounded)
+    with pytest.raises(dl.Unreachable, match="twice"):
+        dl.walk("https://x/completions")
+    assert len(api.asked) <= 2, (
+        f"the walk made {len(api.asked)} requests before refusing")
+
+
+@pytest.mark.parametrize("offered", [
+    "file:///etc/passwd",
+    "http://x/completions?page=2",          # scheme downgraded
+    "https://elsewhere.test/completions",   # foreign host
+])
+def test_a_next_link_off_the_api_is_not_followed(monkeypatch, offered):
+    """`urlopen` serves `file://` through `FileHandler` — verified against
+    this interpreter, which read a local file handed to it as a `next` link.
+    The exposure against a public government API is thin, but this repo has
+    already made the decision twice, at `etl/probe_sced.py:129-139` and
+    `etl/probe_pwcs.py:189-202`, with the argument written down.
+    """
+    api = Api([("completions", page(4, rows(2), offered))])
+    monkeypatch.setattr(dl, "get", api)
+    with pytest.raises(dl.Unreachable, match="same host"):
+        dl.walk("https://x/completions")
+
+
+def test_the_two_exit_codes_are_not_interchangeable(tmp_path, monkeypatch):
+    """The docstring calls telling them apart "the point of having them", and
+    nothing asserted either: swapping `EXIT_UNREACHABLE` and `EXIT_TRUNCATED`
+    left the suite green. A CI step branching on the code is the contract."""
+    monkeypatch.setattr(dl, "CACHE", tmp_path)
+    monkeypatch.setattr(dl, "ROOT", tmp_path)
+
+    def unreachable(url):
+        raise dl.Unreachable("the source did not answer")
+    monkeypatch.setattr(dl, "get", unreachable)
+    assert dl.main(["--only", "institutions"]) == dl.EXIT_UNREACHABLE == 1
+
+    # matched on the real path segment: the institutions table is
+    # `/ipeds/directory/`, and the table NAME appears nowhere in its URL.
+    monkeypatch.setattr(dl, "get", Api([("directory", page(9, rows(2)))]))
+    assert dl.main(["--only", "institutions"]) == dl.EXIT_TRUNCATED == 3
