@@ -38,7 +38,25 @@ Measured in [`docs/sources/federal-direct.md`](docs/sources/federal-direct.md).
 ## What is loaded
 
 **One district.** Prince William County Public Schools, from pages this repo
-cached — 1,098 nodes and 1,287 edges. Everything else above is measured at the
+cached — 1,098 nodes and 1,417 edges.
+
+That edge count said **1,287** until #25 counted the graph per type rather
+than quoting a figure. It is 1,417: REQUIRES 240, IN_SUBJECT
+723, INCLUDES 316, HAS_REQUIREMENT
+138. `README.md` had the right number and this card had a
+different one, which is what a hand-maintained count does.
+
+**Do not read the edge count from `/api/status`.** On a Cypher-loaded graph it
+reports **2,834** for the 1,417 edges above; the same graph imported from a
+snapshot reports 1,417. Both engines answer identically per type. Measured
+in [`sources/snapshot-measured.json`](docs/sources/snapshot-measured.json).
+
+| graph artefact | |
+|---|---|
+| `edtech-kg.sgsnap` | **160,392 bytes**, imports in **0.02s** into a clean engine |
+| Against | a load of about 8 seconds — and no network, no source pages |
+| Published as | a release asset. Not committed: `data/` is gitignored and a graph artefact is not source |
+| Verified by | `python -m etl.snapshot verify`, per label and per edge type, before a demo opens | Everything else above is measured at the
 source and **not loaded**.
 
 **Node and edge counts for the other sources are absent, not blank.** No loader

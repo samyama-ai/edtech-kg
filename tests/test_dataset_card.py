@@ -67,8 +67,18 @@ def test_no_grouped_figure_on_the_card_is_unaccounted_for():
     known |= {fed["ipeds"][k] for k in ("rows", "rows_x_counts", "wrapper_rows",
                                         "awards_first_major")}
     known |= {reg["records"]["envelopes"], ceds["classes"]}
-    # The loaded graph, stated in README and schema.md and measured by the load.
+    # The loaded graph. **1,287 is here as a SUPERSEDED figure** — the card
+    # names it as the number it used to carry, and #25 measured the graph per
+    # type and found 1,417. Kept so the correction can stay on the page.
     known |= {1_098, 1_287, 791}
+    # The snapshot (#25): its size, its import counts, and the /api/status
+    # edge figure the card warns against reading. From the record, not typed.
+    snap = record("snapshot")
+    known |= set(snap["counts"].values())
+    known |= {snap["snapshot"]["bytes"],
+              sum(snap["counts"][k] for k in
+                  ("REQUIRES", "IN_SUBJECT", "INCLUDES", "HAS_REQUIREMENT")),
+              2_834}
     unexplained = grouped(card()) - known
     assert not unexplained, (
         f"these grouped figures are on the card and in no record: "
