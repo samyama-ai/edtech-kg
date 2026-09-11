@@ -1,9 +1,15 @@
 {
-  "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built. `edge_count_readings` carries the evidence for that, from both engines, written by `both_directions`: the REVERSE expansion is the reading that excludes a lossy import, because an engine holding one adjacency entry per edge could not answer it from the head. The undirected count is recorded but settles nothing on its own — it is exactly twice directed everywhere, which is as much a doubling rule as a traversal. `snapshot.bytes` is the export this run published; `snapshot.reproducible` compares three FURTHER exports of the same graph. They are different exports, and exports of one unchanged graph differ in size, so `bytes` is not expected to fall between `bytes_min` and `bytes_max` — it did not on an earlier run, and the two looked inconsistent.",
+  "_": "Measured by `python -m etl.snapshot record`. Size, import time and the counts an import must reproduce. The counts are per-type Cypher, NOT `/api/status`: on a Cypher-loaded graph that endpoint reports twice the edges it holds, so a check against it would pass or fail depending on how the graph it is checking was built. `edge_count_readings` carries the evidence for that, from both engines, written by `both_directions`: the REVERSE expansion is the reading that excludes a lossy import, because an engine holding one adjacency entry per edge could not answer it from the head. The undirected count is recorded but settles nothing on its own — it is exactly twice directed everywhere, which is as much a doubling rule as a traversal. `snapshot.bytes` is the export this run published; `snapshot.reproducible` compares three FURTHER exports of the same graph. They are different exports, and exports of one unchanged graph differ in size, so `bytes` is not expected to fall between `bytes_min` and `bytes_max` — it did not on an earlier run, and the two looked inconsistent. `property_counts` says how many nodes of each label carry the property they are worthless without, measured on the SOURCE during export and proved by the round trip — counting nodes says the shape survived, not that they carry anything.",
   "snapshot": {
     "file": "data/edtech-kg.sgsnap",
-    "bytes": 160339,
-    "sha256": "ea995e97b534577d65d313f7dc156fdee81b449be08c5737706dc13219b2206f",
+    "bytes": 160380,
+    "properties": {
+      "Course.name": 791,
+      "Subject.name": 127,
+      "Pathway.name": 42,
+      "Requirement.text": 138
+    },
+    "sha256": "c199f1b8066970ccabc4cf6d2a5f21ffc9c85d2eddf3f14033c2ac5a6802106c",
     "taken_from": {
       "Course": 791,
       "Subject": 127,
@@ -16,20 +22,20 @@
     },
     "reproducible": {
       "exports_compared": 3,
-      "bytes_min": 160156,
-      "bytes_max": 160413,
-      "bytes_spread": 257,
+      "bytes_min": 160299,
+      "bytes_max": 160412,
+      "bytes_spread": 113,
       "byte_identical": false,
       "sha256": [
-        "6e77e76515173bf94113d192b7415142f7dd36921dd8d53843f51891a0aa2a44",
-        "a7f9ea9df3ee4426b1ebd7cc8a565e66714f06b24332abf1850b9d969350be16",
-        "4926c43f540ec71823df7e2af8805361b447f695e56826deaf7d7299198cf2ef"
+        "94a0204ee724af62f08181016519e123f403b0b53361df3bd29bfd7b40c7d85e",
+        "262fc263d2f4ec1a43f4fb0f93725b663c74531b7b5db4bf48ce380cfde0bb42",
+        "13cc91251520acf392afc1336dbec06abf9d08dca39982e2381a3c824192b6fe"
       ]
     }
   },
   "import": {
-    "seconds": 0.02,
-    "bytes": 160339,
+    "seconds": 0.03,
+    "bytes": 160380,
     "engine_said": {
       "edge_types": [
         "HAS_REQUIREMENT",
@@ -71,8 +77,14 @@
     "HAS_REQUIREMENT": 138
   },
   "graph": "edtech",
+  "property_counts": {
+    "Course.name": 791,
+    "Subject.name": 127,
+    "Pathway.name": 42,
+    "Requirement.text": 138
+  },
   "exported_from": "http://localhost:8200",
-  "imported_into": "http://localhost:8285",
+  "imported_into": "http://localhost:8270",
   "edge_count_readings": {
     "cypher_loaded": {
       "api_status_storage": {
@@ -134,7 +146,7 @@
     }
   },
   "code": {
-    "commit": "5b2553d23d00e7ec8a5ce40133047353e4d8023a",
+    "commit": "e90ed645ed77b4e8a06071711fe7736525b4553f",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."

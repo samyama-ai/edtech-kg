@@ -73,12 +73,23 @@ RECORD_NOTE = (
     "exports of the same graph. They are different exports, and exports of "
     "one unchanged graph differ in size, so `bytes` is not expected to fall "
     "between `bytes_min` and `bytes_max` — it did not on an earlier run, and "
-    "the two looked inconsistent.")
+    "the two looked inconsistent. `property_counts` says how many nodes of "
+    "each label carry the property they are worthless without, measured on "
+    "the SOURCE during export and proved by the round trip — counting "
+    "nodes says the shape survived, not that they carry anything.")
 
 #: What the district's graph holds, by type. Named so `verify` compares a
 #: shape rather than a single total — a total can be right while two types are
 #: wrong in opposite directions.
 NODE_LABELS = ("Course", "Subject", "Pathway", "Requirement")
+
+#: The property each label is worthless without, and the one `load_pwcs`
+#: already checks after its own load (`etl/load_pwcs.py:427-434`). Counting
+#: nodes and edges says the SHAPE survived the round trip; it says nothing
+#: about whether they carry anything, and a graph of nameless nodes verifies
+#: clean while the walkthrough opens on blanks.
+REQUIRED_PROPERTIES = (("Course", "name"), ("Subject", "name"),
+                       ("Pathway", "name"), ("Requirement", "text"))
 EDGE_TYPES = ("REQUIRES", "IN_SUBJECT", "INCLUDES", "HAS_REQUIREMENT")
 
 
@@ -116,7 +127,15 @@ def counts(engine: Engine) -> dict:
 def export(url: str, into: pathlib.Path,
            graph: str = DEFAULT_GRAPH) -> dict:
     """Write a snapshot of `url`, and record what it was taken from."""
-    before = counts(Engine(url, graph=graph))
+    source = Engine(url, graph=graph)
+    before = counts(source)
+    # **From the SOURCE, beside `taken_from`.** Measured on the imported
+    # graph instead, this became self-fulfilling: an engine whose import
+    # dropped values would have `Course.name: 0` written into the record as
+    # the published expectation, and every later `demo/ready.sh` would then
+    # verify the nameless graph as clean — the check certifying the state it
+    # exists to detect.
+    carried = properties(source)
     if not sum(before.values()):
         raise Refused(
             f"{url} holds nothing. Exporting it would publish an empty "
@@ -137,7 +156,7 @@ def export(url: str, into: pathlib.Path,
         where = into.resolve().relative_to(ROOT).as_posix()
     except ValueError:
         where = into.name          # written outside the repo; the name is all
-    return {"file": where, "bytes": len(body),
+    return {"file": where, "bytes": len(body), "properties": carried,
             # The digest of the file this run published — the one a download
             # is checked against. `reproducible` compares three FURTHER
             # exports, which differ from this one and from each other.
@@ -219,12 +238,44 @@ def should_hold(whole: bool = False) -> dict | None:
     return held if whole else held["counts"]
 
 
-def verify(url: str, expected: dict,
-           graph: str = DEFAULT_GRAPH) -> list[str]:
-    """Every label and edge type, compared. Returns what disagrees."""
-    held = counts(Engine(url, graph=graph))
-    return [f"{name}: expected {expected[name]:,}, found {held.get(name, 0):,}"
-            for name in expected if held.get(name, 0) != expected[name]]
+def properties(engine: Engine) -> dict:
+    """How many nodes of each label actually carry their key property.
+
+    Asked as `IS NOT NULL` rather than as a total, so the answer is directly
+    comparable with the label count beside it: equal means every node carries
+    it, and anything less names how many do not.
+    """
+    return {f"{label}.{prop}": _count(
+        engine, f"MATCH (n:{identifier(label)}) "
+                f"WHERE n.{identifier(prop)} IS NOT NULL RETURN count(n)")
+        for label, prop in REQUIRED_PROPERTIES}
+
+
+def verify(url: str, expected: dict, graph: str = DEFAULT_GRAPH,
+           expect_properties: dict | None = None) -> list[str]:
+    """Every label and edge type, compared — and their key properties.
+
+    **Cardinality is not content.** This compared counts per label and per
+    edge type only, so a snapshot that reproduced every node and every edge
+    and dropped every PROPERTY verified clean, and the demo then opened on
+    nameless nodes. `demo/ready.sh` runs this as its gate, so it is the check
+    standing between a bad import and a customer-facing walkthrough — and
+    `etl/engine.py:208-220` records that properties are effectively
+    unremovable on 1.1.0, so such a graph cannot be repaired in place.
+    """
+    engine = Engine(url, graph=graph)
+    held = counts(engine)
+    wrong = [f"{name}: expected {expected[name]:,}, found {held.get(name, 0):,}"
+             for name in expected if held.get(name, 0) != expected[name]]
+    if expect_properties:
+        carried = properties(engine)
+        wrong += [
+            f"{name}: expected {expect_properties[name]:,} node(s) carrying "
+            f"it, found {carried.get(name, 0):,} — the nodes arrived and the "
+            f"values did not"
+            for name in expect_properties
+            if carried.get(name, 0) != expect_properties[name]]
+    return wrong
 
 
 def reproducibility(url: str, times: int = 3) -> dict:
@@ -300,8 +351,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.action == "import":
             recorded = should_hold(whole=True)
-            expected_hash = ((recorded or {}).get("snapshot") or {}).get(
-                "sha256") if recorded else None
+            if recorded is None:
+                return 2
+            expected_hash = (recorded.get("snapshot") or {}).get("sha256")
             found = load(args.url, args.file, graph=args.graph,
                          expect_sha256=expected_hash)
             print(f"  imported in {found['seconds']}s")
@@ -310,10 +362,8 @@ def main(argv: list[str] | None = None) -> int:
             # itself: it could only fail on a race, and a half-import — the
             # failure this module exists to catch — passed. It also returned 4
             # without saying what disagreed. Both actions use the record now.
-            expected = should_hold()
-            if expected is None:
-                return 2
-            wrong = verify(args.url, expected, graph=args.graph)
+            wrong = verify(args.url, recorded["counts"], graph=args.graph,
+                           expect_properties=recorded.get("property_counts"))
             if wrong:
                 print("the imported graph is not what the snapshot should "
                       "produce:", file=sys.stderr)
@@ -323,10 +373,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.action == "verify":
-            expected = should_hold()
-            if expected is None:
+            recorded = should_hold(whole=True)
+            if recorded is None:
                 return 2
-            wrong = verify(args.url, expected, graph=args.graph)
+            expected = recorded["counts"]
+            wrong = verify(args.url, expected, graph=args.graph,
+                           expect_properties=recorded.get("property_counts"))
             if wrong:
                 print("the graph is not what the snapshot should produce:",
                       file=sys.stderr)
@@ -348,7 +400,8 @@ def main(argv: list[str] | None = None) -> int:
         # No `expect_sha256`: this run just wrote those bytes, so checking
         # them against a digest of themselves would prove nothing.
         found = load(args.url, candidate, graph=args.graph)
-        wrong = verify(args.url, taken["taken_from"], graph=args.graph)
+        wrong = verify(args.url, taken["taken_from"], graph=args.graph,
+                       expect_properties=taken["properties"])
         if wrong:
             # **The round trip did not reproduce the graph.** Recording that
             # would publish a snapshot the demo cannot trust.
@@ -376,6 +429,11 @@ def main(argv: list[str] | None = None) -> int:
                     # on a two-engine comparison, and `cypher_loaded` versus
                     # `imported` was attributable to nothing but a key name.
                     "graph": args.graph,
+                    # What the nodes CARRY, not just how many arrived, and
+                    # measured on the SOURCE during `export` — see the note
+                    # there. The round trip above already proved the imported
+                    # graph reproduces it.
+                    "property_counts": taken["properties"],
                     "exported_from": args.from_url, "imported_into": args.url,
                     "edge_count_readings": endpoint}
         report(measured)

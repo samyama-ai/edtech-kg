@@ -30,48 +30,10 @@ import pytest
 
 from etl import snapshot
 from etl.snapshot import EDGE_TYPES, NODE_LABELS, Refused
+from tests.graph_stub import Graph
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RECORD = ROOT / "docs" / "sources" / "snapshot-measured.json"
-
-
-class Graph:
-    """An engine answering fixed counts, so `counts` can be driven.
-
-    `scalar` as well as `run`: `counts` reads through `Engine.scalar` now, so
-    that "I could not measure this" and "the graph holds none of these" stay
-    apart — the pre-import guard is built on it.
-    """
-
-    def __init__(self, held=None, url="http://engine.test"):
-        self.held = held or {}
-        self.asked = []
-        self.url = url
-
-    def run(self, statement):
-        self.asked.append(statement)
-        for name, n in self.held.items():
-            if f":{name})" in statement or f":{name}]" in statement:
-                return {"records": [[n]]}
-        return {"records": [[0]]}
-
-    def scalar(self, statement):
-        rows = self.run(statement).get("records") or []
-        return rows[0][0] if rows and rows[0] else None
-
-
-def test_counts_never_ask_api_status():
-    """**The trap.** `/api/status` reports 2,834 edges for a graph holding
-    1,417 when that graph was built by Cypher, and 1,417 for the same graph
-    imported from a snapshot. Either number is right about something; neither
-    is right about both, so the check cannot use it.
-    """
-    engine = Graph({"Course": 791, "REQUIRES": 240})
-    snapshot.counts(engine)
-    assert engine.asked, "counts asked the engine nothing"
-    for statement in engine.asked:
-        assert "status" not in statement.lower()
-        assert statement.startswith("MATCH"), statement
 
 
 def test_every_label_and_edge_type_is_counted_separately():
@@ -290,7 +252,8 @@ def test_a_round_trip_that_does_not_reproduce_the_graph_is_not_recorded(
     monkeypatch.setattr(snapshot, "export", lambda url, into, graph=None: (
         into.write_bytes(b"snapshot"),
         {"file": "data/x.sgsnap", "bytes": 8, "sha256": "deadbeef",
-         "taken_from": {"Course": 791}})[1])
+         "taken_from": {"Course": 791},
+         "properties": {"Course.name": 791}})[1])
     monkeypatch.setattr(snapshot, "reproducibility",
                         lambda url, times=3: {"byte_identical": False})
     monkeypatch.setattr(snapshot, "load", lambda url, path, graph=None,
@@ -417,38 +380,6 @@ def test_load_and_verify_work_in_the_named_graph(monkeypatch, tmp_path):
     assert seen == ["edtech", "edtech"], f"worked in graph {seen}"
 
 
-def test_both_directions_asks_all_three_shapes():
-    """**The undirected query mutated green.** Flipping `]-()` to `]->()`
-    changed nothing in the suite, and that function backs the whole card
-    paragraph — collapsed into two copies of one count, the record would say
-    1,417 undirected and the argument would be gone with nothing noticing.
-    The inbound form is the one that actually discriminates, so it is pinned
-    hardest.
-    """
-    engine = Graph({"REQUIRES": 240, "IN_SUBJECT": 723,
-                    "INCLUDES": 316, "HAS_REQUIREMENT": 138})
-    # Patched on `etl.edge_count_readings`, where `both_directions` now
-    # lives and resolves its own `Engine` — patching the name re-exported by
-    # `etl.snapshot` changes nothing the function reads.
-    import etl.edge_count_readings as ecr
-    original, seen = ecr.Engine, []
-    ecr.Engine = lambda url, graph=None: seen.append(graph) or engine
-    try:
-        ecr.both_directions("http://engine.test")
-    finally:
-        ecr.Engine = original
-    assert seen == ["edtech"], f"both_directions read graph {seen}"
-    outbound = [q for q in engine.asked if "]->()" in q]
-    undirected = [q for q in engine.asked if "]-()" in q and "]->()" not in q]
-    inbound = [q for q in engine.asked if "<-[" in q]
-    assert len(outbound) == 4, engine.asked
-    assert len(undirected) == 4, (
-        "the undirected counts are not being asked undirected")
-    assert len(inbound) == 4, (
-        "the reverse expansion — the reading that excludes a lossy import — "
-        "is not being asked")
-
-
 def test_the_command_line_defaults_to_the_named_graph(monkeypatch, tmp_path):
     """`--graph`'s DEFAULT mutated green: changing it to `"default"` left the
     suite passing, because every other test passes the graph explicitly or
@@ -463,3 +394,5 @@ def test_the_command_line_defaults_to_the_named_graph(monkeypatch, tmp_path):
                           "--url", "http://engine.test"]) == 0
     assert seen == ["edtech"], (
         f"a bare `export` worked in graph {seen}, not the one this repo loads")
+
+
