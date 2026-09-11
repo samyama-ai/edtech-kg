@@ -1,0 +1,46 @@
+{
+  "_": "Measured by `python -m etl.load_cipsoc --record`. The crosswalk is a published claim with a revision history, so `source_edition` rides on every PREPARES_FOR edge and this record names the edition it read. `mappings_without_a_programme` is not a failure: the crosswalk covers 1,949 CIP codes and this graph holds only the programmes Virginia awarded, so the difference is scope rather than loss.",
+  "engine_version_reported": "1.7.0",
+  "graph": "edtech",
+  "issued": {
+    "source_edition": "CIP2020-SOC2018",
+    "seconds": 28.0,
+    "statements_issued": 6172,
+    "nodes_and_edges_created": 3086,
+    "already_present": 0,
+    "created_by": {
+      "Occupation": 867,
+      "PREPARES_FOR": 2219
+    },
+    "mappings_read": 5903,
+    "occupations_in": 867,
+    "programmes_in_the_graph": 663,
+    "programmes_with_an_occupation": 634,
+    "edges_issued": 2219,
+    "mappings_without_a_programme": 3684
+  },
+  "second_run": {
+    "source_edition": "CIP2020-SOC2018",
+    "seconds": 9.5,
+    "statements_issued": 3086,
+    "nodes_and_edges_created": 0,
+    "already_present": 3086,
+    "created_by": {},
+    "mappings_read": 5903,
+    "occupations_in": 867,
+    "programmes_in_the_graph": 663,
+    "programmes_with_an_occupation": 634,
+    "edges_issued": 2219,
+    "mappings_without_a_programme": 3684
+  },
+  "in_graph": {
+    "Occupation": 867,
+    "PREPARES_FOR": 2219
+  },
+  "code": {
+    "commit": "3c9182321dbe0234cefcc18997739d4361b63204",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}

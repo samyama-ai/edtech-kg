@@ -103,8 +103,16 @@ class Writer:
         self.engine.run("CREATE (n:" + label + " {" + fields + "})")
 
     def edge(self, kind: str, tail: tuple[str, str, str],
-             head: tuple[str, str, str]) -> None:
-        """One edge between two existing nodes.
+             head: tuple[str, str, str],
+             properties: dict | None = None) -> None:
+        """One edge between two existing nodes, optionally carrying values.
+
+        `properties` exists because `schema/edtech_kg.cypher` puts the
+        crosswalk's edition ON the PREPARES_FOR edge — the crosswalk is a
+        published claim with a revision history, not a fact, so Q43 can ask
+        which edition said so. An edge `MERGE` would not carry them: #163
+        records edge `MERGE` ignoring its property map on 1.1.0, which is why
+        this looks first and creates second.
 
         **Both endpoints matched with their own WHERE.** A `MATCH` whose
         endpoints are BOTH already bound does not filter on 1.1.0 — it is
@@ -135,11 +143,16 @@ class Writer:
             self.already_there += 1
             return
 
+        carried = ""
+        if properties:
+            carried = " {" + ", ".join(
+                f"{name}: {quote(value)}"
+                for name, value in sorted(properties.items())) + "}"
         self.engine.run(
             f"MATCH (a:{tail_label}) WHERE a.{tail_key} = {quote(tail_value)} "
             f"WITH a "
             f"MATCH (b:{head_label}) WHERE b.{head_key} = {quote(head_value)} "
             f"WITH a, b "
-            f"CREATE (a)-[:{kind}]->(b)")
+            f"CREATE (a)-[:{kind}{carried}]->(b)")
         self.created += 1
         self.created_by[kind] = self.created_by.get(kind, 0) + 1
