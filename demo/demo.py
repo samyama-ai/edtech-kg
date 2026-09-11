@@ -162,7 +162,7 @@ def records(engine: Engine, query: str) -> list[list]:
     return result["records"]
 
 
-def zero_award_rows_skipped() -> int:
+def zero_award_rows_skipped() -> int | None:
     """How many zero-award rows the recorded load dropped.
 
     **Read from the record, not typed.** `docs/sources/` is where every other
@@ -170,16 +170,34 @@ def zero_award_rows_skipped() -> int:
     it. A fourth copy typed into the closing statement would be the exact
     drift the rest of this repo spends its tests preventing — and the one test
     covering that block matched the words, not the number.
+
+    Returns `None` rather than raising. Every other read path here turns
+    failure into a clean message — a traceback mid-demo is the failure mode
+    this file is organised around — and this one fires at the CLOSING screen,
+    after a successful run. A missing or moved record drops the figure from
+    the line; it does not take the demo down with it.
     """
     record = ROOT / "docs" / "sources" / "national-spine-measured.json"
-    held = json.loads(record.read_text(encoding="utf-8"))
-    return int(held["issued"]["rows_skipped_zero_awards"])
+    try:
+        held = json.loads(record.read_text(encoding="utf-8"))
+        return int(held["issued"]["rows_skipped_zero_awards"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+#: Answers already had from this engine. `holds` is asked once per gated
+#: question and again at the closing, so a full run made three round trips
+#: for one label — chatter an audience watches happen.
+_HELD: dict[tuple[str, str, str], int] = {}
 
 
 def holds(engine: Engine, label: str) -> int:
     """How many nodes of a label this graph holds, or 0."""
-    rows = records(engine, f"MATCH (n:{label}) RETURN count(n)")
-    return int(rows[0][0]) if rows and rows[0] else 0
+    seen = (engine.url, engine.graph, label)
+    if seen not in _HELD:
+        rows = records(engine, f"MATCH (n:{label}) RETURN count(n)")
+        _HELD[seen] = int(rows[0][0]) if rows and rows[0] else 0
+    return _HELD[seen]
 
 
 def ask(engine: Engine, number: int, item: dict, wait: bool, limit: int) -> None:
@@ -300,8 +318,8 @@ def main(argv: list[str] | None = None) -> int:
     asking = [n for n in numbers
               if not QUESTIONS[n].get("needs")
               or holds(engine, QUESTIONS[n]["needs"])]
-    print(f"{DIM}  {len(asking)} questions. Every figure is read from the "
-          f"engine as you watch.{RESET}")
+    print(f"{DIM}  {len(asking)} question{'' if len(asking) == 1 else 's'}. "
+          f"Every figure is read from the engine as you watch.{RESET}")
     pause(2, wait)
 
     for number in numbers:
@@ -342,8 +360,12 @@ def main(argv: list[str] | None = None) -> int:
         skipped = zero_award_rows_skipped()
         absent.insert(1, "enrolment — completions are loaded, so 'who "
                          "started' cannot be compared with 'who finished'")
+        # "the RECORDED load", not "this load": the figure comes from
+        # `national-spine-measured.json`, and the graph in front of you
+        # cannot confirm what was dropped on the way in.
+        how_many = f"{skipped:,} of them, " if skipped is not None else ""
         absent.insert(2, f"rows recording ZERO awards: "
-                         f"{skipped:,} of them, dropped by this load, so a "
+                         f"{how_many}dropped by the recorded load, so a "
                          f"college that lists a programme and graduates "
                          f"nobody is absent rather than shown as zero")
     else:

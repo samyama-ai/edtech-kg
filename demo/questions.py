@@ -241,14 +241,25 @@ QUESTIONS: list[dict] = [
                    'WHERE p.cip_code = "513801" AND c.race = 99 '
                    'AND c.sex = 99 AND c.major_number = 1 '
                    'RETURN sum(c.awards)'),
-                  (["college", "awards"],
+                  # **The answer slide obeys the rule the aside just
+                  # taught.** Without `major_number = 1` every college's
+                  # count carried the same second-major inflation the demo
+                  # had just named as an error, and anyone who followed the
+                  # aside could tear the table up.
+                  (["college", "awards (first majors)"],
                    'MATCH (c:Completion)-[:IN]->(p:Programme) '
                    'WHERE p.cip_code = "513801" AND c.race = 99 AND c.sex = 99 '
+                   'AND c.major_number = 1 '
                    'MATCH (c)-[:AT]->(i:Institution) '
                    'WITH i, sum(c.awards) AS awards '
                    'RETURN i.name AS college, awards '
                    'ORDER BY awards DESC LIMIT 8'),
-                  (["colleges with any nursing row"],
+                  # No race/sex/major filter here, and that is correct rather
+                  # than sloppy: this counts DISTINCT institutions, so a
+                  # college is one college however many rows it files. Said
+                  # in the header, because every other query in this block
+                  # carries the filters.
+                  (["colleges with any nursing row (any row, counted once)"],
                    'MATCH (c:Completion)-[:IN]->(p:Programme) '
                    'WHERE p.cip_code = "513801" '
                    'MATCH (c)-[:AT]->(i:Institution) '

@@ -211,6 +211,15 @@ def test_the_order_by_guard_catches_the_form_it_exists_for():
     assert not offends(compliant), "an aggregate alias is the documented exception"
 
 
+@pytest.fixture(autouse=True)
+def _forget_held_counts():
+    """`holds` caches per (url, graph, label). Two tests pointing different
+    stub engines at the same URL would otherwise see each other's answers."""
+    demo._HELD.clear()
+    yield
+    demo._HELD.clear()
+
+
 def test_only_spine_labels_are_gated():
     """The district's own labels are guaranteed by `preflight`, so gating on
     one would hide a broken load behind a skip message."""
@@ -360,6 +369,53 @@ def test_the_header_counts_the_questions_it_will_actually_ask(monkeypatch,
     monkeypatch.setattr(demo, "Engine", lambda url, graph=None: Stub())
     demo.main(["--only", f"0,{spine}", "--auto", "--url", "http://e.test"])
     printed = capsys.readouterr().out
-    assert "1 questions" in printed, (
+    assert "1 question." in printed, (
         "the header promised a question the gate went on to skip")
     assert f"Q{spine} skipped" in printed
+
+
+def test_a_missing_record_drops_the_figure_rather_than_the_demo(monkeypatch,
+                                                                capsys):
+    """**It fires at the CLOSING screen, after a successful run.** A bare
+    `read_text` + `json.loads` + two subscripts raised `FileNotFoundError` or
+    `KeyError` in front of the audience — the failure mode every other read
+    path in this module converts into a clean message.
+    """
+    monkeypatch.setattr(demo, "ROOT", pathlib.Path("/nonexistent"))
+    monkeypatch.setattr(demo, "Engine",
+                        lambda url, graph=None: Stub(SPINE_HELD))
+    assert demo.main(["--only", "0", "--auto", "--url", "http://e.test"]) == 0
+    printed = capsys.readouterr().out
+    assert "ZERO awards" in printed, "the line vanished with the figure"
+    assert "of them" not in printed, "a figure was printed from no record"
+    assert "dropped by the recorded load" in printed
+
+
+def test_the_answer_table_obeys_the_axis_rule_the_aside_teaches():
+    """**The answer slide must not break the rule the demo just taught.**
+    The aside explains that `major_number` is a separate axis and that mixing
+    it counts a student twice; the per-college table then summed both, so
+    anyone who followed the aside could tear the answer up.
+
+    The DISTINCT institution count is deliberately unfiltered — a college is
+    one college however many rows it files — and says so in its header.
+    """
+    spine = next(q for q in demo.QUESTIONS if q.get("needs"))
+    # The ANSWER — the per-college table. The single-figure queries above it
+    # deliberately vary one axis at a time to demonstrate the trap, so they
+    # are not held to this; the slide that answers the question is.
+    table = [q for q in spine["queries"] if "college" in q[0]]
+    assert len(table) == 1, f"expected one answer table, found {len(table)}"
+    headers, cypher = table[0]
+    assert "major_number = 1" in cypher, (
+        f"{headers} sums awards across first and second majors, which the "
+        f"aside names as an error — an audience member who followed it can "
+        f"tear the answer slide up")
+    assert "first majors" in " ".join(headers), (
+        "the column does not say which majors it counts")
+
+    distinct = [q for q in spine["queries"] if "DISTINCT" in q[1]]
+    assert distinct, "no institution count to check"
+    for headers, _ in distinct:
+        assert "counted once" in headers[0], (
+            "the unfiltered count does not explain why it is unfiltered")
