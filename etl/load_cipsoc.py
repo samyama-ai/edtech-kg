@@ -17,6 +17,10 @@ created, so mappings without a loaded programme are skipped and COUNTED
 rather than issued. The occupations themselves are the published vocabulary
 and stand on their own.
 
+The key comes from `etl/cip.py`, not from the spine loader: a loader
+importing another loader to borrow a key is the wrong way round, and both
+sides of this join have to normalise the same way or it fails quietly.
+
 Reads through `etl/probe_cipsoc.py` rather than parsing the workbook again:
 that module already measures this file, and a second reader is a second set of
 figures to keep in agreement.
@@ -39,7 +43,8 @@ import zipfile
 from etl import probe_cipsoc
 from etl.engine import ENGINE_VERSION, Engine, Refused
 from etl.graph_writer import Writer, quote
-from etl.load_education import ROOT, cip_code
+from etl.cip import cip_code
+from etl.load_education import ROOT
 from etl.provenance import write_record
 
 RECORD = ROOT / "docs" / "sources" / "cipsoc-load-measured.json"
