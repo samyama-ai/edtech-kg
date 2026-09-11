@@ -64,12 +64,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import sys
 import time
 import urllib.error
 import urllib.request
 
 from demo.questions import QUESTIONS, TIERS
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 DEFAULT_URL = "http://localhost:8200"
 BOLD, DIM, CYAN, GREEN, YELLOW, RESET = (
@@ -157,6 +160,20 @@ def records(engine: Engine, query: str) -> list[list]:
     if "records" not in result:
         raise SystemExit(f"\nthe engine answered without records:\n  {query}\n")
     return result["records"]
+
+
+def zero_award_rows_skipped() -> int:
+    """How many zero-award rows the recorded load dropped.
+
+    **Read from the record, not typed.** `docs/sources/` is where every other
+    quoted copy of this figure comes from, and three test files bind theirs to
+    it. A fourth copy typed into the closing statement would be the exact
+    drift the rest of this repo spends its tests preventing — and the one test
+    covering that block matched the words, not the number.
+    """
+    record = ROOT / "docs" / "sources" / "national-spine-measured.json"
+    held = json.loads(record.read_text(encoding="utf-8"))
+    return int(held["issued"]["rows_skipped_zero_awards"])
 
 
 def holds(engine: Engine, label: str) -> int:
@@ -278,8 +295,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{BOLD}  One district's course catalogue, as a graph{RESET}")
     print(f"{DIM}  Prince William County Schools — catalog.pwcs.edu, published "
           f"openly. No login, no student data.{RESET}")
-    print(f"{DIM}  {len(numbers)} questions. Every figure is read from the engine "
-          f"as you watch.{RESET}")
+    # Counted AFTER the gate, not before: a district-only run promised one
+    # more question than it went on to ask.
+    asking = [n for n in numbers
+              if not QUESTIONS[n].get("needs")
+              or holds(engine, QUESTIONS[n]["needs"])]
+    print(f"{DIM}  {len(asking)} questions. Every figure is read from the "
+          f"engine as you watch.{RESET}")
     pause(2, wait)
 
     for number in numbers:
@@ -308,16 +330,26 @@ def main(argv: list[str] | None = None) -> int:
     # closes on what it can do invites the room to assume the rest; naming the
     # gaps is what makes the answers above believable.
     print(f"\n{BOLD}  What this graph does not hold:{RESET}")
-    for line in (
-            "occupations, and the CIP-SOC crosswalk that would join a "
-            "programme to the jobs it leads to (#196)",
-            "enrolment — completions are loaded, so 'who started' cannot be "
-            "compared with 'who finished'",
-            "rows recording ZERO awards: 132,284 of them, dropped by default, "
-            "so a college that lists a programme and graduates nobody is "
-            "absent rather than shown as zero",
-            "earnings, and any outcome after the award",
-            "any student. Every figure here is a published count."):
+    absent = ["occupations, and the CIP-SOC crosswalk that would join a "
+              "programme to the jobs it leads to (#196)",
+              "earnings, and any outcome after the award",
+              "any student. Every figure here is a published count."]
+    # **Said about THIS graph, not about the repository.** Against the
+    # district-only snapshot the walkthrough has just skipped Q21 for having
+    # no Completion; announcing two screens later how many zero-award rows
+    # were "dropped" reads as describing a load that never happened here.
+    if holds(engine, "Completion"):
+        skipped = zero_award_rows_skipped()
+        absent.insert(1, "enrolment — completions are loaded, so 'who "
+                         "started' cannot be compared with 'who finished'")
+        absent.insert(2, f"rows recording ZERO awards: "
+                         f"{skipped:,} of them, dropped by this load, so a "
+                         f"college that lists a programme and graduates "
+                         f"nobody is absent rather than shown as zero")
+    else:
+        absent.insert(1, "the national spine — no institutions, programmes "
+                         "or completions are loaded in this graph at all")
+    for line in absent:
         print(f"{DIM}    - {line}{RESET}")
     print(f"{CYAN}{'─' * 78}{RESET}\n")
     return 0

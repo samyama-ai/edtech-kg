@@ -1,6 +1,6 @@
 """What the walkthrough asks, and in what order.
 
-Split out of `demo/demo.py` at the 500-line review limit, and split by
+Split out of `demo/demo.py`, which had reached 567 lines against the 500-line review limit, and split by
 SUBJECT: that module decides how a question is SHOWN — pacing, colour,
 column widths, the pre-flight — and this one decides what is ASKED. They
 change for different reasons. A new question is a content decision; a change
@@ -217,9 +217,14 @@ QUESTIONS: list[dict] = [
                "race 99 and sex 99 — so the obvious sum(awards) counts the "
                "same award several times over. The wrong number runs FIRST, "
                "then two independent right ones: totals only, and breakdowns "
-               "only. They agree, and that agreement is the check. Every "
-               "figure here is read from the engine, the wrong one included — "
-               "none of them is typed into this file.",
+               "only. They agree, and that agreement is the check. "
+               "A FOURTH figure answers the question the first three invite: "
+               "these still add second majors to first majors, because "
+               "`major_number` is a separate axis from race and sex, so the "
+               "same student counts twice if they finished two. Restricting "
+               "to first majors shows how much that is worth here — small, "
+               "but named rather than left for the room to find. Every "
+               "figure is read from the engine, the wrong one included.",
          queries=[(["the obvious query, counting each award more than once"],
                    'MATCH (c:Completion)-[:IN]->(p:Programme) '
                    'WHERE p.cip_code = "513801" RETURN sum(c.awards)'),
@@ -231,6 +236,11 @@ QUESTIONS: list[dict] = [
                    'MATCH (c:Completion)-[:IN]->(p:Programme) '
                    'WHERE p.cip_code = "513801" AND c.race <> 99 '
                    'AND c.sex <> 99 RETURN sum(c.awards)'),
+                  (["counted as totals, first majors only"],
+                   'MATCH (c:Completion)-[:IN]->(p:Programme) '
+                   'WHERE p.cip_code = "513801" AND c.race = 99 '
+                   'AND c.sex = 99 AND c.major_number = 1 '
+                   'RETURN sum(c.awards)'),
                   (["college", "awards"],
                    'MATCH (c:Completion)-[:IN]->(p:Programme) '
                    'WHERE p.cip_code = "513801" AND c.race = 99 AND c.sex = 99 '

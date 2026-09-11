@@ -11,9 +11,14 @@ loaded today, which is the only reason it never fired.
 
 from __future__ import annotations
 
+import json
+import pathlib
+
 import pytest
 
 from demo import demo
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 # --------------------------------------------------------------------------
@@ -206,18 +211,12 @@ def test_the_order_by_guard_catches_the_form_it_exists_for():
     assert not offends(compliant), "an aggregate alias is the documented exception"
 
 
-def test_a_question_whose_data_is_absent_is_skipped_not_shown_empty():
-    """**An empty table in front of an audience reads as a broken product**,
-    not as an absent source. The spine questions need labels the published
-    snapshot does not carry — it holds the district only — so they name what
-    to load rather than printing nothing.
-    """
-    gated = [q for q in demo.QUESTIONS if q.get("needs")]
-    assert gated, "no question declares what it needs"
-    for item in gated:
-        assert item["needs"] in ("Institution", "Programme", "Completion"), (
-            f"{item['needs']!r} is not a spine label; the district's own "
-            f"labels are guaranteed by preflight and need no gate")
+def test_only_spine_labels_are_gated():
+    """The district's own labels are guaranteed by `preflight`, so gating on
+    one would hide a broken load behind a skip message."""
+    for item in demo.QUESTIONS:
+        if item.get("needs"):
+            assert item["needs"] in ("Institution", "Programme", "Completion")
 
 
 def test_the_spine_questions_type_no_figures():
@@ -235,14 +234,71 @@ def test_the_spine_questions_type_no_figures():
             f"queries beside it print those figures from the engine")
 
 
-def test_the_walkthrough_closes_by_saying_what_is_absent():
+def test_the_walkthrough_closes_by_saying_what_is_absent(monkeypatch, capsys):
     """edtech-kg#8 asks for this by name. A demo that closes on what it can
-    do invites the room to assume the rest."""
-    import inspect
-    source = inspect.getsource(demo)
-    assert "What this graph does not hold" in source
-    for absent in ("occupations", "enrolment", "ZERO awards", "earnings"):
-        assert absent in source, f"the closing does not name {absent!r}"
+    do invites the room to assume the rest.
+
+    **Driven through `main`, not read off the source.** `inspect.getsource`
+    passed with the whole block commented out or unreachable.
+    """
+    monkeypatch.setattr(demo, "Engine",
+                        lambda url, graph=None: Stub(SPINE_HELD))
+    assert demo.main(["--only", "0", "--auto", "--url", "http://e.test"]) == 0
+    printed = capsys.readouterr().out
+    assert "What this graph does not hold" in printed
+    for absent in ("occupations", "enrolment", "ZERO awards", "earnings",
+                   "any student"):
+        assert absent in printed, f"the closing does not name {absent!r}"
+
+
+def test_the_zero_award_figure_comes_from_the_record(monkeypatch, capsys):
+    """**A fourth typed copy of a figure three other files bind.**
+    `docs/sources/national-spine-measured.json` carries
+    `rows_skipped_zero_awards`, and `test_national_spine_doc`,
+    `test_dataset_card` and `test_load_education_cli` all tie their quoted
+    copies to it. The demo hardcoded 132,284 with no binding, and the test
+    covering that block matched the WORDS — so the number could drift to
+    anything and stay green.
+    """
+    record = json.loads(
+        (ROOT / "docs" / "sources" / "national-spine-measured.json")
+        .read_text(encoding="utf-8"))
+    skipped = record["issued"]["rows_skipped_zero_awards"]
+    monkeypatch.setattr(demo, "Engine",
+                        lambda url, graph=None: Stub(SPINE_HELD))
+    demo.main(["--only", "0", "--auto", "--url", "http://e.test"])
+    assert f"{skipped:,} of them" in capsys.readouterr().out
+
+    # **The binding, driven.** Comparing the output against the record's own
+    # value passes for a TYPED number that happens to be right — which is
+    # exactly the state this test exists to end. Move the record and the
+    # closing has to move with it.
+    monkeypatch.setattr(demo, "zero_award_rows_skipped", lambda: 999_001)
+    demo.main(["--only", "0", "--auto", "--url", "http://e.test"])
+    moved = capsys.readouterr().out
+    assert "999,001 of them" in moved, (
+        "the closing does not read the figure at run time — it is typed")
+    assert f"{skipped:,} of them" not in moved
+
+
+def test_the_closing_does_not_describe_a_load_this_graph_never_ran(
+        monkeypatch, capsys):
+    """Against the district-only snapshot the walkthrough has just skipped
+    the spine question for having no `Completion`. Announcing two screens
+    later how many zero-award rows were dropped reads, to the room, as
+    describing this run."""
+    monkeypatch.setattr(demo, "Engine", lambda url, graph=None: Stub())
+    demo.main(["--only", "0", "--auto", "--url", "http://e.test"])
+    printed = capsys.readouterr().out
+    assert "ZERO awards" not in printed, (
+        "a graph with no completions claimed rows were dropped from a load "
+        "it never ran")
+    assert "no institutions, programmes or completions" in printed
+
+
+#: The district plus the spine — the shape after `etl/load_education.py`.
+SPINE_HELD = {"Course": 791, "REQUIRES": 240, "Completion": 58317,
+              "Institution": 147, "Programme": 664}
 
 
 class Stub:
@@ -255,6 +311,12 @@ class Stub:
 
     def run(self, statement):
         self.asked.append(statement)
+        if "n.source" in statement:
+            # Q0's shape — three columns. A one-column answer here made the
+            # column-width code raise IndexError rather than the test fail on
+            # what it was checking.
+            return {"records": [["catalog.pwcs.edu", "Course",
+                                 self.held.get("Course", 0)]]}
         for name, n in self.held.items():
             if f":{name})" in statement or f":{name}]" in statement:
                 return {"records": [[n]]}
@@ -287,3 +349,17 @@ def test_the_spine_question_is_skipped_when_the_spine_is_absent(monkeypatch,
     # and it did not run the question's queries anyway
     assert not any("cip_code" in q for q in engine.asked), (
         "the skipped question still queried the engine")
+
+
+def test_the_header_counts_the_questions_it_will_actually_ask(monkeypatch,
+                                                              capsys):
+    """A district-only run promised one more question than it asked: the
+    count was taken before the gate, so a skipped question was still
+    advertised."""
+    spine = next(i for i, q in enumerate(demo.QUESTIONS) if q.get("needs"))
+    monkeypatch.setattr(demo, "Engine", lambda url, graph=None: Stub())
+    demo.main(["--only", f"0,{spine}", "--auto", "--url", "http://e.test"])
+    printed = capsys.readouterr().out
+    assert "1 questions" in printed, (
+        "the header promised a question the gate went on to skip")
+    assert f"Q{spine} skipped" in printed
