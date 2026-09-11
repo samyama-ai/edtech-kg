@@ -99,6 +99,37 @@ def held(name: str, cache: pathlib.Path | None = None) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+#: IPEDS files an institution-level TOTAL under this code. It is not a
+#: programme — it is the sum of the others — and loading it as one made
+#: `sum(c.awards)` over the graph about twice the awards actually conferred.
+#: Measured on Virginia 2022: 141,688 awards under `99` against 141,908 under
+#: every real code combined, because the first is the total of the second.
+GRAND_TOTAL_CIP = "99"
+
+
+def cip_code(raw) -> str:
+    """The CIP key, in ONE canonical form: six digits, zero-padded.
+
+    **The API returns `cipcode_6digit` as an int**, so `str()` dropped the
+    leading zero from every code below `10.0000` — `01.0000` arrived as
+    `"10000"`. 70 of 664 `Programme` nodes carried a short key.
+
+    That is not cosmetic. `docs/sources/cip-soc-crosswalk.md` keys on the
+    dotted form (`01.0000`), so a join against a stripped code fails, and
+    fails QUIETLY — the query returns rows, just fewer. Every programme whose
+    CIP begins with zero drops out, about a tenth of them.
+
+    Digits-only rather than dotted, because 594 of the 664 already-loaded
+    nodes are digits-only and the crosswalk reader can drop a dot far more
+    safely than this can invent one — it accepts both, so the join normalises
+    on the way in rather than needing a second form stored here.
+    """
+    digits = str(raw).replace(".", "").strip()
+    if not digits.isdigit():
+        raise Refused(0, f"not a CIP code: {raw!r}")
+    return digits.zfill(6)
+
+
 def completion_id(row: dict) -> str:
     """The Completion key, spelled exactly as `schema/edtech_kg.cypher` does.
 
@@ -109,7 +140,7 @@ def completion_id(row: dict) -> str:
     files and no run, and two of them were the same number wearing different
     labels.
     """
-    parts = (row["unitid"], row["cipcode_6digit"], row["award_level"],
+    parts = (row["unitid"], cip_code(row["cipcode_6digit"]), row["award_level"],
              row["majornum"], row["race"], row["sex"], YEAR)
     return hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()
 
@@ -195,6 +226,16 @@ def load(engine: Engine, dry_run: bool = False,
                     {"unitid": row["unitid"], "name": row.get("inst_name") or "",
                      "state": row.get("state_abbr") or ""})
 
+    # **The grand total is not a programme.** Dropped before anything else so
+    # it cannot reach a node, an edge or a count. Recorded like the other two
+    # skips rather than filtered silently — the slice must never be mistaken
+    # for the whole, and a reader comparing this load to IPEDS's own published
+    # total needs to know the total row is the thing that is missing.
+    without_totals = [r for r in completions
+                      if cip_code(r["cipcode_6digit"]) != cip_code(GRAND_TOTAL_CIP)]
+    skipped_totals = len(completions) - len(without_totals)
+    completions = without_totals
+
     skipped_zero = 0
     if only_awarded:
         keep = [r for r in completions if (r.get("awards_6digit") or 0) > 0]
@@ -207,7 +248,7 @@ def load(engine: Engine, dry_run: bool = False,
         # asked, on the flag whose purpose is to bound the write.
         completions = completions[:limit]
 
-    programmes = sorted({str(r["cipcode_6digit"]) for r in completions})
+    programmes = sorted({cip_code(r["cipcode_6digit"]) for r in completions})
     for cip in programmes:
         writer.node("Programme", "cip_code", cip, {"cip_code": cip})
 
@@ -238,7 +279,7 @@ def load(engine: Engine, dry_run: bool = False,
         # question could ask "how many finished as a SECOND major".
         writer.node("Completion", "id", key, {
             "id": key, "year": YEAR,
-            "cip_code": str(row["cipcode_6digit"]),
+            "cip_code": cip_code(row["cipcode_6digit"]),
             "award_level": row["award_level"],
             "major_number": row["majornum"],
             "race": row["race"], "sex": row["sex"],
@@ -246,7 +287,7 @@ def load(engine: Engine, dry_run: bool = False,
         writer.edge("AT", ("Completion", "id", key),
                     ("Institution", "unitid", row["unitid"]))
         writer.edge("IN", ("Completion", "id", key),
-                    ("Programme", "cip_code", str(row["cipcode_6digit"])))
+                    ("Programme", "cip_code", cip_code(row["cipcode_6digit"])))
 
         now = time.monotonic()
         if now >= next_mark:
@@ -292,6 +333,7 @@ def load(engine: Engine, dry_run: bool = False,
         "programmes_in": len(programmes),
         "completions_in": len(seen),
         "rows_skipped_zero_awards": skipped_zero,
+        "rows_skipped_grand_total": skipped_totals,
         "duplicate_rows_skipped": (len(completions) - len(seen)),
         # Sampled once a minute across THIS run, so the curve and the totals
         # describe one load.
@@ -344,7 +386,8 @@ def report(loaded: dict, graph: dict, before: dict | None = None) -> list[str]:
         f"{loaded['seconds']}s "
         f"({round(loaded['statements_issued'] / max(loaded['seconds'], 0.1)):,}/sec)",
         f"  skipped {loaded['rows_skipped_zero_awards']:,} rows recording zero "
-        f"awards, {loaded['duplicate_rows_skipped']:,} duplicate rows",
+        f"awards, {loaded['duplicate_rows_skipped']:,} duplicate rows, "
+        f"{loaded['rows_skipped_grand_total']:,} institution-total rows",
         "",
         f"  {'':<14} {'held before':>12} {'created':>9} {'in graph':>10}  gap",
     ]
