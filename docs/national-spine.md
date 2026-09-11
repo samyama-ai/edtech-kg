@@ -170,7 +170,7 @@ is silently ignored ([`engine-behaviours.md`](engine-behaviours.md)).
 
 | dropped | rows | why |
 |---|---:|---|
-| completions recording zero awards | 125,692 | 69% of the volume, and *"nobody of this demographic finished this programme"* answers no question in [`questions.md`](questions.md). `--all-rows` loads them. |
+| completions recording zero awards | 125,692 | 71% of the rows left after the institution totals are dropped, and *"nobody of this demographic finished this programme"* answers no question in [`questions.md`](questions.md). `--all-rows` loads them. |
 | rows collapsing onto one key | 43 | Duplicates from the API. Skipped in the walk rather than left to the lookup, so the issued count stays honest. **Not** the `majornum` defect above: these lose nothing. |
 
 Both counts are printed by every load, so the slice cannot be mistaken for the

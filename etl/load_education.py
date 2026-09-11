@@ -29,6 +29,7 @@ import pathlib
 import sys
 import time
 
+from etl.cip import NOT_A_PROGRAMME_SERIES, cip_code
 from etl.engine import ENGINE_VERSION, Engine, Refused
 from etl.graph_writer import Writer, quote  # noqa: F401
 from etl.provenance import write_record
@@ -97,37 +98,6 @@ def held(name: str, cache: pathlib.Path | None = None) -> dict:
             f"`python -m etl.download_education` first — `data/` is "
             f"gitignored, so a fresh clone has none of it.")
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-#: IPEDS files an institution-level TOTAL under this code. It is not a
-#: programme — it is the sum of the others — and loading it as one made
-#: `sum(c.awards)` over the graph about twice the awards actually conferred.
-#: Measured on Virginia 2022: 141,688 awards under `99` against 141,908 under
-#: every real code combined, because the first is the total of the second.
-GRAND_TOTAL_CIP = "99"
-
-
-def cip_code(raw) -> str:
-    """The CIP key, in ONE canonical form: six digits, zero-padded.
-
-    **The API returns `cipcode_6digit` as an int**, so `str()` dropped the
-    leading zero from every code below `10.0000` — `01.0000` arrived as
-    `"10000"`. 70 of 664 `Programme` nodes carried a short key.
-
-    That is not cosmetic. `docs/sources/cip-soc-crosswalk.md` keys on the
-    dotted form (`01.0000`), so a join against a stripped code fails, and
-    fails QUIETLY — the query returns rows, just fewer. Every programme whose
-    CIP begins with zero drops out, about a tenth of them.
-
-    Digits-only rather than dotted, because 594 of the 664 already-loaded
-    nodes are digits-only and the crosswalk reader can drop a dot far more
-    safely than this can invent one — it accepts both, so the join normalises
-    on the way in rather than needing a second form stored here.
-    """
-    digits = str(raw).replace(".", "").strip()
-    if not digits.isdigit():
-        raise Refused(0, f"not a CIP code: {raw!r}")
-    return digits.zfill(6)
 
 
 def completion_id(row: dict) -> str:
@@ -221,20 +191,25 @@ def load(engine: Engine, dry_run: bool = False,
     # The scan is over the values that actually reach a literal, and it costs
     # a fraction of a second against a load measured in minutes.
     refuse_unwritable(institutions, completions)
+
+    # **Before the first write**, because `cip_code` refuses and this is where
+    # it first runs: normalising during the write loop raised AFTER the 147
+    # institutions were already in the graph, which is the partial write
+    # `refuse_unwritable` exists two lines above to prevent.
+    #
+    # And the grand total is not a programme. Dropped here so it cannot reach
+    # a node, an edge or a count, and recorded like the other two skips — a
+    # reader comparing this slice with IPEDS's own published total needs to
+    # know the total row is the thing that is missing.
+    without_totals = [
+        row for row in completions
+        if cip_code(row["cipcode_6digit"])[:2] != NOT_A_PROGRAMME_SERIES]
+    skipped_totals = len(completions) - len(without_totals)
+    completions = without_totals
     for row in institutions:
         writer.node("Institution", "unitid", row["unitid"],
                     {"unitid": row["unitid"], "name": row.get("inst_name") or "",
                      "state": row.get("state_abbr") or ""})
-
-    # **The grand total is not a programme.** Dropped before anything else so
-    # it cannot reach a node, an edge or a count. Recorded like the other two
-    # skips rather than filtered silently — the slice must never be mistaken
-    # for the whole, and a reader comparing this load to IPEDS's own published
-    # total needs to know the total row is the thing that is missing.
-    without_totals = [r for r in completions
-                      if cip_code(r["cipcode_6digit"]) != cip_code(GRAND_TOTAL_CIP)]
-    skipped_totals = len(completions) - len(without_totals)
-    completions = without_totals
 
     skipped_zero = 0
     if only_awarded:

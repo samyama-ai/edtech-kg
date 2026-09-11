@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import pytest
 
+from etl import cip
 from etl import load_education as loader
 from etl.engine import Refused
 from tests.education_fixtures import (Recorder, completions,
@@ -82,18 +83,19 @@ def test_every_written_completion_field_is_checked_before_anything_is(
 @pytest.mark.parametrize("raw, expected", [
     (10000, "010000"), ("10000", "010000"), (120401, "120401"),
     ("01.0000", "010000"), ("51.3801", "513801"), (99, "000099"),
+    (" 51.3801 ", "513801"), ("0099", "000099"),
 ])
 def test_cip_codes_normalise_to_one_form(raw, expected):
     """One canonical form, decided once. Dotted or not, int or str, the key
     is the same six digits — otherwise the join is correct only for the
     call sites somebody remembered."""
-    assert loader.cip_code(raw) == expected
+    assert cip.cip_code(raw) == expected
 
 
 def test_a_value_that_is_not_a_cip_code_is_refused():
     """Refused rather than zero-padded into something that looks like a code."""
     with pytest.raises(Refused):
-        loader.cip_code("not a cip")
+        cip.cip_code("not a cip")
 
 
 def test_the_institution_total_row_is_not_loaded_as_a_programme(tmp_path):
@@ -128,3 +130,52 @@ def test_the_skipped_total_is_reported_not_swallowed(tmp_path):
     assert any("institution-total rows" in line for line in lines), lines
     assert any("1 institution-total" in line for line in lines), lines
 
+
+@pytest.mark.parametrize("raw", [
+    10000.0, "10000.0", "1.0", "abc", "1234567", "51 3801", "", "51.380",
+])
+def test_a_value_that_is_not_a_cip_SHAPE_is_refused(raw):
+    """**Digit-checking was not enough.** `str(10000.0)` is `"10000.0"`, and
+    stripping the dot gave `"100000"` — a valid-LOOKING six-digit code that is
+    silently a different programme. A wrong key that parses is worse than one
+    that refuses, and a key that looked fine is the whole of this issue.
+
+    So the two published shapes are matched — `51.3801` and `513801` — and
+    anything else refuses.
+    """
+    with pytest.raises(Refused):
+        cip.cip_code(raw)
+
+
+def test_the_total_is_caught_by_its_SERIES_not_by_the_literal_99(tmp_path):
+    """`99` normalises to `000099`, whose series is `00`. IPEDS's own series
+    run 01-61, so nothing real lands there — measured on Virginia 2022,
+    series `00` covers exactly the 13,950 grand-total rows and nothing else.
+
+    Keyed on the series so a 2- or 4-digit subtotal in a future slice is
+    caught by the same rule rather than needing another literal.
+    """
+    engine = Recorder()
+    rows = completions(3)
+    rows[0]["cipcode_6digit"] = 99       # the grand total
+    rows[1]["cipcode_6digit"] = 1        # a 1-digit subtotal -> 000001
+    summary = loader.load(engine, cache=slice_on_disk(tmp_path, rows))
+    assert summary["rows_skipped_grand_total"] == 2
+    assert "'000099'" not in " ".join(engine.sent)
+    assert "'000001'" not in " ".join(engine.sent)
+
+
+def test_a_bad_cip_is_refused_before_the_institutions_are_written(tmp_path):
+    """**The partial write.** `refuse_unwritable` ran, then 147 institutions
+    were written, and only THEN did the first `cip_code()` call happen — so a
+    malformed code raised with the institutions already in the graph, which is
+    the exact failure the pre-flight two lines above exists to prevent.
+    """
+    engine = Recorder()
+    rows = completions(3)
+    rows[-1]["cipcode_6digit"] = "not a cip"
+    with pytest.raises(Refused):
+        loader.load(engine, cache=slice_on_disk(tmp_path, rows))
+    assert not [s for s in engine.sent if "CREATE" in s], (
+        f"wrote before discovering it could not finish: "
+        f"{[s for s in engine.sent if 'CREATE' in s][:2]}")
