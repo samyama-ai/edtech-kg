@@ -396,3 +396,51 @@ def test_the_command_line_defaults_to_the_named_graph(monkeypatch, tmp_path):
         f"a bare `export` worked in graph {seen}, not the one this repo loads")
 
 
+def test_reproducibility_reports_exports_that_differ(monkeypatch):
+    """**The function behind the non-reproducibility claim, never executed.**
+
+    Its result drives two decisions on the dataset card: that the size is
+    quoted ROUNDED, and that a download is checked against the published hash
+    rather than by re-exporting. The only test touching it flipped
+    `byte_identical` in the committed JSON — which goes red with no code
+    change at all, so it pinned the artefact and said nothing about the code.
+
+    Three bodies of different lengths, stubbed at `post`.
+    """
+    bodies = [b"a" * 100, b"b" * 118, b"c" * 103]
+    handed = iter(bodies)
+    monkeypatch.setattr(snapshot, "post",
+                        lambda *a, **k: (200, next(handed)))
+    found = snapshot.reproducibility("http://engine.test", times=3)
+
+    assert found["exports_compared"] == 3
+    assert found["bytes_min"] == 100
+    assert found["bytes_max"] == 118
+    assert found["bytes_spread"] == 18
+    assert found["byte_identical"] is False
+    assert len(found["sha256"]) == 3
+    assert len(set(found["sha256"])) == 3, "three different bodies, one digest"
+    import hashlib
+    assert found["sha256"] == [hashlib.sha256(b).hexdigest() for b in bodies]
+
+
+def test_reproducibility_says_so_when_exports_ARE_identical(monkeypatch):
+    """The other direction, so `byte_identical` cannot be satisfied by always
+    answering False. If a future engine made exports deterministic, this is
+    what would notice — the record-reading test could not, because it only
+    fires when somebody re-runs `record` and commits the result."""
+    monkeypatch.setattr(snapshot, "post",
+                        lambda *a, **k: (200, b"identical every time"))
+    found = snapshot.reproducibility("http://engine.test", times=3)
+    assert found["byte_identical"] is True
+    assert found["bytes_spread"] == 0
+    assert len(set(found["sha256"])) == 1
+
+
+def test_reproducibility_refuses_an_engine_that_stops_answering(monkeypatch):
+    """A non-200 part-way through leaves a comparison over fewer exports than
+    it claims, which would understate the spread."""
+    answers = iter([(200, b"first"), (503, b""), (200, b"third")])
+    monkeypatch.setattr(snapshot, "post", lambda *a, **k: next(answers))
+    with pytest.raises(Refused, match="503"):
+        snapshot.reproducibility("http://engine.test", times=3)

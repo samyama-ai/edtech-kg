@@ -35,6 +35,47 @@ def grouped(text: str) -> set[int]:
             for m in re.findall(r"(?<![\d,])(\d{1,3}(?:,\d{3})+)(?![\d,])", text)}
 
 
+def rounded(text: str) -> set[str]:
+    """The ROUNDED figures — the ones `grouped()` cannot see.
+
+    `grouped()` matches comma-separated integers, so "about 157 KB" and
+    "imports in 0.02s" were invisible to the guard that exists to stop typed
+    figures. Setting `snapshot.bytes` to 999501 and `import.seconds` to 9.87
+    left the whole suite green, and the card had ALREADY drifted: it quoted
+    0.02s against a record saying 0.03.
+
+    Generalised rather than asserting the two strings, so the next rounded
+    figure someone adds is covered by construction.
+    """
+    return set(re.findall(r"\d+(?:\.\d+)?\s*(?:KB|MB|GB)", text)) | \
+        set(re.findall(r"\d+\.\d+s\b", text))
+
+
+def test_every_rounded_figure_on_the_card_comes_from_a_record():
+    """**Both directions**, like the exact-count ban beside it: every rounded
+    figure the card prints must be derivable from a record, and the figures
+    the records support must be the ones printed."""
+    snap = record("snapshot")
+    spine = record("national-spine")
+    size = f"{round(snap['snapshot']['bytes'] / 1024)} KB"
+    imported = f"{snap['import']['seconds']}s"
+    loaded = f"{spine['issued']['seconds']}s"
+    text = card()
+
+    for figure, why in ((size, "the snapshot's size"),
+                        (imported, "its import time"),
+                        (loaded, "the spine load time")):
+        assert figure in rounded(text), (
+            f"the card should carry {figure!r} for {why}; it carries "
+            f"{sorted(rounded(text))}")
+
+    # The reverse: nothing rounded on the page that no record supports.
+    supported = {size, imported, loaded}
+    assert rounded(text) <= supported, (
+        f"these rounded figures are on the card and in no record: "
+        f"{sorted(rounded(text) - supported)}")
+
+
 def test_the_records_the_card_rests_on_all_exist():
     """A card built from records that have gone is a card of typed figures."""
     for name in ("education", "licences", "registry-licence", "federal-direct",

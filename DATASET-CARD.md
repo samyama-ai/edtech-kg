@@ -89,7 +89,7 @@ inferred from the input rows** — the loader reports both and the two agree.
 
 | graph artefact | |
 |---|---|
-| `edtech-kg.sgsnap` | **about 157 KB**, imports in **0.02s** into a clean engine |
+| `edtech-kg.sgsnap` | **about 157 KB**, imports in **0.03s** into a clean engine |
 | Against | a load of about 8 seconds — and no network, no source pages |
 | Published as | a release asset. Not committed: `data/` is gitignored and a graph artefact is not source |
 | Size varies | exporting the same graph twice gives different bytes — so a download is checked against the published file's hash, not by re-exporting |
