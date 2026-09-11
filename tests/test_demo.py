@@ -11,9 +11,14 @@ loaded today, which is the only reason it never fired.
 
 from __future__ import annotations
 
+import json
+import pathlib
+
 import pytest
 
 from demo import demo
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 # --------------------------------------------------------------------------
@@ -204,3 +209,213 @@ def test_the_order_by_guard_catches_the_form_it_exists_for():
 
     assert offends(offending), "the guard would not catch the form #79 is about"
     assert not offends(compliant), "an aggregate alias is the documented exception"
+
+
+@pytest.fixture(autouse=True)
+def _forget_held_counts():
+    """`holds` caches per (url, graph, label). Two tests pointing different
+    stub engines at the same URL would otherwise see each other's answers."""
+    demo._HELD.clear()
+    yield
+    demo._HELD.clear()
+
+
+def test_only_spine_labels_are_gated():
+    """The district's own labels are guaranteed by `preflight`, so gating on
+    one would hide a broken load behind a skip message."""
+    for item in demo.QUESTIONS:
+        if item.get("needs"):
+            assert item["needs"] in ("Institution", "Programme", "Completion")
+
+
+def test_the_spine_questions_type_no_figures():
+    """The asides elsewhere quote the catalogue, which is fixed and measured.
+    A spine aside quoting a number would be a second copy of a figure the
+    query beside it already prints — and #187's whole review round was about
+    exactly that drift. The wrong number is READ too, not asserted."""
+    import re
+    for item in demo.QUESTIONS:
+        if not item.get("needs"):
+            continue
+        digits = re.findall(r"\d[\d,]{2,}", item.get("aside", ""))
+        assert not digits, (
+            f"Q{demo.QUESTIONS.index(item)}'s aside types {digits}; the "
+            f"queries beside it print those figures from the engine")
+
+
+def test_the_walkthrough_closes_by_saying_what_is_absent(monkeypatch, capsys):
+    """edtech-kg#8 asks for this by name. A demo that closes on what it can
+    do invites the room to assume the rest.
+
+    **Driven through `main`, not read off the source.** `inspect.getsource`
+    passed with the whole block commented out or unreachable.
+    """
+    monkeypatch.setattr(demo, "Engine",
+                        lambda url, graph=None: Stub(SPINE_HELD))
+    assert demo.main(["--only", "0", "--auto", "--url", "http://e.test"]) == 0
+    printed = capsys.readouterr().out
+    assert "What this graph does not hold" in printed
+    for absent in ("occupations", "enrolment", "ZERO awards", "earnings",
+                   "any student"):
+        assert absent in printed, f"the closing does not name {absent!r}"
+
+
+def test_the_zero_award_figure_comes_from_the_record(monkeypatch, capsys):
+    """**A fourth typed copy of a figure three other files bind.**
+    `docs/sources/national-spine-measured.json` carries
+    `rows_skipped_zero_awards`, and `test_national_spine_doc`,
+    `test_dataset_card` and `test_load_education_cli` all tie their quoted
+    copies to it. The demo hardcoded 132,284 with no binding, and the test
+    covering that block matched the WORDS — so the number could drift to
+    anything and stay green.
+    """
+    record = json.loads(
+        (ROOT / "docs" / "sources" / "national-spine-measured.json")
+        .read_text(encoding="utf-8"))
+    skipped = record["issued"]["rows_skipped_zero_awards"]
+    monkeypatch.setattr(demo, "Engine",
+                        lambda url, graph=None: Stub(SPINE_HELD))
+    demo.main(["--only", "0", "--auto", "--url", "http://e.test"])
+    assert f"{skipped:,} of them" in capsys.readouterr().out
+
+    # **The binding, driven.** Comparing the output against the record's own
+    # value passes for a TYPED number that happens to be right — which is
+    # exactly the state this test exists to end. Move the record and the
+    # closing has to move with it.
+    monkeypatch.setattr(demo, "zero_award_rows_skipped", lambda: 999_001)
+    demo.main(["--only", "0", "--auto", "--url", "http://e.test"])
+    moved = capsys.readouterr().out
+    assert "999,001 of them" in moved, (
+        "the closing does not read the figure at run time — it is typed")
+    assert f"{skipped:,} of them" not in moved
+
+
+def test_the_closing_does_not_describe_a_load_this_graph_never_ran(
+        monkeypatch, capsys):
+    """Against the district-only snapshot the walkthrough has just skipped
+    the spine question for having no `Completion`. Announcing two screens
+    later how many zero-award rows were dropped reads, to the room, as
+    describing this run."""
+    monkeypatch.setattr(demo, "Engine", lambda url, graph=None: Stub())
+    demo.main(["--only", "0", "--auto", "--url", "http://e.test"])
+    printed = capsys.readouterr().out
+    assert "ZERO awards" not in printed, (
+        "a graph with no completions claimed rows were dropped from a load "
+        "it never ran")
+    assert "no institutions, programmes or completions" in printed
+
+
+#: The district plus the spine — the shape after `etl/load_education.py`.
+SPINE_HELD = {"Course": 791, "REQUIRES": 240, "Completion": 58317,
+              "Institution": 147, "Programme": 664}
+
+
+class Stub:
+    """An engine holding the district and nothing else — the shape the
+    published snapshot has."""
+
+    def __init__(self, held=None):
+        self.held = held or {"Course": 791, "REQUIRES": 240}
+        self.asked = []
+
+    def run(self, statement):
+        self.asked.append(statement)
+        if "n.source" in statement:
+            # Q0's shape — three columns. A one-column answer here made the
+            # column-width code raise IndexError rather than the test fail on
+            # what it was checking.
+            return {"records": [["catalog.pwcs.edu", "Course",
+                                 self.held.get("Course", 0)]]}
+        for name, n in self.held.items():
+            if f":{name})" in statement or f":{name}]" in statement:
+                return {"records": [[n]]}
+        if "RETURN labels(n), count(n)" in statement:
+            return {"records": [[["Course"], self.held.get("Course", 0)]]}
+        if "MATCH (n) RETURN count(n)" in statement:
+            return {"records": [[self.held.get("Course", 0)]]}
+        return {"records": [[0]]}
+
+    url = "http://engine.test"
+    graph = "edtech"
+
+
+def test_the_spine_question_is_skipped_when_the_spine_is_absent(monkeypatch,
+                                                                capsys):
+    """**Driven, not declared.** Asserting only that a question carries a
+    `needs` key leaves the guard itself free to be deleted — verified: with
+    the skip removed the suite stayed green. This runs the walkthrough against
+    a district-only engine, which is exactly what `demo/ready.sh` produces
+    from the published snapshot.
+    """
+    engine = Stub()
+    monkeypatch.setattr(demo, "Engine", lambda url, graph=None: engine)
+    spine = next(i for i, q in enumerate(demo.QUESTIONS) if q.get("needs"))
+    assert demo.main(["--only", str(spine), "--auto",
+                      "--url", "http://engine.test"]) == 0
+    printed = capsys.readouterr().out
+    assert f"Q{spine} skipped" in printed, printed[-600:]
+    assert "load_education" in printed, "the skip does not say how to fix it"
+    # and it did not run the question's queries anyway
+    assert not any("cip_code" in q for q in engine.asked), (
+        "the skipped question still queried the engine")
+
+
+def test_the_header_counts_the_questions_it_will_actually_ask(monkeypatch,
+                                                              capsys):
+    """A district-only run promised one more question than it asked: the
+    count was taken before the gate, so a skipped question was still
+    advertised."""
+    spine = next(i for i, q in enumerate(demo.QUESTIONS) if q.get("needs"))
+    monkeypatch.setattr(demo, "Engine", lambda url, graph=None: Stub())
+    demo.main(["--only", f"0,{spine}", "--auto", "--url", "http://e.test"])
+    printed = capsys.readouterr().out
+    assert "1 question." in printed, (
+        "the header promised a question the gate went on to skip")
+    assert f"Q{spine} skipped" in printed
+
+
+def test_a_missing_record_drops_the_figure_rather_than_the_demo(monkeypatch,
+                                                                capsys):
+    """**It fires at the CLOSING screen, after a successful run.** A bare
+    `read_text` + `json.loads` + two subscripts raised `FileNotFoundError` or
+    `KeyError` in front of the audience — the failure mode every other read
+    path in this module converts into a clean message.
+    """
+    monkeypatch.setattr(demo, "ROOT", pathlib.Path("/nonexistent"))
+    monkeypatch.setattr(demo, "Engine",
+                        lambda url, graph=None: Stub(SPINE_HELD))
+    assert demo.main(["--only", "0", "--auto", "--url", "http://e.test"]) == 0
+    printed = capsys.readouterr().out
+    assert "ZERO awards" in printed, "the line vanished with the figure"
+    assert "of them" not in printed, "a figure was printed from no record"
+    assert "dropped by the recorded load" in printed
+
+
+def test_the_answer_table_obeys_the_axis_rule_the_aside_teaches():
+    """**The answer slide must not break the rule the demo just taught.**
+    The aside explains that `major_number` is a separate axis and that mixing
+    it counts a student twice; the per-college table then summed both, so
+    anyone who followed the aside could tear the answer up.
+
+    The DISTINCT institution count is deliberately unfiltered — a college is
+    one college however many rows it files — and says so in its header.
+    """
+    spine = next(q for q in demo.QUESTIONS if q.get("needs"))
+    # The ANSWER — the per-college table. The single-figure queries above it
+    # deliberately vary one axis at a time to demonstrate the trap, so they
+    # are not held to this; the slide that answers the question is.
+    table = [q for q in spine["queries"] if "college" in q[0]]
+    assert len(table) == 1, f"expected one answer table, found {len(table)}"
+    headers, cypher = table[0]
+    assert "major_number = 1" in cypher, (
+        f"{headers} sums awards across first and second majors, which the "
+        f"aside names as an error — an audience member who followed it can "
+        f"tear the answer slide up")
+    assert "first majors" in " ".join(headers), (
+        "the column does not say which majors it counts")
+
+    distinct = [q for q in spine["queries"] if "DISTINCT" in q[1]]
+    assert distinct, "no institution count to check"
+    for headers, _ in distinct:
+        assert "counted once" in headers[0], (
+            "the unfiltered count does not explain why it is unfiltered")
