@@ -133,6 +133,11 @@ def test_the_skipped_total_is_reported_not_swallowed(tmp_path):
 
 @pytest.mark.parametrize("raw", [
     10000.0, "10000.0", "1.0", "abc", "1234567", "51 3801", "", "51.380",
+    # Arabic-Indic numerals. `\\d` matches these, so a Unicode digit string
+    # passed `fullmatch` and was zero-padded into something that LOOKS like a
+    # CIP — the module's own argument is that a wrong key which parses is
+    # worse than one that refuses. `[0-9]` costs nothing.
+    "\u0661\u0662\u0663\u0664\u0665\u0666",
 ])
 def test_a_value_that_is_not_a_cip_SHAPE_is_refused(raw):
     """**Digit-checking was not enough.** `str(10000.0)` is `"10000.0"`, and
@@ -179,3 +184,75 @@ def test_a_bad_cip_is_refused_before_the_institutions_are_written(tmp_path):
     assert not [s for s in engine.sent if "CREATE" in s], (
         f"wrote before discovering it could not finish: "
         f"{[s for s in engine.sent if 'CREATE' in s][:2]}")
+
+
+def test_a_graph_keyed_the_old_way_is_refused_not_duplicated(tmp_path):
+    """**The key changed, so idempotence no longer transfers.**
+    `completion_id` hashes the NORMALISED CIP now, so every id differs from
+    the one the previous version produced. Run over a graph built by the old
+    code, every lookup missed: a second full set of ~51,000 Completion nodes
+    landed beside the first, `already_present` reported 0, and nothing raised.
+
+    The loader's selling point is that idempotence is measured. This is the
+    one case where the measurement does not carry, so it refuses.
+    """
+    # `c.id =` first: both statements contain "count(c)", so the more
+    # specific fragment has to be matched before the general one.
+    engine = Recorder({"c.id =": {"records": [[0]]},
+                       "count(c)": {"records": [[51085]]}})
+    with pytest.raises(Refused, match="none of them carries an id"):
+        loader.load(engine, cache=slice_on_disk(tmp_path, completions(3)))
+    assert not [s for s in engine.sent if "CREATE" in s], (
+        "wrote into a graph keyed the old way")
+
+
+def test_a_graph_keyed_this_way_loads_normally(tmp_path):
+    """One match is enough — a graph loaded by this version matches on the
+    first id tried, so the guard costs one query and gets out of the way."""
+    rows = completions(3)
+    first = loader.completion_id(rows[0])
+    engine = Recorder({f"c.id = '{first}'": {"records": [[1]]},
+                       "c.id =": {"records": [[0]]},
+                       "count(c)": {"records": [[51085]]}})
+    loader.load(engine, cache=slice_on_disk(tmp_path, rows))
+    assert [s for s in engine.sent if "CREATE" in s], "the guard blocked a good load"
+
+
+def test_an_empty_graph_is_not_mistaken_for_a_rekeyed_one(tmp_path):
+    """Nothing held means nothing to disagree with."""
+    engine = Recorder({"count(c)": {"records": [[0]]}})
+    loader.load(engine, cache=slice_on_disk(tmp_path, completions(2)))
+    assert [s for s in engine.sent if "CREATE" in s]
+
+
+def test_the_totals_are_dropped_before_the_zero_award_filter(tmp_path):
+    """**Nothing pinned the order.** The grand-total drop runs first, which is
+    why `rows_skipped_zero_awards` fell from 132,284 to 125,692 and why the
+    page had to say "71% of the rows left after the institution totals are
+    dropped". Swap the two and both figures change meaning while the suite
+    stays green.
+    """
+    rows = completions(4)
+    rows[0]["cipcode_6digit"] = 99                      # a total, with awards
+    rows[1]["cipcode_6digit"] = 99; rows[1]["awards_6digit"] = 0   # total AND zero
+    rows[2]["awards_6digit"] = 0                        # a real row, zero awards
+    summary = loader.load(Recorder(), cache=slice_on_disk(tmp_path, rows))
+    assert summary["rows_skipped_grand_total"] == 2, (
+        "totals are being counted after the zero-award filter has eaten one")
+    assert summary["rows_skipped_zero_awards"] == 1, (
+        "the zero-award count is including a row already dropped as a total")
+    assert summary["completions_in"] == 1
+
+
+def test_all_rows_still_drops_the_institution_totals(tmp_path):
+    """`--all-rows` loads rows recording zero awards. It does not load
+    totals — a total is not a programme at any row count — and nothing said
+    so, on the flag whose documented purpose is "load everything"."""
+    rows = completions(3)
+    rows[0]["cipcode_6digit"] = 99
+    rows[1]["awards_6digit"] = 0
+    summary = loader.load(Recorder(), only_awarded=False,
+                          cache=slice_on_disk(tmp_path, rows))
+    assert summary["rows_skipped_grand_total"] == 1
+    assert summary["rows_skipped_zero_awards"] == 0, "--all-rows dropped a zero row"
+    assert summary["completions_in"] == 2

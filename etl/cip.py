@@ -32,8 +32,12 @@ from etl.engine import Refused
 NOT_A_PROGRAMME_SERIES = "00"
 
 #: The two shapes a CIP code is published in: `51.3801` and `513801`.
-DOTTED = re.compile(r"\d{2}\.\d{4}")
-PLAIN = re.compile(r"\d{1,6}")
+#: `[0-9]` rather than `\\d`, which also matches non-ASCII numerals — a
+#: Unicode digit string would pass `fullmatch` and be zero-padded into
+#: something that looks like a CIP. This module's own argument is that a
+#: wrong key which parses is worse than one that refuses.
+DOTTED = re.compile(r"[0-9]{2}\.[0-9]{4}")
+PLAIN = re.compile(r"[0-9]{1,6}")
 
 
 def cip_code(raw) -> str:

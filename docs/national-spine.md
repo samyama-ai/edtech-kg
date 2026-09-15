@@ -135,6 +135,22 @@ lookups and three creates — so that is about
 230 statements/sec as it finishes, and
 216 statements/sec averaged over the whole run.
 
+## The key changed at this commit
+
+`completion_id` hashes the CIP code in its **canonical form** — six digits,
+zero-padded. Before that it hashed whatever `str()` produced, which dropped
+the leading zero from every code below `10.0000`.
+
+That is the right key, and it means **every Completion id in this slice
+differs from the one the previous version produced**. Idempotence still holds
+— but only against a graph loaded by this version or later.
+
+Run this loader over a graph built by the older code and every lookup misses:
+a second full set of completions lands beside the first, `already_present`
+reports 0, and nothing looks wrong. So the loader refuses instead. If the
+graph holds completions and none carries an id this version would write, it
+stops and says to drop them or point at a fresh graph.
+
 ## Idempotence, measured by the recorded run itself
 
 The same load, run again against the graph it had just made:

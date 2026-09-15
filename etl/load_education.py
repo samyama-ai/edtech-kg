@@ -23,20 +23,24 @@ is reported rather than assumed to be zero — on this engine it is not always.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import pathlib
 import sys
 import time
 
 from etl.cip import NOT_A_PROGRAMME_SERIES, cip_code
+from etl.completion_key import (YEAR, completion_id,
+                                refuse_a_graph_keyed_the_old_way)
 from etl.engine import ENGINE_VERSION, Engine, Refused
 from etl.graph_writer import Writer, quote  # noqa: F401
 from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CACHE = ROOT / "data" / "education"
-FIPS, YEAR = 51, 2022
+#: `YEAR` is not defined here: it is part of the Completion key, so it
+#: lives with the key. Two definitions of it would change every id the
+#: day they drifted, silently.
+FIPS = 51
 
 #: Seconds between rate samples. A minute is short enough to show the shape
 #: over a 25-minute load and long enough that the sampling costs nothing.
@@ -100,24 +104,11 @@ def held(name: str, cache: pathlib.Path | None = None) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def completion_id(row: dict) -> str:
-    """The Completion key, spelled exactly as `schema/edtech_kg.cypher` does.
-
-    Six parts. `majornum` is one of them: without it,
-    16,800 Completion nodes disappear in this slice, and
-    3,524 of those merges also lose an award count.
-    Measured by `etl/probe_completion_key.py` — these figures were in three
-    files and no run, and two of them were the same number wearing different
-    labels.
-    """
-    parts = (row["unitid"], cip_code(row["cipcode_6digit"]), row["award_level"],
-             row["majornum"], row["race"], row["sex"], YEAR)
-    return hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()
-
-
 #: Every field that reaches a Cypher literal, per table. Named rather than
 #: discovered, because a field added to a write and not to this list is a
 #: field the pre-flight silently stops covering.
+
+
 WRITTEN_FIELDS = {
     "institutions": ("unitid", "inst_name", "state_abbr"),
     "completions": ("unitid", "cipcode_6digit", "award_level", "majornum",
@@ -191,6 +182,8 @@ def load(engine: Engine, dry_run: bool = False,
     # The scan is over the values that actually reach a literal, and it costs
     # a fraction of a second against a load measured in minutes.
     refuse_unwritable(institutions, completions)
+
+    refuse_a_graph_keyed_the_old_way(engine, completions, dry_run)
 
     # **Before the first write**, because `cip_code` refuses and this is where
     # it first runs: normalising during the write loop raised AFTER the 147

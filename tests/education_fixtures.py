@@ -16,9 +16,22 @@ from etl import load_education as loader
 class Recorder:
     """Every statement the loader would send, in order, with scripted answers."""
 
-    def __init__(self, answers=None):
+    def __init__(self, answers=None, url="http://engine.test"):
         self.sent: list[str] = []
         self.answers = answers or {}
+        # Named, because refusals quote it: a message saying which engine
+        # would not answer is the difference between a bug report and a shrug.
+        self.url = url
+
+    def scalar(self, statement: str):
+        """One value, the way `Engine.scalar` answers it.
+
+        Added when the loader grew a guard that reads a count back before
+        writing: without it the stub raised `AttributeError` and the guard
+        looked broken rather than uncovered.
+        """
+        rows = (self.run(statement) or {}).get("records") or []
+        return rows[0][0] if rows and rows[0] else None
 
     def run(self, statement: str):
         self.sent.append(statement)
