@@ -54,7 +54,7 @@ def test_a_partial_load_is_refused_as_a_record(monkeypatch, tmp_path):
     monkeypatch.setattr(loader, "load", lambda *a, **k: {
         "seconds": 1.0, "statements_issued": 1, "nodes_and_edges_created": 1,
         "already_present": 0, "institutions_in": 1, "programmes_in": 1,
-        "completions_in": 1, "rows_skipped_zero_awards": 0,
+        "completions_in": 1, "rows_skipped_zero_awards": 0, "rows_skipped_grand_total": 0,
         "duplicate_rows_skipped": 0})
     monkeypatch.setattr(loader, "in_the_graph", lambda e: {})
     monkeypatch.setattr(loader, "Engine", lambda url, graph=None: Recorder())
@@ -74,7 +74,7 @@ def test_the_record_keeps_issued_and_held_apart(monkeypatch, tmp_path):
     monkeypatch.setattr(loader, "load", lambda *a, **k: {
         "seconds": 2.0, "statements_issued": 9, "nodes_and_edges_created": 6,
         "already_present": 3, "institutions_in": 1, "programmes_in": 1,
-        "completions_in": 2, "rows_skipped_zero_awards": 4,
+        "completions_in": 2, "rows_skipped_zero_awards": 4, "rows_skipped_grand_total": 0,
         "duplicate_rows_skipped": 0})
     monkeypatch.setattr(loader, "in_the_graph", lambda e: {
         "Institution": 1, "Programme": 1, "Completion": 2, "AT": 2, "IN": 2})
@@ -106,11 +106,11 @@ def test_the_record_carries_the_idempotence_run_not_just_the_first(monkeypatch,
     runs = iter([
         {"seconds": 10.0, "statements_issued": 6, "nodes_and_edges_created": 3,
          "already_present": 0, "institutions_in": 1, "programmes_in": 1,
-         "completions_in": 1, "rows_skipped_zero_awards": 0,
+         "completions_in": 1, "rows_skipped_zero_awards": 0, "rows_skipped_grand_total": 0,
          "duplicate_rows_skipped": 0, "created_by": {}, "rate_curve": []},
         {"seconds": 4.0, "statements_issued": 3, "nodes_and_edges_created": 0,
          "already_present": 3, "institutions_in": 1, "programmes_in": 1,
-         "completions_in": 1, "rows_skipped_zero_awards": 0,
+         "completions_in": 1, "rows_skipped_zero_awards": 0, "rows_skipped_grand_total": 0,
          "duplicate_rows_skipped": 0, "created_by": {}, "rate_curve": []},
     ])
     monkeypatch.setattr(loader, "load", lambda *a, **k: next(runs))
@@ -137,7 +137,7 @@ def test_every_flag_reaches_load_as_the_help_text_says(monkeypatch):
     monkeypatch.setattr(loader, "load", lambda engine, **kw: seen.update(kw) or {
         "seconds": 1.0, "statements_issued": 0, "nodes_and_edges_created": 0,
         "already_present": 0, "institutions_in": 0, "programmes_in": 0,
-        "completions_in": 0, "rows_skipped_zero_awards": 0,
+        "completions_in": 0, "rows_skipped_zero_awards": 0, "rows_skipped_grand_total": 0,
         "duplicate_rows_skipped": 0, "created_by": {}, "rate_curve": []})
 
     loader.main([])
@@ -169,7 +169,7 @@ def test_the_graph_flag_reaches_the_engine(monkeypatch):
     monkeypatch.setattr(loader, "load", lambda engine, **kw: {
         "seconds": 1.0, "statements_issued": 0, "nodes_and_edges_created": 0,
         "already_present": 0, "institutions_in": 0, "programmes_in": 0,
-        "completions_in": 0, "rows_skipped_zero_awards": 0,
+        "completions_in": 0, "rows_skipped_zero_awards": 0, "rows_skipped_grand_total": 0,
         "duplicate_rows_skipped": 0, "created_by": {}, "rate_curve": []})
     loader.main([])
     assert asked["graph"] == "edtech", (

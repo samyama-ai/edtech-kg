@@ -73,18 +73,18 @@ too. All three readings are in
 `edge_count_readings`, from both engines.
 
 **One state's higher education.** Virginia (`fips=51`), data year 2022 —
-147 institutions, 664 programmes and
-58,317 completions, with 58,317 `AT` edges and
-58,317 `IN` edges. **Read back out of the graph after the load, never
+147 institutions, 663 programmes and
+51,085 completions, with 51,085 `AT` edges and
+51,085 `IN` edges. **Read back out of the graph after the load, never
 inferred from the input rows** — the loader reports both and the two agree.
 
 | | |
 |---|---|
-| Load time | **1442.8s**, 351,524 statements |
-| Re-run over the loaded graph | 175,762 statements, **0 created** — the load is idempotent, measured rather than asserted |
+| Load time | **1425.7s**, 308,130 statements |
+| Re-run over the loaded graph | 154,065 statements, **0 created** — the load is idempotent, measured rather than asserted |
 | Written by | `etl/load_education.py`, from `etl/download_education.py`'s cached slice |
 | Rate curve, the slice, and the schema defect the load found | [`docs/national-spine.md`](docs/national-spine.md) |
-| Rows deliberately dropped | 132,284 recording zero awards, 169 collapsing onto one key |
+| Rows deliberately dropped | 125,692 recording zero awards, 13,950 institution-TOTAL rows (CIP 99 is a sum of the others, not a programme), 43 collapsing onto one key |
 | Not loaded, though #7's scope names them | `Occupation`, the CIP–SOC crosswalk, earnings |
 
 | graph artefact | |

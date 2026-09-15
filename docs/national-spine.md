@@ -22,15 +22,15 @@ None was transcribed by hand.**
 | label | nodes |
 |---|---:|
 | `Institution` | 147 |
-| `Programme` | 664 |
-| `Completion` | 58,317 |
+| `Programme` | 663 |
+| `Completion` | 51,085 |
 
 | edge | count |
 |---|---:|
-| `(:Completion)-[:AT]->(:Institution)` | 58,317 |
-| `(:Completion)-[:IN]->(:Programme)` | 58,317 |
+| `(:Completion)-[:AT]->(:Institution)` | 51,085 |
+| `(:Completion)-[:IN]->(:Programme)` | 51,085 |
 
-351,524 statements in 1442.8s against
+308,130 statements in 1425.7s against
 `public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0`. **Read back out of the graph,
 never inferred from the input rows** — and the two agree on all five, which is
 the point of the report rather than a formality.
@@ -105,20 +105,51 @@ the size at which `MERGE`'s problem is also invisible. Sampled once a minute
 
 | seconds elapsed | `Completion` nodes held | completions written /sec |
 |---:|---:|---:|
-| 63 | 3,374 | 53.2 |
-| 243 | 11,069 | 36.8 |
-| 424 | 18,115 | 39.8 |
-| 604 | 25,491 | 44.9 |
-| 784 | 33,121 | 40.6 |
-| 964 | 40,234 | 41.4 |
-| 1144 | 47,307 | 36.6 |
-| 1324 | 53,746 | 35.6 |
-| 1443 | 58,317 | 38.6 |
+| 66 | 2,719 | 41.3 |
+| 126 | 5,101 | 39.7 |
+| 186 | 7,718 | 43.6 |
+| 246 | 9,900 | 36.4 |
+| 306 | 12,108 | 36.8 |
+| 366 | 14,416 | 38.4 |
+| 426 | 16,598 | 36.4 |
+| 486 | 18,662 | 34.4 |
+| 546 | 20,687 | 33.7 |
+| 606 | 22,869 | 36.3 |
+| 666 | 25,163 | 38.2 |
+| 726 | 27,226 | 34.4 |
+| 786 | 29,290 | 34.4 |
+| 846 | 31,409 | 35.3 |
+| 906 | 33,522 | 35.2 |
+| 966 | 35,663 | 35.7 |
+| 1026 | 37,785 | 35.3 |
+| 1086 | 39,684 | 31.6 |
+| 1146 | 41,690 | 33.4 |
+| 1206 | 43,594 | 31.7 |
+| 1266 | 45,493 | 31.6 |
+| 1326 | 47,453 | 32.7 |
+| 1386 | 49,574 | 35.3 |
+| 1426 | 51,085 | 38.3 |
 
-It finishes at 38.6/sec holding 58,317. Each completion is six statements — three
+It finishes at 38.3/sec holding 51,085. Each completion is six statements — three
 lookups and three creates — so that is about
-232 statements/sec as it finishes, and
-244 statements/sec averaged over the whole run.
+230 statements/sec as it finishes, and
+216 statements/sec averaged over the whole run.
+
+## The key changed at this commit
+
+`completion_id` hashes the CIP code in its **canonical form** — six digits,
+zero-padded. Before that it hashed whatever `str()` produced, which dropped
+the leading zero from every code below `10.0000`.
+
+That is the right key, and it means **every Completion id in this slice
+differs from the one the previous version produced**. Idempotence still holds
+— but only against a graph loaded by this version or later.
+
+Run this loader over a graph built by the older code and every lookup misses:
+a second full set of completions lands beside the first, `already_present`
+reports 0, and nothing looks wrong. So the loader refuses instead. If the
+graph holds completions and none carries an id this version would write, it
+stops and says to drop them or point at a fresh graph.
 
 ## Idempotence, measured by the recorded run itself
 
@@ -126,9 +157,9 @@ The same load, run again against the graph it had just made:
 
 | | |
 |---|---:|
-| statements issued | 175,762 |
+| statements issued | 154,065 |
 | **nodes and edges created** | **0** |
-| already present | 175,762 |
+| already present | 154,065 |
 | seconds | 856.1 |
 
 Exactly one lookup per object and no writes, with every count unchanged.
@@ -155,8 +186,8 @@ is silently ignored ([`engine-behaviours.md`](engine-behaviours.md)).
 
 | dropped | rows | why |
 |---|---:|---|
-| completions recording zero awards | 132,284 | 69% of the volume, and *"nobody of this demographic finished this programme"* answers no question in [`questions.md`](questions.md). `--all-rows` loads them. |
-| rows collapsing onto one key | 169 | Duplicates from the API. Skipped in the walk rather than left to the lookup, so the issued count stays honest. **Not** the `majornum` defect above: these lose nothing. |
+| completions recording zero awards | 125,692 | 71% of the rows left after the institution totals are dropped, and *"nobody of this demographic finished this programme"* answers no question in [`questions.md`](questions.md). `--all-rows` loads them. |
+| rows collapsing onto one key | 43 | Duplicates from the API. Skipped in the walk rather than left to the lookup, so the issued count stays honest. **Not** the `majornum` defect above: these lose nothing. |
 
 Both counts are printed by every load, so the slice cannot be mistaken for the
 whole.

@@ -46,8 +46,8 @@ you can walk — plus nine measured public sources for the college and career si
 
 > **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
 > **One state's higher education is loaded too** — Virginia (`fips=51`),
-> data year 2022: 147 institutions, 664 programmes and
-> 58,317 completions ([`docs/national-spine.md`](docs/national-spine.md)).
+> data year 2022: 147 institutions, 663 programmes and
+> 51,085 completions ([`docs/national-spine.md`](docs/national-spine.md)).
 > Occupations and the CIP–SOC crosswalk are measured and **not** loaded.
 > Counts, licences and known limitations are in [`docs/`](docs/).
 
@@ -97,7 +97,7 @@ Prince William County Schools, `catalog.pwcs.edu`. Public pages only — no logi
 data, nothing that is not already on the internet.
 
 Plus Virginia's higher education for 2022 — 147 institutions,
-664 programmes, 58,317 completions and 58,317 edges of each
+663 programmes, 51,085 completions and 51,085 edges of each
 kind, loaded by `etl/load_education.py` and recorded in
 [`docs/national-spine.md`](docs/national-spine.md). No edge crosses from a district course
 to a college programme, and [`docs/questions.md`](docs/questions.md) Q39 is marked blocked
@@ -226,7 +226,7 @@ python -m etl.probe_pwcs                  # measure a source — every figure in
 python -m etl.load_pwcs --graph edtech    # build + load one district
 
 python -m etl.download_education          # the national spine: cached, ~20 requests
-python -m etl.load_education --graph edtech   # ~24 minutes, 58,317 completions
+python -m etl.load_education --graph edtech   # ~24 minutes, 51,085 completions
 
 python -m demo.demo                       # walk it
 pytest                                    # the whole suite, no engine needed

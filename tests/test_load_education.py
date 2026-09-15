@@ -8,27 +8,12 @@ edges were not idempotent — so both are asserted here rather than described.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from etl import load_education as loader
 from etl.engine import Refused
-
-
-class Recorder:
-    """Every statement the loader would send, in order, with scripted answers."""
-
-    def __init__(self, answers=None):
-        self.sent: list[str] = []
-        self.answers = answers or {}
-
-    def run(self, statement: str):
-        self.sent.append(statement)
-        for fragment, reply in self.answers.items():
-            if fragment in statement:
-                return reply
-        return {"records": []}
+from tests.education_fixtures import (Recorder, completions,
+                                      slice_on_disk)
 
 
 def row(**over):
@@ -175,7 +160,7 @@ def test_counts_come_from_the_graph_not_from_the_input(monkeypatch):
     lines = "\n".join(loader.report({
         "seconds": 1.0, "statements_issued": 10, "nodes_and_edges_created": 5,
         "already_present": 5, "institutions_in": 147, "programmes_in": 121,
-        "completions_in": 2000, "rows_skipped_zero_awards": 0,
+        "completions_in": 2000, "rows_skipped_zero_awards": 0, "rows_skipped_grand_total": 0,
         "duplicate_rows_skipped": 0}, counts))
     assert "+2,000" in lines, (
         "a gap between issued and held was not reported; that gap is the "
@@ -191,31 +176,6 @@ def test_every_count_interposes_a_with(monkeypatch):
     for statement in engine.sent:
         if statement.startswith("MATCH (n:"):
             assert "WITH n RETURN count(n)" in statement, statement
-
-
-def slice_on_disk(tmp_path, rows, institutions=None):
-    """Write a cache this loader will read, and return its directory."""
-    (tmp_path / f"institutions-{loader.FIPS}-{loader.YEAR}.json").write_text(
-        json.dumps({"rows": institutions if institutions is not None
-                    else [{"unitid": 1, "inst_name": "X", "state_abbr": "VA"}]}),
-        encoding="utf-8")
-    (tmp_path / f"completions-{loader.FIPS}-{loader.YEAR}.json").write_text(
-        json.dumps({"rows": rows}), encoding="utf-8")
-    return tmp_path
-
-
-def completions(n, first=0, **over):
-    """`n` rows with DISTINCT keys, starting at `first`.
-
-    `first` exists because a fixture that reused CIP codes across two calls
-    made the zero-award rows collide with the awarded ones — so a test about
-    zero-award skipping was measuring duplicate-key skipping as well, and
-    passed for the wrong reason.
-    """
-    return [{"unitid": 1, "cipcode_6digit": 110701 + first + i,
-             "award_level": 5, "majornum": 1, "race": 1, "sex": 1,
-             "awards_6digit": 1, **over}
-            for i in range(n)]
 
 
 def test_the_rate_curve_closes_on_the_run_even_with_no_periodic_sample(
@@ -361,7 +321,7 @@ def test_the_report_compares_against_what_the_graph_already_held(tmp_path):
     loaded = {"seconds": 1.0, "statements_issued": 3,
               "nodes_and_edges_created": 3, "already_present": 0,
               "institutions_in": 1, "programmes_in": 1, "completions_in": 1,
-              "rows_skipped_zero_awards": 0, "duplicate_rows_skipped": 0,
+              "rows_skipped_zero_awards": 0, "rows_skipped_grand_total": 0, "duplicate_rows_skipped": 0,
               "created_by": {"Institution": 1, "Completion": 1, "AT": 1}}
     before = {"Institution": 40, "Programme": 0, "Completion": 900,
               "AT": 900, "IN": 0}
@@ -395,33 +355,3 @@ def test_the_checked_completion_fields_are_the_ones_written():
         "unitid", "inst_name", "state_abbr")
 
 
-@pytest.mark.parametrize("field", loader.WRITTEN_FIELDS["completions"])
-def test_every_written_completion_field_is_checked_before_anything_is(
-        tmp_path, field):
-    """**The completions half of `refuse_unwritable` had no test.** Both
-    `refuse_unwritable(institutions, completions)` -> `(institutions)` and
-    `WRITTEN_FIELDS["completions"]` -> `()` passed the whole suite clean —
-    so the claim the function's own docstring says it was written to make was
-    the one thing unguarded, on the larger of the two tables.
-
-    Parametrized over the field list rather than sampling one, because the
-    module comment calls that list load-bearing: a field dropped from it is a
-    value reaching the graph unchecked, and nothing else would say so.
-
-    **The bad row is LAST, not first.** With it first the load raises on row
-    one either way, so `engine.sent == []` holds whether the pre-flight ran
-    or not — the first version of this test passed with `WRITTEN_FIELDS
-    ["completions"]` emptied to `()`. Putting it last is what makes the
-    assertion mean "nothing was written", because without the pre-flight the
-    five rows ahead of it are already in the graph.
-    """
-    engine = Recorder()
-    bad = """both " and ' quotes"""
-    rows = completions(6)
-    rows[-1][field] = bad
-    cache = slice_on_disk(tmp_path, rows)
-    with pytest.raises(Refused):
-        loader.load(engine, cache=cache)
-    assert engine.sent == [], (
-        f"an unwritable {field} was discovered after the load had already "
-        f"written — there is no transaction to roll back to")

@@ -120,7 +120,8 @@ def test_no_grouped_figure_on_the_card_is_unaccounted_for():
     known |= {spine["issued"][k] for k in
               ("statements_issued", "nodes_and_edges_created",
                "already_present", "completions_in",
-               "rows_skipped_zero_awards", "duplicate_rows_skipped")}
+               "rows_skipped_zero_awards", "rows_skipped_grand_total",
+               "duplicate_rows_skipped")}
     known |= {round(spine["issued"]["seconds"])}
 
     # The snapshot (#25): its size, its import counts, and the /api/status

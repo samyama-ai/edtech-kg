@@ -23,19 +23,24 @@ is reported rather than assumed to be zero — on this engine it is not always.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import pathlib
 import sys
 import time
 
+from etl.cip import NOT_A_PROGRAMME_SERIES, cip_code
+from etl.completion_key import (YEAR, completion_id,
+                                refuse_a_graph_keyed_the_old_way)
 from etl.engine import ENGINE_VERSION, Engine, Refused
 from etl.graph_writer import Writer, quote  # noqa: F401
 from etl.provenance import write_record
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CACHE = ROOT / "data" / "education"
-FIPS, YEAR = 51, 2022
+#: `YEAR` is not defined here: it is part of the Completion key, so it
+#: lives with the key. Two definitions of it would change every id the
+#: day they drifted, silently.
+FIPS = 51
 
 #: Seconds between rate samples. A minute is short enough to show the shape
 #: over a 25-minute load and long enough that the sampling costs nothing.
@@ -99,24 +104,11 @@ def held(name: str, cache: pathlib.Path | None = None) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def completion_id(row: dict) -> str:
-    """The Completion key, spelled exactly as `schema/edtech_kg.cypher` does.
-
-    Six parts. `majornum` is one of them: without it,
-    16,800 Completion nodes disappear in this slice, and
-    3,524 of those merges also lose an award count.
-    Measured by `etl/probe_completion_key.py` — these figures were in three
-    files and no run, and two of them were the same number wearing different
-    labels.
-    """
-    parts = (row["unitid"], row["cipcode_6digit"], row["award_level"],
-             row["majornum"], row["race"], row["sex"], YEAR)
-    return hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()
-
-
 #: Every field that reaches a Cypher literal, per table. Named rather than
 #: discovered, because a field added to a write and not to this list is a
 #: field the pre-flight silently stops covering.
+
+
 WRITTEN_FIELDS = {
     "institutions": ("unitid", "inst_name", "state_abbr"),
     "completions": ("unitid", "cipcode_6digit", "award_level", "majornum",
@@ -190,6 +182,23 @@ def load(engine: Engine, dry_run: bool = False,
     # The scan is over the values that actually reach a literal, and it costs
     # a fraction of a second against a load measured in minutes.
     refuse_unwritable(institutions, completions)
+
+    refuse_a_graph_keyed_the_old_way(engine, completions, dry_run)
+
+    # **Before the first write**, because `cip_code` refuses and this is where
+    # it first runs: normalising during the write loop raised AFTER the 147
+    # institutions were already in the graph, which is the partial write
+    # `refuse_unwritable` exists two lines above to prevent.
+    #
+    # And the grand total is not a programme. Dropped here so it cannot reach
+    # a node, an edge or a count, and recorded like the other two skips — a
+    # reader comparing this slice with IPEDS's own published total needs to
+    # know the total row is the thing that is missing.
+    without_totals = [
+        row for row in completions
+        if cip_code(row["cipcode_6digit"])[:2] != NOT_A_PROGRAMME_SERIES]
+    skipped_totals = len(completions) - len(without_totals)
+    completions = without_totals
     for row in institutions:
         writer.node("Institution", "unitid", row["unitid"],
                     {"unitid": row["unitid"], "name": row.get("inst_name") or "",
@@ -207,7 +216,7 @@ def load(engine: Engine, dry_run: bool = False,
         # asked, on the flag whose purpose is to bound the write.
         completions = completions[:limit]
 
-    programmes = sorted({str(r["cipcode_6digit"]) for r in completions})
+    programmes = sorted({cip_code(r["cipcode_6digit"]) for r in completions})
     for cip in programmes:
         writer.node("Programme", "cip_code", cip, {"cip_code": cip})
 
@@ -238,7 +247,7 @@ def load(engine: Engine, dry_run: bool = False,
         # question could ask "how many finished as a SECOND major".
         writer.node("Completion", "id", key, {
             "id": key, "year": YEAR,
-            "cip_code": str(row["cipcode_6digit"]),
+            "cip_code": cip_code(row["cipcode_6digit"]),
             "award_level": row["award_level"],
             "major_number": row["majornum"],
             "race": row["race"], "sex": row["sex"],
@@ -246,7 +255,7 @@ def load(engine: Engine, dry_run: bool = False,
         writer.edge("AT", ("Completion", "id", key),
                     ("Institution", "unitid", row["unitid"]))
         writer.edge("IN", ("Completion", "id", key),
-                    ("Programme", "cip_code", str(row["cipcode_6digit"])))
+                    ("Programme", "cip_code", cip_code(row["cipcode_6digit"])))
 
         now = time.monotonic()
         if now >= next_mark:
@@ -292,6 +301,7 @@ def load(engine: Engine, dry_run: bool = False,
         "programmes_in": len(programmes),
         "completions_in": len(seen),
         "rows_skipped_zero_awards": skipped_zero,
+        "rows_skipped_grand_total": skipped_totals,
         "duplicate_rows_skipped": (len(completions) - len(seen)),
         # Sampled once a minute across THIS run, so the curve and the totals
         # describe one load.
@@ -344,7 +354,8 @@ def report(loaded: dict, graph: dict, before: dict | None = None) -> list[str]:
         f"{loaded['seconds']}s "
         f"({round(loaded['statements_issued'] / max(loaded['seconds'], 0.1)):,}/sec)",
         f"  skipped {loaded['rows_skipped_zero_awards']:,} rows recording zero "
-        f"awards, {loaded['duplicate_rows_skipped']:,} duplicate rows",
+        f"awards, {loaded['duplicate_rows_skipped']:,} duplicate rows, "
+        f"{loaded['rows_skipped_grand_total']:,} institution-total rows",
         "",
         f"  {'':<14} {'held before':>12} {'created':>9} {'in graph':>10}  gap",
     ]

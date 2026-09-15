@@ -1,170 +1,171 @@
 {
   "_": "Measured by `python -m etl.load_education --record`, which loads the slice TWICE: `issued`/`in_graph` are the first pass and `second_run` is the same load repeated against the graph it just made. `second_run.nodes_and_edges_created` is the idempotence claim, and it is the loader's whole design — the first version created 2,000 duplicate edges on a second pass and only the gap column showed it.  `issued` is what this loader sent; `in_graph` is what the graph answered when asked afterwards. They are stored separately on purpose — a loader reporting only what it issued is reporting its own intentions, and on 1.1.0 a unique constraint does not reject a duplicate, so the two can differ with nothing raised. Every figure the dataset card and docs/national-spine.md quote about the load comes from here.",
   "second_run": {
-    "seconds": 856.1,
-    "statements_issued": 175762,
+    "seconds": 594.3,
+    "statements_issued": 154065,
     "nodes_and_edges_created": 0,
-    "already_present": 175762,
+    "already_present": 154065,
     "in_graph_after": {
       "Institution": 147,
-      "Programme": 664,
-      "Completion": 58317,
-      "AT": 58317,
-      "IN": 58317
+      "Programme": 663,
+      "Completion": 51085,
+      "AT": 51085,
+      "IN": 51085
     }
   },
   "engine_version_reported": "1.7.0",
   "fips": 51,
   "year": 2022,
   "issued": {
-    "seconds": 1442.8,
-    "statements_issued": 351524,
-    "nodes_and_edges_created": 175762,
+    "seconds": 1425.7,
+    "statements_issued": 308130,
+    "nodes_and_edges_created": 154065,
     "already_present": 0,
     "created_by": {
       "Institution": 147,
-      "Programme": 664,
-      "Completion": 58317,
-      "AT": 58317,
-      "IN": 58317
+      "Programme": 663,
+      "Completion": 51085,
+      "AT": 51085,
+      "IN": 51085
     },
     "institutions_in": 147,
-    "programmes_in": 664,
-    "completions_in": 58317,
-    "rows_skipped_zero_awards": 132284,
-    "duplicate_rows_skipped": 169,
+    "programmes_in": 663,
+    "completions_in": 51085,
+    "rows_skipped_zero_awards": 125692,
+    "rows_skipped_grand_total": 13950,
+    "duplicate_rows_skipped": 43,
     "rate_curve": [
       {
-        "seconds": 63.4,
-        "completions_held": 3374,
-        "completions_per_second": 53.2
-      },
-      {
-        "seconds": 123.4,
-        "completions_held": 6215,
-        "completions_per_second": 47.3
-      },
-      {
-        "seconds": 183.4,
-        "completions_held": 8860,
-        "completions_per_second": 44.1
-      },
-      {
-        "seconds": 243.4,
-        "completions_held": 11069,
-        "completions_per_second": 36.8
-      },
-      {
-        "seconds": 303.4,
-        "completions_held": 13248,
-        "completions_per_second": 36.3
-      },
-      {
-        "seconds": 363.5,
-        "completions_held": 15729,
+        "seconds": 65.9,
+        "completions_held": 2719,
         "completions_per_second": 41.3
       },
       {
-        "seconds": 423.5,
-        "completions_held": 18115,
-        "completions_per_second": 39.8
-      },
-      {
-        "seconds": 483.5,
-        "completions_held": 20467,
-        "completions_per_second": 39.2
-      },
-      {
-        "seconds": 543.5,
-        "completions_held": 22797,
-        "completions_per_second": 38.8
-      },
-      {
-        "seconds": 603.5,
-        "completions_held": 25491,
-        "completions_per_second": 44.9
-      },
-      {
-        "seconds": 663.5,
-        "completions_held": 28265,
-        "completions_per_second": 46.2
-      },
-      {
-        "seconds": 723.5,
-        "completions_held": 30686,
-        "completions_per_second": 40.3
-      },
-      {
-        "seconds": 783.5,
-        "completions_held": 33121,
-        "completions_per_second": 40.6
-      },
-      {
-        "seconds": 843.5,
-        "completions_held": 35503,
+        "seconds": 125.9,
+        "completions_held": 5101,
         "completions_per_second": 39.7
       },
       {
-        "seconds": 903.5,
-        "completions_held": 37751,
-        "completions_per_second": 37.5
+        "seconds": 185.9,
+        "completions_held": 7718,
+        "completions_per_second": 43.6
       },
       {
-        "seconds": 963.5,
-        "completions_held": 40234,
-        "completions_per_second": 41.4
+        "seconds": 245.9,
+        "completions_held": 9900,
+        "completions_per_second": 36.4
       },
       {
-        "seconds": 1023.6,
-        "completions_held": 42771,
-        "completions_per_second": 42.3
-      },
-      {
-        "seconds": 1083.6,
-        "completions_held": 45107,
-        "completions_per_second": 38.9
-      },
-      {
-        "seconds": 1143.6,
-        "completions_held": 47307,
-        "completions_per_second": 36.6
-      },
-      {
-        "seconds": 1203.6,
-        "completions_held": 49515,
+        "seconds": 305.9,
+        "completions_held": 12108,
         "completions_per_second": 36.8
       },
       {
-        "seconds": 1263.6,
-        "completions_held": 51608,
-        "completions_per_second": 34.9
+        "seconds": 366.0,
+        "completions_held": 14416,
+        "completions_per_second": 38.4
       },
       {
-        "seconds": 1323.6,
-        "completions_held": 53746,
-        "completions_per_second": 35.6
+        "seconds": 426.0,
+        "completions_held": 16598,
+        "completions_per_second": 36.4
       },
       {
-        "seconds": 1383.7,
-        "completions_held": 56035,
-        "completions_per_second": 38.1
+        "seconds": 486.0,
+        "completions_held": 18662,
+        "completions_per_second": 34.4
       },
       {
-        "seconds": 1442.8,
-        "completions_held": 58317,
-        "completions_per_second": 38.6
+        "seconds": 546.0,
+        "completions_held": 20687,
+        "completions_per_second": 33.7
+      },
+      {
+        "seconds": 606.0,
+        "completions_held": 22869,
+        "completions_per_second": 36.3
+      },
+      {
+        "seconds": 666.0,
+        "completions_held": 25163,
+        "completions_per_second": 38.2
+      },
+      {
+        "seconds": 726.0,
+        "completions_held": 27226,
+        "completions_per_second": 34.4
+      },
+      {
+        "seconds": 786.1,
+        "completions_held": 29290,
+        "completions_per_second": 34.4
+      },
+      {
+        "seconds": 846.1,
+        "completions_held": 31409,
+        "completions_per_second": 35.3
+      },
+      {
+        "seconds": 906.1,
+        "completions_held": 33522,
+        "completions_per_second": 35.2
+      },
+      {
+        "seconds": 966.1,
+        "completions_held": 35663,
+        "completions_per_second": 35.7
+      },
+      {
+        "seconds": 1026.1,
+        "completions_held": 37785,
+        "completions_per_second": 35.3
+      },
+      {
+        "seconds": 1086.1,
+        "completions_held": 39684,
+        "completions_per_second": 31.6
+      },
+      {
+        "seconds": 1146.2,
+        "completions_held": 41690,
+        "completions_per_second": 33.4
+      },
+      {
+        "seconds": 1206.2,
+        "completions_held": 43594,
+        "completions_per_second": 31.7
+      },
+      {
+        "seconds": 1266.2,
+        "completions_held": 45493,
+        "completions_per_second": 31.6
+      },
+      {
+        "seconds": 1326.2,
+        "completions_held": 47453,
+        "completions_per_second": 32.7
+      },
+      {
+        "seconds": 1386.2,
+        "completions_held": 49574,
+        "completions_per_second": 35.3
+      },
+      {
+        "seconds": 1425.7,
+        "completions_held": 51085,
+        "completions_per_second": 38.3
       }
     ]
   },
   "in_graph": {
     "Institution": 147,
-    "Programme": 664,
-    "Completion": 58317,
-    "AT": 58317,
-    "IN": 58317
+    "Programme": 663,
+    "Completion": 51085,
+    "AT": 51085,
+    "IN": 51085
   },
   "code": {
-    "commit": "1884a4619bf4f7b04d88352f2b8e1b7b71074518",
+    "commit": "c830b2936dfe74d5564a36d9751058b8ab42af27",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
