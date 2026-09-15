@@ -134,10 +134,21 @@ class Writer:
         #
         # An edge MERGE would not do it either: #163 records edge `MERGE`
         # ignoring its property map on 1.1.0.
+        # **The property map participates in the check.** Without it the
+        # lookup was (tail, kind, head) only, so loading a later crosswalk
+        # edition found every overlapping pair, counted it `already_there`,
+        # and never wrote the new `source_edition`. The stated reason the
+        # edition rides on the edge is that "a later edition can be told from
+        # this one rather than silently replacing it" — as written it did not
+        # replace, it declined, which is a different surprise and the same
+        # loss. An edge carrying different values IS a different edge here.
+        carried_match = "".join(
+            f" AND r.{name} = {quote(value)}"
+            for name, value in sorted((properties or {}).items()))
         existing = self.engine.run(
             f"MATCH (a:{tail_label})-[r:{kind}]->(b:{head_label}) "
             f"WHERE a.{tail_key} = {quote(tail_value)} "
-            f"AND b.{head_key} = {quote(head_value)} "
+            f"AND b.{head_key} = {quote(head_value)}{carried_match} "
             f"WITH r RETURN count(r)").get("records") or []
         if existing and existing[0] and existing[0][0]:
             self.already_there += 1

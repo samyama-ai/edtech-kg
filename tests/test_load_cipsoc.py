@@ -36,7 +36,12 @@ SHEET = [
 def crosswalk(monkeypatch):
     monkeypatch.setattr(probe_cipsoc, "sheets", lambda book: {"CIP-SOC": "x"})
     monkeypatch.setattr(probe_cipsoc, "rows", lambda book, part: SHEET)
-    monkeypatch.setattr(loader.zipfile, "ZipFile", lambda path: None)
+    # A context manager, because `mappings()` closes the workbook now —
+    # `probe_cipsoc.probe()` already used a `with` and this did not.
+    class Book:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(loader.zipfile, "ZipFile", lambda path: Book())
 
 
 def test_the_edition_comes_from_the_headings_not_the_filename():
@@ -86,13 +91,24 @@ def test_an_edge_is_not_issued_for_a_programme_the_graph_lacks(crosswalk):
         s for s in engine.sent if "PREPARES_FOR" in s)
 
 
-def test_every_occupation_loads_even_without_a_programme(crosswalk):
-    """The occupations are the published vocabulary and stand on their own."""
+def test_a_graph_with_no_programmes_is_refused_not_reported_as_scope(crosswalk):
+    """**The one query whose emptiness changes the meaning of the whole run.**
+
+    With no programmes loaded, every mapping is skipped,
+    `mappings_without_a_programme` reads the full count, and the report prints
+    "scope, not loss" over a graph that holds no programmes at all — exit 0,
+    and a record that looks like a successful load.
+
+    `in_the_graph` in this same module already refuses when a count comes back
+    `None` for exactly this reason, and this file names the pattern two tests
+    down: "`or 0` is how this class of guard fails open". It was inconsistent
+    that the query carrying the most meaning was the one that failed open.
+    """
     engine = Recorder({"p.cip_code": {"records": []}})
-    summary = loader.load(engine)
-    assert summary["occupations_in"] == 3
-    assert summary["edges_issued"] == 0
-    assert "29-1141" in " ".join(engine.sent)
+    with pytest.raises(Refused, match="no Programme nodes"):
+        loader.load(engine)
+    assert not [s for s in engine.sent if "CREATE" in s], (
+        "wrote occupations into a graph with no spine")
 
 
 def test_the_edition_rides_on_every_edge(crosswalk):
@@ -148,3 +164,80 @@ def test_an_unmeasurable_graph_is_refused_rather_than_read_as_empty():
             return None
     with pytest.raises(Refused, match="did not answer"):
         loader.in_the_graph(Silent())
+
+
+def test_a_future_edition_is_read_not_silently_empty(crosswalk, monkeypatch):
+    """**The edition was read dynamically; the columns were not.**
+    `edition()` handles a CIP2030 workbook, but `mappings()` then looked up
+    the literal `CIP2020Code` against that same header row, so every row fell
+    out blank: `mappings_read: 0`, zero occupations, zero edges, **exit 0**,
+    and a record saying the load succeeded against a named new edition.
+
+    That inverted the claim that "the headings cannot change without the
+    reader failing loudly". Columns are matched by MEANING now, through the
+    probe's own `column_at`, which raises on a reshaped file for free.
+    """
+    future = [["CIP2030Code", "CIP2030Title", "SOC2028Code", "SOC2028Title"],
+              ["01.0000", "Agriculture, General.", "19-1011", "Animal Scientists"],
+              ["51.3801", "Registered Nursing.", "29-1141", "Registered Nurses"]]
+    monkeypatch.setattr(probe_cipsoc, "rows", lambda book, part: future)
+    read, which = loader.mappings()
+    assert which == "CIP2030-SOC2028"
+    assert len(read) == 2, "a future edition read as empty"
+    assert {r["cip_code"] for r in read} == {"010000", "513801"}
+    assert read[0]["soc_title"] == "Animal Scientists", "titles went missing"
+
+
+def test_a_sheet_that_parses_to_nothing_is_refused(crosswalk, monkeypatch):
+    """Mirrors `probe_cipsoc.measure()`, which refuses rather than reporting
+    a zero it cannot explain."""
+    monkeypatch.setattr(probe_cipsoc, "rows", lambda book, part: [
+        ["CIP2020Code", "CIP2020Title", "SOC2018Code", "SOC2018Title"]])
+    with pytest.raises(Refused, match="no mappings at all"):
+        loader.mappings()
+
+
+def test_a_reshaped_sheet_raises_rather_than_counting_the_wrong_column(
+        crosswalk, monkeypatch):
+    """`column_at` is the probe's own matcher and it raises when no column
+    names a code. Returning `[]` would have been the quiet answer."""
+    monkeypatch.setattr(probe_cipsoc, "rows", lambda book, part: [
+        ["Something", "Else", "Entirely", "Here"], ["a", "b", "c", "d"]])
+    with pytest.raises(Exception):
+        loader.mappings()
+
+
+def test_a_second_edition_creates_its_own_edge(crosswalk):
+    """**The decision, pinned.** `Writer.edge`'s lookup was (tail, kind, head)
+    only, so loading a later crosswalk edition found every overlapping pair,
+    counted it `already_there`, and never wrote the new `source_edition` — it
+    did not replace, it declined, which is the same loss wearing a different
+    surprise.
+
+    The property map participates in the check now: an edge carrying a
+    different edition is a different edge, which is what
+    `schema/edtech_kg.cypher` wants so Q43 can ask which edition said so.
+    """
+    from etl.graph_writer import Writer
+    engine = Recorder({"count(r)": {"records": [[0]]}})
+    writer = Writer(engine)
+    writer.edge("PREPARES_FOR", ("Programme", "cip_code", "513801"),
+                ("Occupation", "soc_code", "29-1141"),
+                {"source_edition": "CIP2030-SOC2028"})
+    lookups = [s for s in engine.sent if "count(r)" in s]
+    assert lookups, engine.sent
+    assert "r.source_edition = 'CIP2030-SOC2028'" in lookups[0], (
+        f"the existence check ignores the edition, so a second edition would "
+        f"be declined: {lookups[0]}")
+
+
+def test_an_edge_with_no_properties_still_dedupes_on_endpoints(crosswalk):
+    """The other direction — `load_education`'s AT and IN edges carry no
+    properties and must keep matching on endpoints alone, or the spine load
+    stops being idempotent."""
+    from etl.graph_writer import Writer
+    engine = Recorder({"count(r)": {"records": [[1]]}})
+    writer = Writer(engine)
+    writer.edge("AT", ("Completion", "id", "abc"), ("Institution", "unitid", "1"))
+    assert writer.already_there == 1, "an unpropertied edge stopped matching"
+    assert not [s for s in engine.sent if "CREATE" in s]

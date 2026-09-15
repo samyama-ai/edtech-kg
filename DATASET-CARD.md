@@ -104,7 +104,7 @@ programmes above to the work they lead to.
 | | |
 |---|---|
 | Written by | `etl/load_cipsoc.py`, reading through `etl/probe_cipsoc.py` |
-| Load time | **28.0s**, 6,172 statements |
+| Load time | **28.3s**, 6,172 statements |
 | Re-run over the loaded graph | **0 created** — idempotent, measured rather than asserted |
 | Mappings read | 5,903, of which 3,684 name a CIP code this graph does not hold |
 | Why that gap | **scope, not loss** — the crosswalk covers every CIP code; this graph holds only what Virginia awarded in 2022 |

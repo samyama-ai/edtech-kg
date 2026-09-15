@@ -44,9 +44,12 @@ from etl import probe_cipsoc
 from etl.engine import ENGINE_VERSION, Engine, Refused
 from etl.graph_writer import Writer, quote
 from etl.cip import cip_code
-from etl.load_education import ROOT
 from etl.provenance import write_record
 
+#: The repo root, from the probe that owns the data directory — not
+#: from the spine loader. This module's own docstring says importing a
+#: loader to borrow something is the wrong way round.
+ROOT = probe_cipsoc.DATA_DIR.parent
 RECORD = ROOT / "docs" / "sources" / "cipsoc-load-measured.json"
 RECORD_NOTE = (
     "Measured by `python -m etl.load_cipsoc --record`. The crosswalk is a "
@@ -77,25 +80,60 @@ def edition(header: list[str]) -> str:
 def mappings(path=None) -> tuple[list[dict], str]:
     """Every programme-to-occupation mapping, and the edition that made it.
 
+    **Which count this is.** `probe_cipsoc.measure()` excludes the sentinel
+    only; this also excludes `00-0000`. They agree on this release because
+    `00-0000` is not on the CIP-SOC sheet — which the probe's own comment
+    calls "correct by accident about this release". So "reproduces the record
+    exactly" holds for this edition and would diverge the day a `00-0000` row
+    appears. This answers "mappings to a real occupation", not "rows the
+    probe counted".
+
     `NO MATCH` rows are excluded here as they are in the probe: `99-9999` is
     the crosswalk's own sentinel for "this programme maps to no occupation",
     and loading it would create an occupation that is the absence of one.
     """
-    book = zipfile.ZipFile(path or probe_cipsoc.LOCAL)
-    table = probe_cipsoc.rows(book, probe_cipsoc.sheets(book)["CIP-SOC"])
+    where = path or probe_cipsoc.LOCAL
+    if not where.exists():
+        raise Refused(
+            0,
+            f"the CIP-SOC crosswalk is not at {where}. `data/` is gitignored, "
+            f"so a fresh clone has none of it — fetch it with "
+            f"`python -m etl.probe_cipsoc`.")
+    with zipfile.ZipFile(where) as book:
+        table = probe_cipsoc.rows(book, probe_cipsoc.sheets(book)["CIP-SOC"])
     head = probe_cipsoc.find_header(table, "CIP")
-    columns = {name: i for i, name in enumerate(table[head])}
+
+    # **Columns by MEANING, not by literal name.** `edition()` reads the year
+    # off the headings, so it handles a CIP2030 workbook — but this then
+    # looked up `CIP2020Code` against that same header row, so every row fell
+    # out as blank. The result was `mappings_read: 0`, zero occupations, zero
+    # edges, exit 0, and a record saying the load succeeded against a named
+    # new edition. Exactly the opposite of "the headings cannot change
+    # without the reader failing loudly".
+    #
+    # `column_at` is the probe's own matcher and raises when it cannot find
+    # the column, so a reshaped file fails loudly for free.
+    ci = probe_cipsoc.column_at(table, head, "CIP")
+    si = probe_cipsoc.column_at(table, head, "SOC")
+    titles = {name[:-4].lower(): i for i, name in enumerate(table[head])
+              if name.endswith("Title")}
     read = []
     for row in table[head + 1:]:
-        def at(name):
-            i = columns.get(name)
+        def at(i):
             return row[i].strip() if i is not None and i < len(row) else ""
-        cip, soc = at("CIP2020Code"), at("SOC2018Code")
+        cip, soc = at(ci), at(si)
         if not cip or not soc or soc in probe_cipsoc.NOT_AN_OCCUPATION:
             continue
         read.append({"cip_code": cip_code(cip), "soc_code": soc,
-                     "cip_title": at("CIP2020Title"),
-                     "soc_title": at("SOC2018Title")})
+                     "cip_title": at(next((i for k, i in titles.items()
+                                           if k.startswith("cip")), None)),
+                     "soc_title": at(next((i for k, i in titles.items()
+                                           if k.startswith("soc")), None))})
+    if not read:
+        # Mirrors `probe_cipsoc.measure()`, which refuses rather than
+        # reporting a zero it cannot explain.
+        raise Refused(0, "the CIP-SOC sheet parsed to no mappings at all. "
+                         "Refusing to record that as a count.")
     return read, edition(table[head])
 
 
@@ -150,6 +188,19 @@ def load(engine: Engine, dry_run: bool = False, limit: int | None = None,
     loaded = {str(row[0]) for row in
               (engine.run("MATCH (p:Programme) WITH p RETURN p.cip_code")
                .get("records") or []) if row and row[0] is not None}
+    if not loaded:
+        # **Not scope — an unloaded spine.** Without this, every mapping is
+        # skipped, `mappings_without_a_programme` reads 5,903, and the report
+        # prints "scope, not loss" over a graph holding no programmes at all,
+        # exit 0. `in_the_graph` in this same file refuses when a count comes
+        # back None for exactly this reason, and the tests here name the
+        # pattern: "`or 0` is how this class of guard fails open". This was
+        # the one query whose emptiness changes the meaning of the whole run.
+        raise Refused(
+            0,
+            f"{engine.url} holds no Programme nodes, so every one of the "
+            f"{len(read):,} mappings would be skipped and reported as scope. "
+            f"Load the spine first — `python -m etl.load_education`.")
 
     writer = Writer(engine, dry_run)
     for occupation in occupations.values():
@@ -224,6 +275,12 @@ def main(argv: list[str] | None = None) -> int:
                              "idempotence is measured rather than asserted.")
     args = parser.parse_args(argv)
 
+    if args.record and args.limit is not None:
+        # `etl/load_education.py` refuses this pair for the reason that a
+        # record describing a truncated load is worse than no record.
+        print("--record describes the full crosswalk; --limit truncates it.",
+              file=sys.stderr)
+        return 2
     if args.record and args.dry_run:
         print("--record needs a real load; --dry-run writes nothing.",
               file=sys.stderr)
