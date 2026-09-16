@@ -23,22 +23,23 @@ Three things it deliberately does NOT do:
   * It does not download anything. The grain is visible in one row per endpoint,
     so a licence check and a bulk fetch would both be premature — and if the
     answer is "cannot be compared", they would never have been needed.
-  * It does not treat an empty response as an absent endpoint. Asking
+  * It does not stop at the first level that answers. Asking
     `enrollment-full-time-equivalent` for `level_of_study=99` returns zero rows
-    while levels 1, 2 and 3 return 5,959 each. Reported as "empty", that would
-    have been a false finding about the source caused by a wrong parameter, so
-    every endpoint is tried at each level it might accept before anything is
-    said about it.
+    while other levels return data, so a single request would report a populated
+    endpoint as empty. **Every level is requested and every count recorded**,
+    rather than returning on the first that answers — otherwise the record would
+    carry a per-level claim that was never measured.
   * It does not stop at the endpoints whose names contain "enrollment". The
     catalogue is read in full and every path carrying `cip` is listed, so the
     claim "no enrolment endpoint is by programme" rests on the whole API rather
-    than on the ones that were easy to guess.
+    than on the ones that were easy to guess. A truncated catalogue would make
+    that claim from partial evidence, so a short read is refused rather than
+    reported.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import sys
 from datetime import datetime, timezone
@@ -52,7 +53,7 @@ RECORD = ROOT / "docs" / "sources" / "enrolment-measured.json"
 RECORD_NOTE = (
     "One measured run of `python -m etl.probe_enrolment --record`, committed so "
     "docs/sources/enrolment.md can be checked without re-reading the Urban "
-    "catalogue and every enrolment endpoint.")
+    "catalogue and every enrolment endpoint at every level.")
 
 #: The IPEDS endpoints that count students rather than awards. `{level}` is
 #: substituted where the path takes a level of study; the rest take none.
@@ -75,45 +76,67 @@ ENROLMENT = [
 COMPLETIONS = ("completions-cip-6",
                "college-university/ipeds/completions-cip-6/{year}/")
 
-#: Levels of study to try before calling an endpoint empty. 99 is "all levels"
-#: on some endpoints and rejected by others; trying only 99 reported a populated
-#: endpoint as empty.
+#: Levels of study to request. 99 is "all levels" on some endpoints and rejected
+#: by others, so every one of these is asked and answered for in the record.
 LEVELS = [99, 1, 2, 3]
+
+#: Page size for the endpoint catalogue. The read is refused if the reported
+#: total exceeds what came back — see `cip_endpoints`.
+CATALOGUE_LIMIT = 300
 
 
 class Refused(Exception):
     """The source answered in a shape the finding cannot be stated from."""
 
 
-def first_row(path_template: str, year: int) -> tuple[dict | None, int, str]:
-    """One row from an endpoint, trying each level before reporting emptiness.
+def read_endpoint(name: str, template: str, year: int) -> dict:
+    """Every level of one endpoint, with the count each level returned.
 
-    Returns the row (or None), its count, and the path that produced it, so the
-    record can say which request the fields came from rather than leaving a
-    reader to guess which level answered.
+    No early return. Stopping at the first level that answers would leave the
+    record asserting per-level figures that were never requested — and a
+    per-level claim is exactly what this probe exists to make, because one
+    endpoint is empty at the level the others accept.
+
+    `fields_from` names the request the fields were read out of, and is null
+    when no level answered. It is never synthesised: a path in the record is a
+    URL a reader can paste, or it is absent.
     """
-    levels = LEVELS if "{level}" in path_template else [None]
-    empty_at = []
+    levels = LEVELS if "{level}" in template else [None]
+    attempts: list[dict] = []
+    fields: list[str] = []
+    cip: set[str] = set()
+    fields_from: str | None = None
+    rows_where_read = 0
+
     for level in levels:
-        path = path_template.format(year=year, level=level)
+        path = template.format(year=year, level=level)
         payload = fetch(f"{path}?limit=1")
         count = payload.get("count")
         if count is None:
             raise Refused(f"{path}: no `count` in the response — the API shape "
                           f"has changed and this probe cannot read it")
         results = payload.get("results") or []
+        attempts.append({"level": level, "path": path, "rows": count})
         if count and results:
-            return results[0], count, path
-        empty_at.append(level)
-    return None, 0, path_template.format(year=year, level="/".join(
-        str(level) for level in empty_at))
+            row = results[0]
+            # Read from every level that answers, not just the first: a CIP
+            # field appearing at one level only is still a CIP field, and the
+            # finding must not depend on which level was asked first.
+            cip.update(field for field in row if "cip" in field.lower())
+            if fields_from is None:
+                fields = sorted(row)
+                fields_from = path
+                rows_where_read = count
 
-
-def cip_fields(row: dict | None) -> list[str]:
-    """Field names that could serve as a programme key."""
-    if not row:
-        return []
-    return sorted(name for name in row if "cip" in name.lower())
+    return {
+        "endpoint": name,
+        "levels": attempts,
+        "paths_tried": [attempt["path"] for attempt in attempts],
+        "fields_from": fields_from,
+        "rows": rows_where_read,
+        "fields": fields,
+        "cip_fields": sorted(cip),
+    }
 
 
 def cip_endpoints() -> list[str]:
@@ -121,41 +144,35 @@ def cip_endpoints() -> list[str]:
 
     The finding is a negative one — no enrolment endpoint is by programme — and
     a negative claim made from a handful of guessed paths is worth much less
-    than one made from the published list.
+    than one made from the published list. Which means a *truncated* list is
+    worse than useless: it would keep reporting the same ten paths from a page
+    that no longer holds all of them, with nothing to say it had been cut.
     """
-    payload = fetch("api-endpoints/?limit=300")
+    payload = fetch(f"api-endpoints/?limit={CATALOGUE_LIMIT}")
     rows = payload.get("results") or []
     if not rows:
         raise Refused("the endpoint catalogue came back empty; the negative "
                       "finding below cannot be made without it")
+    total = payload.get("count")
+    if isinstance(total, int) and total > len(rows):
+        raise Refused(
+            f"the endpoint catalogue reports {total} entries and returned "
+            f"{len(rows)}. The finding rests on having seen all of them — "
+            f"raise CATALOGUE_LIMIT and re-run rather than publishing a claim "
+            f"made from a truncated page")
     return sorted({row.get("endpoint_url", "") for row in rows
                    if "cip" in (row.get("endpoint_url") or "").lower()})
 
 
 def measure(year: int) -> dict:
-    enrolment = []
-    for name, template in ENROLMENT:
-        row, count, path = first_row(template, year)
-        enrolment.append({
-            "endpoint": name,
-            "path": path,
-            "rows": count,
-            "fields": sorted(row) if row else [],
-            "cip_fields": cip_fields(row),
-        })
+    enrolment = [read_endpoint(name, template, year)
+                 for name, template in ENROLMENT]
 
-    row, count, path = first_row(COMPLETIONS[1], year)
-    if not row:
+    completions = read_endpoint(COMPLETIONS[0], COMPLETIONS[1], year)
+    if not completions["fields_from"]:
         raise Refused(f"{COMPLETIONS[0]} returned no rows for {year}; the "
                       f"working side of the comparison must be measured too, "
                       f"or the finding is half a measurement")
-    completions = {
-        "endpoint": COMPLETIONS[0],
-        "path": path,
-        "rows": count,
-        "fields": sorted(row),
-        "cip_fields": cip_fields(row),
-    }
 
     # The finding, computed rather than asserted: if any enrolment endpoint ever
     # grows a CIP field, this flips on its own and the issue reopens.
@@ -182,14 +199,14 @@ def measure(year: int) -> dict:
 def report(measured: dict) -> None:
     print(f"  IPEDS {measured['year']} — can enrolment be compared with "
           f"completion?\n")
-    for source in measured["enrolment"]:
-        rows = f"{source['rows']:,}" if source["rows"] else "no rows"
+    for source in measured["enrolment"] + [measured["completions"]]:
+        counts = ", ".join(
+            f"{attempt['level']}:{attempt['rows']:,}" if attempt["level"] is not None
+            else f"{attempt['rows']:,}"
+            for attempt in source["levels"])
         key = ", ".join(source["cip_fields"]) or "none"
-        print(f"  {source['endpoint']:<34}{rows:>12}  CIP field: {key}")
-    done = measured["completions"]
-    print(f"  {done['endpoint']:<34}{done['rows']:>12,}  CIP field: "
-          f"{', '.join(done['cip_fields'])}")
-    print(f"\n  paths carrying `cip` anywhere in the API:")
+        print(f"  {source['endpoint']:<34}{counts:<42}CIP field: {key}")
+    print("\n  paths carrying `cip` anywhere in the API:")
     for path in measured["cip_bearing_endpoints"]:
         print(f"    {path}")
     print(f"\n  {measured['finding']}")

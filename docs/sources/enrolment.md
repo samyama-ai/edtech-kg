@@ -18,19 +18,29 @@ Every figure below is printed by `python -m etl.probe_enrolment` and committed a
 
 ## What each side carries
 
-| endpoint | rows (2022) | programme key |
-|---|---:|---|
-| `fall-enrollment` (race/sex) | 523,520 | none |
-| `fall-enrollment` (age/sex) | 252,504 | none |
-| `fall-enrollment` (residence) | 142,718 | none |
-| `enrollment-full-time-equivalent` | 5,959 | none |
-| `admissions-enrollment` | 8,686 | none |
-| `enrollment-headcount` | no rows for 2022 | none |
+| endpoint | rows (2022), by level of study | programme key |
+|---|---|---|
+| `fall-enrollment` (race/sex) | 99: 523,520 · 1: 3,001,856 · 2: 190,144 · 3: 0 | none |
+| `fall-enrollment` (age/sex) | 99: 252,504 · 1: 241,785 · 2: 93,861 · 3: 0 | none |
+| `fall-enrollment` (residence) | 142,718 (takes no level) | none |
+| `enrollment-full-time-equivalent` | 99: 0 · 1: 5,959 · 2: 5,959 · 3: 5,959 | none |
+| `admissions-enrollment` | 8,686 (takes no level) | none |
+| `enrollment-headcount` | 0 at every level | none |
 | **`completions-cip-6`** | **9,026,310** | **`cipcode_6digit`** |
 
-The volume was never the problem. `fall-enrollment` returns half a million rows
-for one year — it is a rich dataset, cut by class level, degree-seeking status,
-full- or part-time, race, sex and residence:
+Every figure in that table was requested. The probe asks each endpoint at every
+level rather than stopping at the first that answers, so no per-level number
+here is an inference from a neighbouring one.
+
+Two things in it are worth reading twice. **`enrollment-headcount` is genuinely
+empty for 2022** — all four levels, not one unlucky request. And **level 99 is
+not a superset**: `fall-enrollment` race/sex returns 523,520 rows at 99 and
+3,001,856 at level 1, so 99 is its own category rather than a roll-up of the
+others. Anyone summing these columns will get a number that means nothing.
+
+The volume was never the problem. `fall-enrollment` returns three million rows
+at one level of one year — it is a rich dataset, cut by class level,
+degree-seeking status, full- or part-time, race, sex and residence:
 
 ```
 class_level, degree_seeking, enrollment_fall, fips, ftpt,
@@ -101,12 +111,15 @@ python -m etl.probe_enrolment --record   # rewrite the record
 python -m etl.probe_enrolment --year 2020
 ```
 
-It downloads nothing and needs no key: one request per endpoint with `limit=1`,
-because the fields are the finding and a single row carries them.
+It downloads nothing and needs no key: one request per endpoint **per level**,
+each with `limit=1`, because the fields are the finding and a single row carries
+them. Twenty-nine requests in all — the extra ones buy the per-level counts,
+which is what stops the table making a claim it never measured.
 
-One behaviour worth knowing if you change it. `enrollment-full-time-equivalent`
-returns **zero rows for `level_of_study=99`** and 5,959 for levels 1, 2 and 3.
-Asked only at 99 — the level the other endpoints accept — it looks like an empty
-dataset, and the table above would have carried a false "no rows" against a
-populated source. The probe tries each level before reporting emptiness, which is
-why `enrollment-headcount` above can be trusted when it says no rows for 2022.
+One behaviour worth knowing if you change it.
+`enrollment-full-time-equivalent` returns **zero rows at `level_of_study=99`**
+and 5,959 at levels 1, 2 and 3. Asked only at 99 — the level the other endpoints
+accept — it looks like an empty dataset, and the table above would have carried
+a false "no rows" against a populated source. That is why the probe asks every
+level and records every count, and why `enrollment-headcount` can be trusted
+above when it says zero: it was asked four times, not once.
