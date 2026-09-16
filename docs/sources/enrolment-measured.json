@@ -1,0 +1,137 @@
+{
+  "note": "One measured run of `python -m etl.probe_enrolment --record`, committed so docs/sources/enrolment.md can be checked without re-reading the Urban catalogue and every enrolment endpoint.",
+  "measured_on": "2026-09-16",
+  "year": 2022,
+  "api": "https://educationdata.urban.org/api/v1",
+  "enrolment": [
+    {
+      "endpoint": "fall-enrollment (race/sex)",
+      "path": "college-university/ipeds/fall-enrollment/2022/99/race/sex/",
+      "rows": 523520,
+      "fields": [
+        "class_level",
+        "degree_seeking",
+        "enrollment_fall",
+        "fips",
+        "ftpt",
+        "level_of_study",
+        "race",
+        "sex",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": []
+    },
+    {
+      "endpoint": "fall-enrollment (age/sex)",
+      "path": "college-university/ipeds/fall-enrollment/2022/99/age/sex/",
+      "rows": 252504,
+      "fields": [
+        "age",
+        "degree_seeking",
+        "enrollment_fall",
+        "fips",
+        "ftpt",
+        "level_of_study",
+        "sex",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": []
+    },
+    {
+      "endpoint": "fall-enrollment (residence)",
+      "path": "college-university/ipeds/fall-enrollment/2022/residence/",
+      "rows": 142718,
+      "fields": [
+        "enrollment_fall",
+        "fips",
+        "state_of_residence",
+        "type_of_freshman",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": []
+    },
+    {
+      "endpoint": "enrollment-headcount",
+      "path": "college-university/ipeds/enrollment-headcount/2022/99/1/2/3/",
+      "rows": 0,
+      "fields": [],
+      "cip_fields": []
+    },
+    {
+      "endpoint": "enrollment-full-time-equivalent",
+      "path": "college-university/ipeds/enrollment-full-time-equivalent/2022/1/",
+      "rows": 5959,
+      "fields": [
+        "acttype",
+        "contact_hours",
+        "credit_hours",
+        "est_fte",
+        "fips",
+        "level_of_study",
+        "rep_fte",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": []
+    },
+    {
+      "endpoint": "admissions-enrollment",
+      "path": "college-university/ipeds/admissions-enrollment/2022/",
+      "rows": 8686,
+      "fields": [
+        "fips",
+        "number_admitted",
+        "number_applied",
+        "number_enrolled_ft",
+        "number_enrolled_pt",
+        "number_enrolled_total",
+        "sex",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": []
+    }
+  ],
+  "completions": {
+    "endpoint": "completions-cip-6",
+    "path": "college-university/ipeds/completions-cip-6/2022/",
+    "rows": 9026310,
+    "fields": [
+      "award_level",
+      "awards_6digit",
+      "cipcode_6digit",
+      "fips",
+      "majornum",
+      "race",
+      "sex",
+      "unitid",
+      "year"
+    ],
+    "cip_fields": [
+      "cipcode_6digit"
+    ]
+  },
+  "cip_bearing_endpoints": [
+    "/api/v1/college-university/ipeds/completions-cip-2/{year}/",
+    "/api/v1/college-university/ipeds/completions-cip-6/{year}/",
+    "/api/v1/college-university/ipeds/program-year-tuition-cip/{year}/",
+    "/api/v1/schools/crdc/discipline-instances/{year}/",
+    "/api/v1/schools/crdc/discipline/{year}/disability/lep/sex/",
+    "/api/v1/schools/crdc/discipline/{year}/disability/race/sex/",
+    "/api/v1/schools/crdc/discipline/{year}/disability/sex/",
+    "/api/v1/schools/crdc/sat-act-participation/{year}/disability/sex/",
+    "/api/v1/schools/crdc/sat-act-participation/{year}/lep/sex/",
+    "/api/v1/schools/crdc/sat-act-participation/{year}/race/sex/"
+  ],
+  "enrolment_is_by_programme": false,
+  "finding": "no IPEDS enrolment endpoint carries a CIP field, so enrolment cannot be compared with completions at programme grain",
+  "code": {
+    "commit": "b40a1ebbd9e5f5ddafd60d5adfb6164ff56ed8cc",
+    "dirty": true,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}

@@ -30,6 +30,7 @@ question, or a source that answers a different question than the one asked.
 | source / standard | publisher | what it contributes | licence position | status | issue |
 |---|---|---|---|---|---|
 | IPEDS — completions, directory | NCES | institutions and awards | US-government public domain | **cleared** | — |
+| [IPEDS — enrolment](enrolment.md) | NCES | **the half of #8's question 4 that does not exist** — students counted by institution, class level, race, sex and residence, never by programme | US-government public domain, same footing as completions | examined | edtech-kg#204 |
 | CCD — schools, districts | NCES | the school and district side | US-government public domain | **cleared** | — |
 | [CIP-SOC crosswalk](cip-soc-crosswalk.md) | NCES + BLS | **the join the graph rests on** — programme to occupation | US-government public domain | **cleared** | edtech-kg#70 |
 | [O\*NET crosswalk workbooks](licences.md) | US Dept of Labor | occupation detail behind the crosswalk | CC BY 4.0 by the crosswalks page's own notice, checked **2026-08-31** — *not* the Database licence, which excludes that page | **cleared** | edtech-kg#14 |
