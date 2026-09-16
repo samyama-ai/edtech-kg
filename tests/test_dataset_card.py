@@ -57,20 +57,23 @@ def test_every_rounded_figure_on_the_card_comes_from_a_record():
     the records support must be the ones printed."""
     snap = record("snapshot")
     spine = record("national-spine")
+    crosswalk = record("cipsoc-load")
     size = f"{round(snap['snapshot']['bytes'] / 1024)} KB"
     imported = f"{snap['import']['seconds']}s"
     loaded = f"{spine['issued']['seconds']}s"
+    joined = f"{crosswalk['issued']['seconds']}s"
     text = card()
 
     for figure, why in ((size, "the snapshot's size"),
                         (imported, "its import time"),
-                        (loaded, "the spine load time")):
+                        (loaded, "the spine load time"),
+                        (joined, "the crosswalk load time")):
         assert figure in rounded(text), (
             f"the card should carry {figure!r} for {why}; it carries "
             f"{sorted(rounded(text))}")
 
     # The reverse: nothing rounded on the page that no record supports.
-    supported = {size, imported, loaded}
+    supported = {size, imported, loaded, joined}
     assert rounded(text) <= supported, (
         f"these rounded figures are on the card and in no record: "
         f"{sorted(rounded(text) - supported)}")
@@ -79,7 +82,7 @@ def test_every_rounded_figure_on_the_card_comes_from_a_record():
 def test_the_records_the_card_rests_on_all_exist():
     """A card built from records that have gone is a card of typed figures."""
     for name in ("education", "licences", "registry-licence", "federal-direct",
-                 "state-access", "ceds", "national-spine"):
+                 "state-access", "ceds", "national-spine", "cipsoc-load"):
         assert (SOURCES / f"{name}-measured.json").exists(), name
 
 
@@ -117,6 +120,12 @@ def test_no_grouped_figure_on_the_card_is_unaccounted_for():
     # test exists to prevent, written into the test that prevents it.
     spine = record("national-spine")
     known |= set(spine["in_graph"].values())
+    crosswalk = record("cipsoc-load")
+    known |= set(crosswalk["in_graph"].values())
+    known |= {crosswalk["issued"][k] for k in
+              ("mappings_read", "occupations_in", "edges_issued",
+               "statements_issued", "mappings_without_a_programme",
+               "programmes_in_the_graph", "programmes_with_an_occupation")}
     known |= {spine["issued"][k] for k in
               ("statements_issued", "nodes_and_edges_created",
                "already_present", "completions_in",

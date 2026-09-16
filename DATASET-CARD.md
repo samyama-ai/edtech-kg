@@ -85,7 +85,7 @@ inferred from the input rows** — the loader reports both and the two agree.
 | Written by | `etl/load_education.py`, from `etl/download_education.py`'s cached slice |
 | Rate curve, the slice, and the schema defect the load found | [`docs/national-spine.md`](docs/national-spine.md) |
 | Rows deliberately dropped | 125,692 recording zero awards, 13,950 institution-TOTAL rows (CIP 99 is a sum of the others, not a programme), 43 collapsing onto one key |
-| Not loaded, though #7's scope names them | `Occupation`, the CIP–SOC crosswalk, earnings |
+| Not loaded, though #7's scope names them | earnings, and any outcome after the award |
 
 | graph artefact | |
 |---|---|
@@ -95,16 +95,31 @@ inferred from the input rows** — the loader reports both and the two agree.
 | Size varies | exporting the same graph twice gives different bytes — so a download is checked against the published file's hash, not by re-exporting |
 | Verified by | `python -m etl.snapshot verify`, per label and per edge type, before a demo opens |
 
+**Programmes to occupations.** The NCES/BLS CIP-SOC crosswalk, edition
+CIP2020-SOC2018 — 867 occupations and
+2,219 `PREPARES_FOR` edges, joining
+634 of the 663
+programmes above to the work they lead to.
+
+| | |
+|---|---|
+| Written by | `etl/load_cipsoc.py`, reading through `etl/probe_cipsoc.py` |
+| Load time | **28.3s**, 6,172 statements |
+| Re-run over the loaded graph | **0 created** — idempotent, measured rather than asserted |
+| Mappings read | 5,903, of which 3,684 name a CIP code this graph does not hold |
+| Why that gap | **scope, not loss** — the crosswalk covers every CIP code; this graph holds only what Virginia awarded in 2022 |
+| The edition is on the EDGE | the crosswalk is a published claim with a revision history, so two editions can disagree without one silently replacing the other |
+
 Everything else above is measured at the source and **not loaded**.
 
 **Node and edge counts for the other sources are absent, not blank.** No loader
-has run for them. **Sixteen labels are declared and seven are written**, so
-nine hold nothing:
+has run for them. **Sixteen labels are declared and eight are written**, so
+eight hold nothing:
 
 - `schema/edtech_kg.cypher` declares ten. `etl/load_pwcs.py` writes `Course`,
   `Subject`, `Pathway` and `Requirement`; `etl/load_education.py` writes
-  `Institution`, `Programme` and `Completion`; `Occupation`, `School` and
-  `District` wait on a loader.
+  `Institution`, `Programme` and `Completion`; `etl/load_cipsoc.py` writes
+  `Occupation`; `School` and `District` wait on a loader.
 - `schema/edtech_kg_tier2.cypher` declares six, all empty: `Credential`,
   `AwardingBody`, `Level`, `Competency`, `EarningsRecord` and `Place`. The
   four Registry labels among them are blocked on the licence above, not on a
