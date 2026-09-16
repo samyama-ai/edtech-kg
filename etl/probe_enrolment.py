@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -89,6 +90,13 @@ class Refused(Exception):
     """The source answered in a shape the finding cannot be stated from."""
 
 
+#: `fetch` raises RuntimeError("404 on <url>") for anything it will not retry.
+#: Matching on that text is a coupling to a sibling module's message, so it is
+#: narrow and tested: a 404 means "this endpoint does not publish this level or
+#: year", which is an answer, while every other error still fails loudly.
+NOT_PUBLISHED = re.compile(r"^404 on ")
+
+
 def read_endpoint(name: str, template: str, year: int) -> dict:
     """Every level of one endpoint, with the count each level returned.
 
@@ -110,7 +118,19 @@ def read_endpoint(name: str, template: str, year: int) -> dict:
 
     for level in levels:
         path = template.format(year=year, level=level)
-        payload = fetch(f"{path}?limit=1")
+        try:
+            payload = fetch(f"{path}?limit=1")
+        except RuntimeError as error:
+            if not NOT_PUBLISHED.match(str(error)):
+                raise
+            # A level this endpoint does not publish. Recorded and stepped over:
+            # aborting here would throw away seventeen successful requests
+            # because the eighteenth asked for a year an endpoint has no data
+            # for, which is the opposite of "every level is asked and answered
+            # for".
+            attempts.append({"level": level, "path": path,
+                             "rows": None, "http": 404})
+            continue
         count = payload.get("count")
         if count is None:
             raise Refused(f"{path}: no `count` in the response — the API shape "
@@ -133,9 +153,17 @@ def read_endpoint(name: str, template: str, year: int) -> dict:
         "levels": attempts,
         "paths_tried": [attempt["path"] for attempt in attempts],
         "fields_from": fields_from,
-        "rows": rows_where_read,
+        # Named for what it is. Next to a `levels` array a bare `rows` reads as
+        # a total, and it is not one: it is the count at the level the fields
+        # were read from.
+        "rows_at_fields_from": rows_where_read,
         "fields": fields,
         "cip_fields": sorted(cip),
+        # The distinction the finding depends on. An endpoint that answered with
+        # rows and carried no CIP field is evidence; one that returned nothing
+        # at any level is an absence of data, and saying "no CIP field" of it
+        # would be claiming something was observed when nothing was.
+        "fields_seen": fields_from is not None,
     }
 
 
@@ -154,7 +182,12 @@ def cip_endpoints() -> list[str]:
         raise Refused("the endpoint catalogue came back empty; the negative "
                       "finding below cannot be made without it")
     total = payload.get("count")
-    if isinstance(total, int) and total > len(rows):
+    if not isinstance(total, int):
+        raise Refused(
+            f"the endpoint catalogue reported no usable `count` ({total!r}), "
+            f"so a truncated page cannot be told from a complete one — and the "
+            f"finding rests on having seen the whole list")
+    if total > len(rows):
         raise Refused(
             f"the endpoint catalogue reports {total} entries and returned "
             f"{len(rows)}. The finding rests on having seen all of them — "
@@ -176,7 +209,8 @@ def measure(year: int) -> dict:
 
     # The finding, computed rather than asserted: if any enrolment endpoint ever
     # grows a CIP field, this flips on its own and the issue reopens.
-    comparable = any(source["cip_fields"] for source in enrolment)
+    observed = [source for source in enrolment if source["fields_seen"]]
+    comparable = any(source["cip_fields"] for source in observed)
 
     return {
         "note": RECORD_NOTE,
@@ -186,6 +220,13 @@ def measure(year: int) -> dict:
         "enrolment": enrolment,
         "completions": completions,
         "cip_bearing_endpoints": cip_endpoints(),
+        # What the finding rests on, and what it does not. An endpoint with no
+        # rows contributes nothing either way.
+        "endpoints_observed": [source["endpoint"] for source in observed],
+        "endpoints_without_rows": [source["endpoint"] for source in enrolment
+                                   if not source["fields_seen"]],
+        "requests": sum(len(source["paths_tried"]) for source in enrolment)
+                    + len(completions["paths_tried"]) + 1,
         "enrolment_is_by_programme": comparable,
         "finding": (
             "enrolment carries a CIP field — #204 is answerable and this probe "
@@ -201,10 +242,11 @@ def report(measured: dict) -> None:
           f"completion?\n")
     for source in measured["enrolment"] + [measured["completions"]]:
         counts = ", ".join(
-            f"{attempt['level']}:{attempt['rows']:,}" if attempt["level"] is not None
-            else f"{attempt['rows']:,}"
+            (f"{attempt['level']}:" if attempt["level"] is not None else "")
+            + ("404" if attempt["rows"] is None else f"{attempt['rows']:,}")
             for attempt in source["levels"])
-        key = ", ".join(source["cip_fields"]) or "none"
+        key = (", ".join(source["cip_fields"]) or "none") if source["fields_seen"] \
+            else "not measured — no rows"
         print(f"  {source['endpoint']:<34}{counts:<42}CIP field: {key}")
     print("\n  paths carrying `cip` anywhere in the API:")
     for path in measured["cip_bearing_endpoints"]:

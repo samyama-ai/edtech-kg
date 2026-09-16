@@ -59,7 +59,9 @@ def test_it_walks_past_a_level_that_answers_empty(monkeypatch):
         "fte", "college-university/ipeds/enrollment-full-time-equivalent/"
                "{year}/{level}/", 2022)
 
-    assert measured["rows"] == 5959, "the populated level was not reached"
+    assert measured["rows_at_fields_from"] == 5959, (
+        "the populated level was not reached")
+    assert measured["fields_seen"] is True
     assert measured["fields_from"].endswith("/2022/1/")
     assert [attempt["rows"] for attempt in measured["levels"]][:2] == [0, 5959]
     assert len(asked) == len(probe.LEVELS), (
@@ -81,7 +83,9 @@ def test_an_empty_endpoint_records_no_synthesised_path(monkeypatch):
         "college-university/ipeds/enrollment-headcount/{year}/{level}/", 2022)
 
     assert measured["fields_from"] is None
-    assert measured["rows"] == 0
+    assert measured["rows_at_fields_from"] == 0
+    assert measured["fields_seen"] is False, (
+        "an endpoint that returned nothing must not read as evidence")
     assert measured["paths_tried"] == [
         f"college-university/ipeds/enrollment-headcount/2022/{level}/"
         for level in probe.LEVELS]
@@ -157,3 +161,86 @@ def test_the_committed_record_says_what_the_page_says():
         for attempt in source["levels"]:
             assert "/1/2/3/" not in attempt["path"], (
                 "a synthesised path is back in the record")
+
+
+def test_a_level_the_endpoint_does_not_publish_is_recorded_not_fatal(monkeypatch):
+    """A 404 on one level means "this endpoint does not publish that level or
+    year". Aborting on it would discard every successful request before it.
+    """
+    def fake_fetch(path: str) -> dict:
+        if "/2022/99/" in path:
+            raise RuntimeError(f"404 on https://example/{path}")
+        return page(7, ENROLMENT_ROW)
+
+    monkeypatch.setattr(probe, "fetch", fake_fetch)
+
+    measured = probe.read_endpoint(
+        "fte", "college-university/ipeds/x/{year}/{level}/", 2022)
+
+    assert measured["levels"][0] == {
+        "level": 99, "path": "college-university/ipeds/x/2022/99/",
+        "rows": None, "http": 404}
+    assert measured["rows_at_fields_from"] == 7, "the later levels were skipped"
+    assert measured["fields_seen"] is True
+
+
+def test_any_other_http_error_still_fails_loudly(monkeypatch):
+    """Only a 404 is an answer. A 500 is the API breaking, and a probe that
+    treats it as data publishes a finding it cannot stand behind.
+    """
+    def fake_fetch(path: str) -> dict:
+        raise RuntimeError(f"500 on https://example/{path}")
+
+    monkeypatch.setattr(probe, "fetch", fake_fetch)
+
+    with pytest.raises(RuntimeError, match="500"):
+        probe.read_endpoint("x", "a/{year}/{level}/", 2022)
+
+
+def test_an_endpoint_with_no_rows_does_not_vote_on_the_finding(monkeypatch):
+    """`enrollment-headcount` returned nothing at any level. That is an absence
+    of data, not an observation that it carries no CIP field, and the finding
+    must not count it as evidence either way.
+    """
+    stub(monkeypatch, {"fall-enrollment": page(10, ENROLMENT_ROW),
+                       "completions-cip-6": page(9, COMPLETIONS_ROW),
+                       "api-endpoints": {"count": 1, "results": [
+                           {"endpoint_url": "/api/v1/x/completions-cip-6/"}]}})
+
+    measured = probe.measure(2022)
+
+    assert "enrollment-headcount" in measured["endpoints_without_rows"]
+    assert "enrollment-headcount" not in measured["endpoints_observed"]
+    assert measured["endpoints_observed"], (
+        "the finding must rest on at least one endpoint that answered")
+
+
+def test_a_catalogue_without_a_usable_count_is_refused(monkeypatch):
+    """A catalogue that stops reporting `count` cannot be told apart from a
+    truncated one, and the negative finding rests on seeing the whole list.
+    """
+    stub(monkeypatch, {"api-endpoints": {
+        "results": [{"endpoint_url": "/api/v1/x/completions-cip-6/"}]}})
+
+    with pytest.raises(probe.Refused, match="no usable `count`"):
+        probe.cip_endpoints()
+
+
+def test_the_page_states_the_request_count_the_probe_makes():
+    """The one number on the page that was typed rather than measured — and it
+    was wrong, reading twenty-nine against twenty actual requests.
+    """
+    record = json.loads(RECORD.read_text(encoding="utf-8"))
+    doc = (ROOT / "docs" / "sources" / "enrolment.md").read_text(encoding="utf-8")
+
+    counted = (sum(len(s["paths_tried"]) for s in record["enrolment"])
+               + len(record["completions"]["paths_tried"]) + 1)
+    assert record["requests"] == counted, (
+        f"the record says {record['requests']} requests; its own paths_tried "
+        f"arrays hold {counted}")
+
+    words = {18: "eighteen", 19: "nineteen", 20: "twenty", 21: "twenty-one"}
+    stated = words.get(counted, str(counted))
+    assert f"{stated} requests in all" in doc.lower(), (
+        f"the page does not say `{stated} requests in all`; the probe makes "
+        f"{counted}")

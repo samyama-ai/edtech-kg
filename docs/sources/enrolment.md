@@ -25,18 +25,26 @@ Every figure below is printed by `python -m etl.probe_enrolment` and committed a
 | `fall-enrollment` (residence) | 142,718 (takes no level) | none |
 | `enrollment-full-time-equivalent` | 99: 0 · 1: 5,959 · 2: 5,959 · 3: 5,959 | none |
 | `admissions-enrollment` | 8,686 (takes no level) | none |
-| `enrollment-headcount` | 0 at every level | none |
+| `enrollment-headcount` | 0 at every level | *not measured* [^1] |
 | **`completions-cip-6`** | **9,026,310** | **`cipcode_6digit`** |
 
 Every figure in that table was requested. The probe asks each endpoint at every
 level rather than stopping at the first that answers, so no per-level number
 here is an inference from a neighbouring one.
 
-Two things in it are worth reading twice. **`enrollment-headcount` is genuinely
-empty for 2022** — all four levels, not one unlucky request. And **level 99 is
-not a superset**: `fall-enrollment` race/sex returns 523,520 rows at 99 and
-3,001,856 at level 1, so 99 is its own category rather than a roll-up of the
-others. Anyone summing these columns will get a number that means nothing.
+[^1]: `enrollment-headcount` returned no rows at any of the four levels, so no
+    field list was ever seen for it. That is an **absence of data, not an
+    observation that it carries no CIP field** — the two are different claims,
+    and only the second is evidence. The finding below is computed from the five
+    endpoints that did return rows; this one contributes nothing either way. The
+    record marks it `fields_seen: false`.
+
+Two things in the table are worth reading twice. **`enrollment-headcount` is
+genuinely empty for 2022** — all four levels, not one unlucky request, though as
+above that is not the same as having been measured. And **level 99 is not a
+superset**: `fall-enrollment` race/sex returns 523,520 rows at 99 and 3,001,856
+at level 1, so 99 is its own category rather than a roll-up of the others.
+Anyone summing these columns will get a number that means nothing.
 
 The volume was never the problem. `fall-enrollment` returns three million rows
 at one level of one year — it is a rich dataset, cut by class level,
@@ -77,6 +85,14 @@ dataset at different CIP widths, and the third is **tuition** by programme.
 So the API knows what a programme is. It attaches programmes to awards and to
 prices. It never attaches them to enrolment.
 
+**The one way this could be a false negative.** Fields are read from the first
+row each level returns, at `limit=1`. Urban's schemas are fixed and every row of
+a dataset carries the same keys, so this holds today — but if the wrapper ever
+omitted null-valued fields per row, a sparsely populated CIP column could be
+missed and this page would keep saying "none" when the answer had changed. The
+catalogue sweep above is the independent check on that, and it is the stronger
+of the two legs.
+
 ## What this means for a reader of #8
 
 #8 shipped four of five questions. This documents why the fifth did not, in a
@@ -113,8 +129,10 @@ python -m etl.probe_enrolment --year 2020
 
 It downloads nothing and needs no key: one request per endpoint **per level**,
 each with `limit=1`, because the fields are the finding and a single row carries
-them. Twenty-nine requests in all — the extra ones buy the per-level counts,
-which is what stops the table making a claim it never measured.
+them. **Twenty requests in all** — eighteen across the enrolment endpoints, one
+for completions, one for the catalogue. That figure is recorded as `requests`
+and a test compares this sentence against it; the first version of this page
+said twenty-nine, which was typed rather than counted.
 
 One behaviour worth knowing if you change it.
 `enrollment-full-time-equivalent` returns **zero rows at `level_of_study=99`**
