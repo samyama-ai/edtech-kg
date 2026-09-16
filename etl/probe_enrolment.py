@@ -234,10 +234,10 @@ def measure(year: int) -> dict:
             + (f"{len(unpublished)} of {len(enrolment)} answered 404 at every "
                f"level ({', '.join(unpublished)}) — if the wrapper has renamed "
                f"its IPEDS paths, ENROLMENT needs updating before this probe "
-               f"can say anything"
+               "can say anything"
                if unpublished else
-               f"every endpoint answered, and every one was empty — check the "
-               f"year before concluding anything about the source"))
+               "every endpoint answered, and every one was empty — check the "
+               "year before concluding anything about the source"))
 
     comparable = any(source["cip_fields"] for source in observed)
 

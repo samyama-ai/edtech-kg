@@ -268,8 +268,25 @@ def test_a_run_where_nothing_answered_refuses_rather_than_concluding(monkeypatch
 
     monkeypatch.setattr(probe, "fetch", fake_fetch)
 
-    with pytest.raises(probe.Refused, match="cannot be made from anything"):
+    with pytest.raises(probe.Refused, match="answered 404 at every level"):
         probe.measure(2022)
+
+
+def test_the_two_kinds_of_nothing_are_recorded_apart(monkeypatch):
+    """A 404 at every level is `not_published`; answering with zero rows is
+    `empty`. Collapsing them passed every other test in this file, so it is
+    pinned here directly.
+    """
+    def only_404(path: str) -> dict:
+        raise RuntimeError(f"404 on https://example/{path}")
+
+    monkeypatch.setattr(probe, "fetch", only_404)
+    gone = probe.read_endpoint("x", "a/{year}/{level}/", 2022)
+    assert gone["no_rows_because"] == "not_published"
+
+    stub(monkeypatch, {})  # every level answers, with nothing in it
+    quiet = probe.read_endpoint("x", "a/{year}/{level}/", 2022)
+    assert quiet["no_rows_because"] == "empty"
 
 
 def test_the_refusal_says_which_kind_of_nothing_it_found(monkeypatch):
