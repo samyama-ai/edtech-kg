@@ -217,8 +217,10 @@ def test_an_endpoint_with_no_rows_is_partitioned_out_of_the_evidence(monkeypatch
 
     assert "enrollment-headcount" in measured["endpoints_without_rows"]
     assert "enrollment-headcount" not in measured["endpoints_observed"]
-    assert measured["endpoints_observed"], (
-        "the finding must rest on at least one endpoint that answered")
+    # No assertion here that `endpoints_observed` is non-empty: measure() now
+    # refuses that case outright, so it cannot be reached and an assertion on it
+    # could never fail. The real coverage is
+    # test_a_run_where_nothing_answered_refuses_rather_than_concluding.
 
 
 def test_a_catalogue_without_a_usable_count_is_refused(monkeypatch):
@@ -289,6 +291,23 @@ def test_the_two_kinds_of_nothing_are_recorded_apart(monkeypatch):
     assert quiet["no_rows_because"] == "empty"
 
 
+def test_an_endpoint_that_404s_at_one_level_and_is_empty_elsewhere_is_mixed(monkeypatch):
+    """The third value, reachable and previously untested: a 404 at one level
+    and zero rows at the others. `enrollment-full-time-equivalent` is one
+    schema change away from exactly this shape.
+    """
+    def fake_fetch(path: str) -> dict:
+        if "/2022/99/" in path:
+            raise RuntimeError(f"404 on https://example/{path}")
+        return {"count": 0, "results": []}
+
+    monkeypatch.setattr(probe, "fetch", fake_fetch)
+    measured = probe.read_endpoint("x", "a/{year}/{level}/", 2022)
+
+    assert measured["fields_seen"] is False
+    assert measured["no_rows_because"] == "mixed"
+
+
 def test_the_refusal_says_which_kind_of_nothing_it_found(monkeypatch):
     """A renamed path and a year with no data are different failures. The first
     means the probe asks the wrong questions; the second that the source has
@@ -329,18 +348,51 @@ def test_the_request_count_matches_the_code_not_only_the_record():
         f"describe {from_code}. Re-run `python -m etl.probe_enrolment --record`")
 
 
-def test_every_per_level_figure_on_the_page_is_in_the_record():
-    """The table quotes eleven counts. On a page that says nothing is typed, and
-    in a round that exists because one typed number was wrong.
+def test_every_per_level_figure_on_the_page_matches_the_record():
+    """Each table row against its own endpoint in the record, both directions.
+
+    A one-way subset check would pass a figure mistyped as 0, and a regex for
+    comma-grouped numbers skips every zero on the page — including the four the
+    footnote's whole argument rests on.
     """
     doc = (ROOT / "docs" / "sources" / "enrolment.md").read_text(encoding="utf-8")
     record = json.loads(RECORD.read_text(encoding="utf-8"))
+    by_name = {source["endpoint"]: source
+               for source in record["enrolment"] + [record["completions"]]}
 
-    measured = {format(a["rows"], ",") for s in record["enrolment"] + [record["completions"]]
-                for a in s["levels"] if a["rows"]}
     table = doc[doc.index("| endpoint |"):doc.index("Every figure in that table")]
-    quoted = set(re.findall(r"\b\d{1,3}(?:,\d{3})+\b", table))
-    assert quoted, "the table quotes no figures — has it been reshaped?"
-    assert quoted <= measured, (
-        f"the table states {sorted(quoted - measured)}, which the record does "
-        f"not hold")
+    rows = [line for line in table.splitlines()
+            if line.startswith("|") and "---" not in line][1:]
+    assert len(rows) == len(by_name), (
+        f"the table has {len(rows)} rows for {len(by_name)} measured endpoints")
+
+    checked = 0
+    for line in rows:
+        name, figures = [cell.strip() for cell in line.strip("|").split("|")][:2]
+        key = next((k for k in by_name if k.split(" (")[0] in name
+                    and (k.split("(")[1][:-1] in name if "(" in k else True)), None)
+        assert key, f"the table row `{name}` names no endpoint in the record"
+        levels = by_name[key]["levels"]
+
+        pairs = re.findall(r"(\d+):\s*([\d,]+)", figures)
+        if pairs:
+            stated = {int(lvl): int(n.replace(",", "")) for lvl, n in pairs}
+            actual = {a["level"]: a["rows"] for a in levels}
+            assert stated == actual, (
+                f"`{name}`: the table says {stated}, the record holds {actual}")
+        elif "every level" in figures:
+            # The stated number is read, not assumed. Asserting only that the
+            # record holds zeros would pass a page reading "12 at every level".
+            stated = int(re.search(r"([\d,]+) at every level",
+                                   figures).group(1).replace(",", ""))
+            assert [a["rows"] for a in levels] == [stated] * len(levels), (
+                f"`{name}`: the table says {stated} at every level, the record "
+                f"holds {[a['rows'] for a in levels]}")
+        else:
+            only = int(re.search(r"([\d,]+)", figures).group(1).replace(",", ""))
+            assert [a["rows"] for a in levels] == [only], (
+                f"`{name}`: the table says {only:,}, the record holds "
+                f"{[a['rows'] for a in levels]}")
+        checked += 1
+
+    assert checked == len(by_name), "not every endpoint row was checked"

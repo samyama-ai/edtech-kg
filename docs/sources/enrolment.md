@@ -41,10 +41,14 @@ here is an inference from a neighbouring one.
     `no_rows_because: "empty"`.
 
     The record distinguishes that from `not_published`, which is what a 404 at
-    every level would mean — a renamed path rather than a quiet year. If *every*
-    enrolment endpoint came back with nothing, the probe refuses outright rather
-    than reporting a negative finding it read nothing to support, and the
-    refusal says which of the two happened.
+    every level would mean — a renamed path rather than a quiet year — and from
+    `mixed`, a 404 at some levels and zero rows at others. That third case is
+    one schema change away: `enrollment-full-time-equivalent` already answers
+    zero at level 99 and holds data at 1–3, so a wrapper that started rejecting
+    99 outright would land there. If *every* enrolment endpoint came back with
+    nothing, the probe refuses outright rather than reporting a negative finding
+    it read nothing to support, and the refusal says which of the three
+    happened.
 
 Two things in the table are worth reading twice. **`enrollment-headcount` is
 genuinely empty for 2022** — all four levels, not one unlucky request, though as
