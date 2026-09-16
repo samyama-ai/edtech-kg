@@ -32,12 +32,19 @@ Every figure in that table was requested. The probe asks each endpoint at every
 level rather than stopping at the first that answers, so no per-level number
 here is an inference from a neighbouring one.
 
-[^1]: `enrollment-headcount` returned no rows at any of the four levels, so no
-    field list was ever seen for it. That is an **absence of data, not an
-    observation that it carries no CIP field** — the two are different claims,
-    and only the second is evidence. The finding below is computed from the five
-    endpoints that did return rows; this one contributes nothing either way. The
-    record marks it `fields_seen: false`.
+[^1]: `enrollment-headcount` answered at all four levels and returned no rows
+    at any of them, so no field list was ever seen for it. That is an **absence
+    of data, not an observation that it carries no CIP field** — the two are
+    different claims, and only the second is evidence. The finding below is
+    computed from the five endpoints that did return rows; this one contributes
+    nothing either way. The record marks it `fields_seen: false` and
+    `no_rows_because: "empty"`.
+
+    The record distinguishes that from `not_published`, which is what a 404 at
+    every level would mean — a renamed path rather than a quiet year. If *every*
+    enrolment endpoint came back with nothing, the probe refuses outright rather
+    than reporting a negative finding it read nothing to support, and the
+    refusal says which of the two happened.
 
 Two things in the table are worth reading twice. **`enrollment-headcount` is
 genuinely empty for 2022** — all four levels, not one unlucky request, though as
@@ -132,7 +139,9 @@ each with `limit=1`, because the fields are the finding and a single row carries
 them. **Twenty requests in all** — eighteen across the enrolment endpoints, one
 for completions, one for the catalogue. That figure is recorded as `requests`
 and a test compares this sentence against it; the first version of this page
-said twenty-nine, which was typed rather than counted.
+said twenty-nine, which was typed rather than counted. Note that these are
+requests the probe *makes*, not HTTP round trips: `fetch` retries up to four
+times on a 429 or a 5xx, so a degraded run costs more calls than twenty.
 
 One behaviour worth knowing if you change it.
 `enrollment-full-time-equivalent` returns **zero rows at `level_of_study=99`**

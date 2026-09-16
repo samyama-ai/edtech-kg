@@ -132,9 +132,9 @@ def read_endpoint(name: str, template: str, year: int) -> dict:
                              "rows": None, "http": 404})
             continue
         count = payload.get("count")
-        if count is None:
-            raise Refused(f"{path}: no `count` in the response — the API shape "
-                          f"has changed and this probe cannot read it")
+        if not isinstance(count, int):
+            raise Refused(f"{path}: `count` is {count!r}, not an integer — the "
+                          f"API shape has changed and this probe cannot read it")
         results = payload.get("results") or []
         attempts.append({"level": level, "path": path, "rows": count})
         if count and results:
@@ -164,6 +164,14 @@ def read_endpoint(name: str, template: str, year: int) -> dict:
         # at any level is an absence of data, and saying "no CIP field" of it
         # would be claiming something was observed when nothing was.
         "fields_seen": fields_from is not None,
+        # And when nothing was seen, why. A renamed path and a year with no data
+        # are different failures: the first means the probe is asking the wrong
+        # questions, the second that this endpoint has nothing to say about this
+        # year. Reporting both as "returned no rows" describes only the second.
+        "no_rows_because": None if fields_from is not None else (
+            "not_published" if all(a.get("http") == 404 for a in attempts)
+            else "empty" if all(a.get("http") != 404 for a in attempts)
+            else "mixed"),
     }
 
 
@@ -210,6 +218,27 @@ def measure(year: int) -> dict:
     # The finding, computed rather than asserted: if any enrolment endpoint ever
     # grows a CIP field, this flips on its own and the issue reopens.
     observed = [source for source in enrolment if source["fields_seen"]]
+    # The guard the completions side has had all along, on the side the finding
+    # is actually about. If the wrapper renames its IPEDS paths — the case
+    # `fetch` was built to fail loudly on — every enrolment request 404s,
+    # `observed` is empty, `any([])` is False, and without this the probe would
+    # publish "no enrolment endpoint carries a CIP field" having read none of
+    # them. Before 404s were stepped over that run aborted; stepping over them
+    # turned a loud failure into a confident answer made from nothing.
+    if not observed:
+        unpublished = [source["endpoint"] for source in enrolment
+                       if source["no_rows_because"] == "not_published"]
+        raise Refused(
+            f"no enrolment endpoint returned rows for {year}, so the negative "
+            f"finding cannot be made from anything. "
+            + (f"{len(unpublished)} of {len(enrolment)} answered 404 at every "
+               f"level ({', '.join(unpublished)}) — if the wrapper has renamed "
+               f"its IPEDS paths, ENROLMENT needs updating before this probe "
+               f"can say anything"
+               if unpublished else
+               f"every endpoint answered, and every one was empty — check the "
+               f"year before concluding anything about the source"))
+
     comparable = any(source["cip_fields"] for source in observed)
 
     return {
@@ -246,7 +275,10 @@ def report(measured: dict) -> None:
             + ("404" if attempt["rows"] is None else f"{attempt['rows']:,}")
             for attempt in source["levels"])
         key = (", ".join(source["cip_fields"]) or "none") if source["fields_seen"] \
-            else "not measured — no rows"
+            else {"not_published": "not measured — 404 at every level",
+                  "empty": "not measured — no rows",
+                  "mixed": "not measured — 404 or empty"}[
+                      source["no_rows_because"]]
         print(f"  {source['endpoint']:<34}{counts:<42}CIP field: {key}")
     print("\n  paths carrying `cip` anywhere in the API:")
     for path in measured["cip_bearing_endpoints"]:
