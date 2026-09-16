@@ -49,7 +49,8 @@
         "year"
       ],
       "cip_fields": [],
-      "fields_seen": true
+      "fields_seen": true,
+      "no_rows_because": null
     },
     {
       "endpoint": "fall-enrollment (age/sex)",
@@ -95,7 +96,8 @@
         "year"
       ],
       "cip_fields": [],
-      "fields_seen": true
+      "fields_seen": true,
+      "no_rows_because": null
     },
     {
       "endpoint": "fall-enrollment (residence)",
@@ -120,7 +122,8 @@
         "year"
       ],
       "cip_fields": [],
-      "fields_seen": true
+      "fields_seen": true,
+      "no_rows_because": null
     },
     {
       "endpoint": "enrollment-headcount",
@@ -156,7 +159,8 @@
       "rows_at_fields_from": 0,
       "fields": [],
       "cip_fields": [],
-      "fields_seen": false
+      "fields_seen": false,
+      "no_rows_because": "empty"
     },
     {
       "endpoint": "enrollment-full-time-equivalent",
@@ -202,7 +206,8 @@
         "year"
       ],
       "cip_fields": [],
-      "fields_seen": true
+      "fields_seen": true,
+      "no_rows_because": null
     },
     {
       "endpoint": "admissions-enrollment",
@@ -230,7 +235,8 @@
         "year"
       ],
       "cip_fields": [],
-      "fields_seen": true
+      "fields_seen": true,
+      "no_rows_because": null
     }
   ],
   "completions": {
@@ -261,7 +267,8 @@
     "cip_fields": [
       "cipcode_6digit"
     ],
-    "fields_seen": true
+    "fields_seen": true,
+    "no_rows_because": null
   },
   "cip_bearing_endpoints": [
     "/api/v1/college-university/ipeds/completions-cip-2/{year}/",
@@ -289,7 +296,7 @@
   "enrolment_is_by_programme": false,
   "finding": "no IPEDS enrolment endpoint carries a CIP field, so enrolment cannot be compared with completions at programme grain",
   "code": {
-    "commit": "4415239bf0a3f59e0d907ca0a4737362c38a3415",
+    "commit": "b758d2e001c50aa95720f439fcb913af2990330d",
     "dirty": false,
     "package": "0.1.0",
     "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
