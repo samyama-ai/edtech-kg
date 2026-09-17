@@ -1,0 +1,304 @@
+{
+  "note": "One measured run of `python -m etl.probe_enrolment --record`, committed so docs/sources/enrolment.md can be checked without re-reading the Urban catalogue and every enrolment endpoint at every level.",
+  "measured_on": "2026-09-16",
+  "year": 2022,
+  "api": "https://educationdata.urban.org/api/v1",
+  "enrolment": [
+    {
+      "endpoint": "fall-enrollment (race/sex)",
+      "levels": [
+        {
+          "level": 99,
+          "path": "college-university/ipeds/fall-enrollment/2022/99/race/sex/",
+          "rows": 523520
+        },
+        {
+          "level": 1,
+          "path": "college-university/ipeds/fall-enrollment/2022/1/race/sex/",
+          "rows": 3001856
+        },
+        {
+          "level": 2,
+          "path": "college-university/ipeds/fall-enrollment/2022/2/race/sex/",
+          "rows": 190144
+        },
+        {
+          "level": 3,
+          "path": "college-university/ipeds/fall-enrollment/2022/3/race/sex/",
+          "rows": 0
+        }
+      ],
+      "paths_tried": [
+        "college-university/ipeds/fall-enrollment/2022/99/race/sex/",
+        "college-university/ipeds/fall-enrollment/2022/1/race/sex/",
+        "college-university/ipeds/fall-enrollment/2022/2/race/sex/",
+        "college-university/ipeds/fall-enrollment/2022/3/race/sex/"
+      ],
+      "fields_from": "college-university/ipeds/fall-enrollment/2022/99/race/sex/",
+      "rows_at_fields_from": 523520,
+      "fields": [
+        "class_level",
+        "degree_seeking",
+        "enrollment_fall",
+        "fips",
+        "ftpt",
+        "level_of_study",
+        "race",
+        "sex",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": [],
+      "fields_seen": true,
+      "no_rows_because": null
+    },
+    {
+      "endpoint": "fall-enrollment (age/sex)",
+      "levels": [
+        {
+          "level": 99,
+          "path": "college-university/ipeds/fall-enrollment/2022/99/age/sex/",
+          "rows": 252504
+        },
+        {
+          "level": 1,
+          "path": "college-university/ipeds/fall-enrollment/2022/1/age/sex/",
+          "rows": 241785
+        },
+        {
+          "level": 2,
+          "path": "college-university/ipeds/fall-enrollment/2022/2/age/sex/",
+          "rows": 93861
+        },
+        {
+          "level": 3,
+          "path": "college-university/ipeds/fall-enrollment/2022/3/age/sex/",
+          "rows": 0
+        }
+      ],
+      "paths_tried": [
+        "college-university/ipeds/fall-enrollment/2022/99/age/sex/",
+        "college-university/ipeds/fall-enrollment/2022/1/age/sex/",
+        "college-university/ipeds/fall-enrollment/2022/2/age/sex/",
+        "college-university/ipeds/fall-enrollment/2022/3/age/sex/"
+      ],
+      "fields_from": "college-university/ipeds/fall-enrollment/2022/99/age/sex/",
+      "rows_at_fields_from": 252504,
+      "fields": [
+        "age",
+        "degree_seeking",
+        "enrollment_fall",
+        "fips",
+        "ftpt",
+        "level_of_study",
+        "sex",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": [],
+      "fields_seen": true,
+      "no_rows_because": null
+    },
+    {
+      "endpoint": "fall-enrollment (residence)",
+      "levels": [
+        {
+          "level": null,
+          "path": "college-university/ipeds/fall-enrollment/2022/residence/",
+          "rows": 142718
+        }
+      ],
+      "paths_tried": [
+        "college-university/ipeds/fall-enrollment/2022/residence/"
+      ],
+      "fields_from": "college-university/ipeds/fall-enrollment/2022/residence/",
+      "rows_at_fields_from": 142718,
+      "fields": [
+        "enrollment_fall",
+        "fips",
+        "state_of_residence",
+        "type_of_freshman",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": [],
+      "fields_seen": true,
+      "no_rows_because": null
+    },
+    {
+      "endpoint": "enrollment-headcount",
+      "levels": [
+        {
+          "level": 99,
+          "path": "college-university/ipeds/enrollment-headcount/2022/99/",
+          "rows": 0
+        },
+        {
+          "level": 1,
+          "path": "college-university/ipeds/enrollment-headcount/2022/1/",
+          "rows": 0
+        },
+        {
+          "level": 2,
+          "path": "college-university/ipeds/enrollment-headcount/2022/2/",
+          "rows": 0
+        },
+        {
+          "level": 3,
+          "path": "college-university/ipeds/enrollment-headcount/2022/3/",
+          "rows": 0
+        }
+      ],
+      "paths_tried": [
+        "college-university/ipeds/enrollment-headcount/2022/99/",
+        "college-university/ipeds/enrollment-headcount/2022/1/",
+        "college-university/ipeds/enrollment-headcount/2022/2/",
+        "college-university/ipeds/enrollment-headcount/2022/3/"
+      ],
+      "fields_from": null,
+      "rows_at_fields_from": 0,
+      "fields": [],
+      "cip_fields": [],
+      "fields_seen": false,
+      "no_rows_because": "empty"
+    },
+    {
+      "endpoint": "enrollment-full-time-equivalent",
+      "levels": [
+        {
+          "level": 99,
+          "path": "college-university/ipeds/enrollment-full-time-equivalent/2022/99/",
+          "rows": 0
+        },
+        {
+          "level": 1,
+          "path": "college-university/ipeds/enrollment-full-time-equivalent/2022/1/",
+          "rows": 5959
+        },
+        {
+          "level": 2,
+          "path": "college-university/ipeds/enrollment-full-time-equivalent/2022/2/",
+          "rows": 5959
+        },
+        {
+          "level": 3,
+          "path": "college-university/ipeds/enrollment-full-time-equivalent/2022/3/",
+          "rows": 5959
+        }
+      ],
+      "paths_tried": [
+        "college-university/ipeds/enrollment-full-time-equivalent/2022/99/",
+        "college-university/ipeds/enrollment-full-time-equivalent/2022/1/",
+        "college-university/ipeds/enrollment-full-time-equivalent/2022/2/",
+        "college-university/ipeds/enrollment-full-time-equivalent/2022/3/"
+      ],
+      "fields_from": "college-university/ipeds/enrollment-full-time-equivalent/2022/1/",
+      "rows_at_fields_from": 5959,
+      "fields": [
+        "acttype",
+        "contact_hours",
+        "credit_hours",
+        "est_fte",
+        "fips",
+        "level_of_study",
+        "rep_fte",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": [],
+      "fields_seen": true,
+      "no_rows_because": null
+    },
+    {
+      "endpoint": "admissions-enrollment",
+      "levels": [
+        {
+          "level": null,
+          "path": "college-university/ipeds/admissions-enrollment/2022/",
+          "rows": 8686
+        }
+      ],
+      "paths_tried": [
+        "college-university/ipeds/admissions-enrollment/2022/"
+      ],
+      "fields_from": "college-university/ipeds/admissions-enrollment/2022/",
+      "rows_at_fields_from": 8686,
+      "fields": [
+        "fips",
+        "number_admitted",
+        "number_applied",
+        "number_enrolled_ft",
+        "number_enrolled_pt",
+        "number_enrolled_total",
+        "sex",
+        "unitid",
+        "year"
+      ],
+      "cip_fields": [],
+      "fields_seen": true,
+      "no_rows_because": null
+    }
+  ],
+  "completions": {
+    "endpoint": "completions-cip-6",
+    "levels": [
+      {
+        "level": null,
+        "path": "college-university/ipeds/completions-cip-6/2022/",
+        "rows": 9026310
+      }
+    ],
+    "paths_tried": [
+      "college-university/ipeds/completions-cip-6/2022/"
+    ],
+    "fields_from": "college-university/ipeds/completions-cip-6/2022/",
+    "rows_at_fields_from": 9026310,
+    "fields": [
+      "award_level",
+      "awards_6digit",
+      "cipcode_6digit",
+      "fips",
+      "majornum",
+      "race",
+      "sex",
+      "unitid",
+      "year"
+    ],
+    "cip_fields": [
+      "cipcode_6digit"
+    ],
+    "fields_seen": true,
+    "no_rows_because": null
+  },
+  "cip_bearing_endpoints": [
+    "/api/v1/college-university/ipeds/completions-cip-2/{year}/",
+    "/api/v1/college-university/ipeds/completions-cip-6/{year}/",
+    "/api/v1/college-university/ipeds/program-year-tuition-cip/{year}/",
+    "/api/v1/schools/crdc/discipline-instances/{year}/",
+    "/api/v1/schools/crdc/discipline/{year}/disability/lep/sex/",
+    "/api/v1/schools/crdc/discipline/{year}/disability/race/sex/",
+    "/api/v1/schools/crdc/discipline/{year}/disability/sex/",
+    "/api/v1/schools/crdc/sat-act-participation/{year}/disability/sex/",
+    "/api/v1/schools/crdc/sat-act-participation/{year}/lep/sex/",
+    "/api/v1/schools/crdc/sat-act-participation/{year}/race/sex/"
+  ],
+  "endpoints_observed": [
+    "fall-enrollment (race/sex)",
+    "fall-enrollment (age/sex)",
+    "fall-enrollment (residence)",
+    "enrollment-full-time-equivalent",
+    "admissions-enrollment"
+  ],
+  "endpoints_without_rows": [
+    "enrollment-headcount"
+  ],
+  "requests": 20,
+  "enrolment_is_by_programme": false,
+  "finding": "no IPEDS enrolment endpoint carries a CIP field, so enrolment cannot be compared with completions at programme grain",
+  "code": {
+    "commit": "b758d2e001c50aa95720f439fcb913af2990330d",
+    "dirty": false,
+    "package": "0.1.0",
+    "_": "The commit the tree was at when this probe ran — not the commit that contains this file, which cannot be known before it is written. `dirty: true` means uncommitted changes were present."
+  }
+}
