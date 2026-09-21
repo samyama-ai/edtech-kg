@@ -43,6 +43,22 @@ you can walk — plus nine measured public sources for the college and career si
 > This repo holds the loader and source-data specifics for the KG.
 
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
+<a href="https://huggingface.co/datasets/VaidhyaMegha/edtech-kg"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20dataset-VaidhyaMegha%2Fedtech--kg-yellow" alt="HuggingFace dataset"></a>
+
+**The loaded district is published as a dataset** — you do not have to run the loader:
+**[huggingface.co/datasets/VaidhyaMegha/edtech-kg](https://huggingface.co/datasets/VaidhyaMegha/edtech-kg)**
+(`v1.0`). All 1,098 nodes and 1,287 edges as node/edge CSVs, plus `edtech.sgsnap`.
+
+```python
+from datasets import load_dataset
+courses = load_dataset("VaidhyaMegha/edtech-kg", "course", revision="v1.0")
+```
+
+> **The published dataset is the district catalogue only.** `v1.0` was cut at 1,287 edges,
+> before the graph reached the 1,417 below, and the Virginia higher-education load and the
+> national spine are not in it. The dataset card records the source's licence
+> position, which is weaker than the federal sources: Prince William County Schools publishes
+> the catalogue for public information but attaches no open licence to it.
 
 > **One district is loaded and measured — 1,098 nodes, 1,417 edges, in 8.2 seconds.**
 > **One state's higher education is loaded too** — Virginia (`fips=51`),
